@@ -126,11 +126,17 @@ def find_source_variable_column(columns):
     """
     找來源 CRF variable 欄位
     優先找：
-      - Variable
-      - Variable Name
-    但避免抓到 SDTM IG Target 這種欄位
+      - Field OID
+      - FieldOID
+      - Field OID Name
+    再 fallback 到 Variable 類欄位
     """
     priority_exact = [
+        "FIELD OID",
+        "FIELDOID",
+        "FIELD OID NAME",
+        "CRF FIELD OID",
+        "SOURCE FIELD OID",
         "VARIABLE",
         "VARIABLE NAME",
         "CRF VARIABLE",
@@ -145,7 +151,12 @@ def find_source_variable_column(columns):
             if norm_col == target:
                 return col
 
-    # 再 fuzzy：含 VARIABLE 但不含 TARGET / SDTM
+    # 再 fuzzy: 含 FIELD 與 OID
+    for col, norm_col in normalized_map.items():
+        if "FIELD" in norm_col and "OID" in norm_col:
+            return col
+
+    # 再 fuzzy: 含 VARIABLE 但排除 TARGET / SDTM
     for col, norm_col in normalized_map.items():
         if "VARIABLE" in norm_col and "TARGET" not in norm_col and "SDTM" not in norm_col:
             return col
@@ -189,25 +200,44 @@ def extract_form_oids(series):
 def parse_sdtm_targets(value):
     """
     解析 SDTM IG Target
+
     規則：
       - 只用分號 ; 和換行當作多 target 分隔
       - 不用逗號 , 和斜線 / 分隔
-      - 每個 token 嘗試抓單一 DOMAIN.VARIABLE
+      - 支援：
+          AE.AETERM
+          VS.VSTESTCD="TEMP"
+          DM.SEX='F'
+
+    回傳：
+      parsed_records: list of dict
+        {
+          "SDTM Domain": ...,
+          "SDTM Variable": ...,
+          "Assign Value": ...
+        }
+      unparsed_tokens: list
     """
-    parsed_pairs = []
+    parsed_records = []
     unparsed_tokens = []
 
     if pd.isna(value):
-        return parsed_pairs, unparsed_tokens
+        return parsed_records, unparsed_tokens
 
     text = str(value).strip()
     if not text:
-        return parsed_pairs, unparsed_tokens
+        return parsed_records, unparsed_tokens
 
     # 只用分號與換行切
     tokens = re.split(r"[;\n]+", text)
 
-    pattern = re.compile(r"^\s*([A-Za-z][A-Za-z0-9]{0,7})\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*$")
+    # 支援：
+    #   VS.VSTESTCD
+    #   VS.VSTESTCD="TEMP"
+    #   VS.VSTESTCD='TEMP'
+    pattern = re.compile(
+        r'^\s*([A-Za-z][A-Za-z0-9]{0,7})\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*["\']?(.*?)["\']?)?\s*$'
+    )
 
     for token in tokens:
         token = token.strip()
@@ -216,12 +246,22 @@ def parse_sdtm_targets(value):
 
         match = pattern.match(token)
         if match:
-            dom, var = match.groups()
-            parsed_pairs.append((dom.upper(), var.upper()))
+            dom, var, assign_val = match.groups()
+
+            if assign_val is None:
+                assign_val = ""
+            else:
+                assign_val = str(assign_val).strip()
+
+            parsed_records.append({
+                "SDTM Domain": dom.upper(),
+                "SDTM Variable": var.upper(),
+                "Assign Value": assign_val
+            })
         else:
             unparsed_tokens.append(token)
 
-    return parsed_pairs, unparsed_tokens
+    return parsed_records, unparsed_tokens
 
 
 def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=None):
@@ -268,19 +308,20 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=Non
             raw_target = row[target_col]
             source_var = row[source_var_col] if source_var_col is not None else ""
 
-            parsed_pairs, unparsed_tokens = parse_sdtm_targets(raw_target)
+            parsed_records, unparsed_tokens = parse_sdtm_targets(raw_target)
 
-            for dom, var in parsed_pairs:
+            for rec in parsed_records:
                 mapping_records.append({
-                    "SDTM Domain": dom,
-                    "SDTM Variable": var
+                    "SDTM Domain": rec["SDTM Domain"],
+                    "SDTM Variable": rec["SDTM Variable"]
                 })
 
                 detail_records.append({
                     "Source CRF Sheet": sheet,
                     "Source CRF Variable": source_var,
-                    "SDTM Domain": dom,
-                    "SDTM Variable": var,
+                    "SDTM Domain": rec["SDTM Domain"],
+                    "SDTM Variable": rec["SDTM Variable"],
+                    "Assign Value": rec["Assign Value"],
                     "SDTM IG Target Raw": raw_target
                 })
 
@@ -308,7 +349,13 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=Non
         detail_df = (
             pd.DataFrame(detail_records)
             .drop_duplicates()
-            .sort_values(by=["SDTM Domain", "SDTM Variable", "Source CRF Sheet", "Source CRF Variable"])
+            .sort_values(by=[
+                "SDTM Domain",
+                "SDTM Variable",
+                "Source CRF Sheet",
+                "Source CRF Variable",
+                "Assign Value"
+            ])
             .reset_index(drop=True)
         )
     else:
@@ -317,6 +364,7 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=Non
             "Source CRF Variable",
             "SDTM Domain",
             "SDTM Variable",
+            "Assign Value",
             "SDTM IG Target Raw"
         ])
 
@@ -461,7 +509,8 @@ if uploaded_file is not None:
                 # ---------------------------------------------
                 if sheet_errors:
                     st.subheader("無法處理的 Sheets")
-                    st.warning(sheet_errors)
+                    for err in sheet_errors:
+                        st.markdown(f"- {err}")
 
                 if unparsed_records:
                     st.subheader("無法解析的 SDTM IG Target 值")
