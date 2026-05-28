@@ -7,239 +7,254 @@ import pyreadstat
 st.set_page_config(page_title="Auto SDTM SPEC", layout="wide")
 st.title("Auto SDTM SPEC")
 
-
 # =========================================================
-# 基本工具
+# 工具函式（Step 1）
 # =========================================================
 def normalize_text(x):
     if pd.isna(x):
         return ""
-    x = str(x)
-    x = re.sub(r"\s+", " ", x)
-    return x.strip().upper()
-
+    return re.sub(r"\s+", " ", str(x)).strip().upper()
 
 def normalize_columns(df):
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-
 def find_column(columns, keywords):
     for col in columns:
-        if all(k in col.upper() for k in keywords):
+        upper = col.upper()
+        if all(k in upper for k in keywords):
             return col
     return None
 
+# =========================================================
+# Header detect
+# =========================================================
+def detect_header(df, keywords, scan=20):
+    for i in range(min(scan, len(df))):
+        row = df.iloc[i].astype(str).str.upper()
+        for cell in row:
+            if all(k in cell for k in keywords):
+                return i
+    return None
 
 # =========================================================
-# SAS CONFIG LOADER
+# parse SDTM target
 # =========================================================
-def load_sas_config(variable_file, dataset_file):
+def parse_targets(val):
+    if pd.isna(val):
+        return []
+    tokens = re.split(r"[;\n]+", str(val))
+    results = []
+
+    for t in tokens:
+        t = t.strip()
+        if "." in t:
+            dom, rest = t.split(".", 1)
+            var = rest.split("=")[0].strip().upper()
+            val = ""
+            if "=" in t:
+                val = t.split("=")[1].strip("\"' ")
+            results.append((dom.strip().upper(), var, val))
+    return results
+
+# =========================================================
+# Step 1：Mapping
+# =========================================================
+def process_excel(file_bytes, manual_soa=None, manual_domain=None):
+    xls = pd.ExcelFile(BytesIO(file_bytes))
+    sheets = xls.sheet_names
+
+    # --- SoA ---
+    raw_soa = pd.read_excel(BytesIO(file_bytes), "SoA", header=None)
+
+    if manual_soa:
+        header_row = manual_soa - 1
+    else:
+        header_row = detect_header(raw_soa, ["FORM", "OID"])
+
+    soa = pd.read_excel(BytesIO(file_bytes), "SoA", header=header_row)
+    soa = normalize_columns(soa)
+
+    col = find_column(soa.columns, ["FORM", "OID"])
+    domains = set(soa[col].dropna().astype(str).str.upper())
+
+    # --- mapping ---
+    records = []
+    detail = []
+
+    for s in sheets:
+        if s.upper() not in domains:
+            continue
+
+        raw = pd.read_excel(BytesIO(file_bytes), s, header=None)
+
+        if manual_domain:
+            h = manual_domain - 1
+        else:
+            h = detect_header(raw, ["SDTM", "TARGET"])
+
+        if h is None:
+            continue
+
+        df = pd.read_excel(BytesIO(file_bytes), s, header=h)
+        df = normalize_columns(df)
+
+        tgt_col = find_column(df.columns, ["SDTM", "TARGET"])
+        src_col = df.columns[0]
+
+        for _, r in df.iterrows():
+            targets = parse_targets(r[tgt_col])
+
+            for dom, var, assign in targets:
+                records.append({"Dataset": dom, "Variable": var})
+
+                detail.append({
+                    "Dataset": dom,
+                    "Variable": var,
+                    "Source": s,
+                    "CRF": r[src_col],
+                    "Assign": assign
+                })
+
+    mapping_df = pd.DataFrame(records).drop_duplicates()
+    detail_df = pd.DataFrame(detail)
+
+    return mapping_df, detail_df
+
+# =========================================================
+# Step 2：SAS CONFIG
+# =========================================================
+def load_sas(var_file, ds_file):
     var_df = pd.DataFrame()
     ds_df = pd.DataFrame()
 
-    if variable_file:
-        var_df, _ = pyreadstat.read_sas7bdat(variable_file)
-        var_df = normalize_columns(var_df)
+    if var_file:
+        var_df, _ = pyreadstat.read_sas7bdat(var_file)
+        var_df.columns = [c.strip() for c in var_df.columns]
 
-    if dataset_file:
-        ds_df, _ = pyreadstat.read_sas7bdat(dataset_file)
-        ds_df = normalize_columns(ds_df)
+    if ds_file:
+        ds_df, _ = pyreadstat.read_sas7bdat(ds_file)
+        ds_df.columns = [c.strip() for c in ds_df.columns]
 
-    # normalize key columns
-    for df in [var_df, ds_df]:
-        if not df.empty:
-            if "Dataset" in df.columns:
-                df["Dataset"] = df["Dataset"].astype(str).str.upper()
-            if "Variable" in df.columns:
-                df["Variable"] = df["Variable"].astype(str).str.upper()
+    if "Dataset" in var_df:
+        var_df["Dataset"] = var_df["Dataset"].str.upper()
+        var_df["Variable"] = var_df["Variable"].str.upper()
+
+    if "Dataset" in ds_df:
+        ds_df["Dataset"] = ds_df["Dataset"].str.upper()
 
     return var_df, ds_df
 
-
 # =========================================================
-# Mapping logic（保留簡化版）
+# build spec
 # =========================================================
-def parse_sdtm_targets(value):
-    results = []
-    if pd.isna(value):
-        return results
+def build_var_spec(mapping, config):
+    mapping_pairs = set(zip(mapping["Dataset"], mapping["Variable"]))
 
-    tokens = re.split(r"[;\n]+", str(value))
+    crf = mapping.copy()
 
-    for token in tokens:
-        token = token.strip()
-        if "." in token:
-            parts = token.split(".")
-            if len(parts) >= 2:
-                dom = parts[0].strip().upper()
-                var = parts[1].split("=")[0].strip().upper()
+    if not config.empty:
+        crf = crf.merge(config, on=["Dataset", "Variable"], how="left")
 
-                assign = ""
-                if "=" in token:
-                    assign = token.split("=")[1].strip("\"' ")
-
-                results.append((dom, var, assign))
-
-    return results
-
-
-def build_mapping(df, sheet_name):
-    col = find_column(df.columns, ["SDTM", "TARGET"])
-
-    records = []
-
-    for _, row in df.iterrows():
-        targets = parse_sdtm_targets(row[col])
-
-        for dom, var, assign in targets:
-            records.append({
-                "Dataset": dom,
-                "Variable": var,
-                "Assign": assign,
-                "Source": sheet_name
-            })
-
-    return pd.DataFrame(records)
-
-
-# =========================================================
-# SPEC BUILDER (用 config)
-# =========================================================
-def build_variables_spec(mapping_df, config_var_df):
-
-    mapping_pairs = set(zip(mapping_df["Dataset"], mapping_df["Variable"]))
-
-    # CRF variables
-    crf_df = mapping_df.copy()
-    crf_df["Origin"] = crf_df["Assign"].apply(
-        lambda x: "Assigned" if str(x).strip() else "CRF"
-    )
-
-    crf_df["Label"] = ""
-    crf_df["Type"] = ""
-
-    if not config_var_df.empty:
-        merged = crf_df.merge(
-            config_var_df,
-            on=["Dataset", "Variable"],
-            how="left",
-            suffixes=("", "_CFG")
-        )
-
-        for col in ["Label", "Type", "Origin"]:
-            cfg_col = f"{col}_CFG"
-            if cfg_col in merged.columns:
-                merged[col] = merged[col].replace("", merged[cfg_col])
-
-        crf_df = merged
-
-    # non-CRF variables
-    if not config_var_df.empty:
-        config_pairs = set(zip(config_var_df["Dataset"], config_var_df["Variable"]))
-        non_crf_pairs = config_pairs - mapping_pairs
-
-        non_crf_df = config_var_df.copy()
-        non_crf_df["pair"] = list(zip(non_crf_df["Dataset"], non_crf_df["Variable"]))
-        non_crf_df = non_crf_df[non_crf_df["pair"].isin(non_crf_pairs)]
-
-        non_crf_df = non_crf_df.drop(columns="pair")
+    # non-CRF
+    if not config.empty:
+        cfg_pairs = set(zip(config["Dataset"], config["Variable"]))
+        non_pairs = cfg_pairs - mapping_pairs
+        config["pair"] = list(zip(config["Dataset"], config["Variable"]))
+        non_crf = config[config["pair"].isin(non_pairs)].drop(columns="pair")
     else:
-        non_crf_df = pd.DataFrame()
+        non_crf = pd.DataFrame()
 
-    final_df = pd.concat([crf_df, non_crf_df], ignore_index=True)
+    final = pd.concat([crf, non_crf]).drop_duplicates()
 
-    final_df = final_df.drop_duplicates()
-    final_df = final_df.sort_values(by=["Dataset", "Variable"])
+    return final.sort_values(["Dataset", "Variable"])
 
-    return final_df
+def build_ds_spec(var_spec, config):
+    ds = pd.DataFrame({"Dataset": sorted(var_spec["Dataset"].unique())})
 
+    if not config.empty:
+        ds = ds.merge(config, on="Dataset", how="left")
 
-def build_dataset_spec(var_spec_df, config_ds_df):
-    datasets = sorted(var_spec_df["Dataset"].unique())
-
-    df = pd.DataFrame({
-        "Dataset": datasets
-    })
-
-    if not config_ds_df.empty:
-        df = df.merge(config_ds_df, on="Dataset", how="left")
-
-    return df
-
+    return ds
 
 # =========================================================
 # UI
 # =========================================================
-uploaded_file = st.file_uploader("上傳 CRF Mapping Excel", type=["xlsx"])
+uploaded = st.file_uploader("Upload CRF Excel", type=["xlsx"])
 
-if uploaded_file:
+if uploaded:
+    file_bytes = uploaded.read()
 
-    xls = pd.ExcelFile(uploaded_file)
-    sheets = xls.sheet_names
+    # RESET session
+    if "file" not in st.session_state or st.session_state["file"] != uploaded.name:
+        st.session_state["file"] = uploaded.name
+        st.session_state["run"] = False
 
-    # STEP 1
+    # =========================
+    # Header override
+    # =========================
+    st.markdown("### Header Override")
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        use_soa = st.checkbox("SoA header override")
+        soa_header = st.number_input("Row", 1, 50, 2) if use_soa else None
+
+    with c2:
+        use_dom = st.checkbox("Domain header override")
+        dom_header = st.number_input("Row ", 1, 50, 2) if use_dom else None
+
+    # =========================
+    # Step 1
+    # =========================
     st.markdown("## Step 1｜CRF → SDTM Mapping")
 
-    all_records = []
+    mapping_df, detail_df = process_excel(file_bytes, soa_header, dom_header)
 
-    for sheet in sheets:
-        df = pd.read_excel(uploaded_file, sheet_name=sheet)
-        df = normalize_columns(df)
-
-        col = find_column(df.columns, ["SDTM", "TARGET"])
-        if col:
-            tmp = build_mapping(df, sheet)
-            all_records.append(tmp)
-
-    if all_records:
-        mapping_df = pd.concat(all_records)
-    else:
-        mapping_df = pd.DataFrame(columns=["Dataset", "Variable", "Assign", "Source"])
-
+    st.write("Mapping Summary")
     st.dataframe(mapping_df)
 
-    # STEP 2 BUTTON
-    if st.button("▶ 執行 Step 2：SPEC Generator"):
+    st.write("Mapping Detail")
+    st.dataframe(detail_df)
+
+    st.session_state["mapping"] = mapping_df
+
+    # =========================
+    # Step 2 trigger
+    # =========================
+    if st.button("▶ 執行 Step 2"):
         st.session_state["run"] = True
 
-    if st.session_state.get("run"):
+    # =========================
+    # Step 2
+    # =========================
+    if st.session_state["run"]:
 
         st.markdown("## Step 2｜SPEC Generator")
 
-        # CONFIG UPLOAD
-        st.markdown("### 上傳 SAS config")
+        st.markdown("### Upload SAS config")
 
-        var_file = st.file_uploader("Variables config (.sas7bdat)", type=["sas7bdat"])
-        ds_file = st.file_uploader("Datasets config (.sas7bdat)", type=["sas7bdat"])
-
-        config_var_df = pd.DataFrame()
-        config_ds_df = pd.DataFrame()
+        var_file = st.file_uploader("Variables (.sas7bdat)", type=["sas7bdat"])
+        ds_file = st.file_uploader("Datasets (.sas7bdat)", type=["sas7bdat"])
 
         if var_file or ds_file:
-            config_var_df, config_ds_df = load_sas_config(var_file, ds_file)
+            var_cfg, ds_cfg = load_sas(var_file, ds_file)
+        else:
+            var_cfg, ds_cfg = pd.DataFrame(), pd.DataFrame()
 
-        # VARIABLES
+        var_spec = build_var_spec(mapping_df, var_cfg)
         st.markdown("### Variables SPEC")
-
-        var_spec = build_variables_spec(mapping_df, config_var_df)
         st.dataframe(var_spec)
 
-        # DATASETS
+        ds_spec = build_ds_spec(var_spec, ds_cfg)
         st.markdown("### Datasets SPEC")
-
-        ds_spec = build_dataset_spec(var_spec, config_ds_df)
         st.dataframe(ds_spec)
 
-        # DOWNLOAD
-        output = BytesIO()
-
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        # download
+        out = BytesIO()
+        with pd.ExcelWriter(out) as writer:
             var_spec.to_excel(writer, sheet_name="Variables", index=False)
             ds_spec.to_excel(writer, sheet_name="Datasets", index=False)
 
-        st.download_button(
-            "下載 SPEC Excel",
-            output.getvalue(),
-            "SDTM_SPEC.xlsx"
-        )
+        st.download_button("Download SPEC", out.getvalue(), "SPEC.xlsx")
