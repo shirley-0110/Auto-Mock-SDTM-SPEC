@@ -510,7 +510,7 @@ if uploaded_file is not None:
                 if sheet_errors:
                 # 把 sheet 名稱整理乾淨（去掉括號後面的說明）
                 clean_sheets = []
-
+                
                 for err in sheet_errors:
                     # 只抓 sheet name（例如 "VS3（header 偵測失敗...）" → "VS3"）
                     sheet_name = re.split(r"（|\(", err)[0].strip()
