@@ -3,9 +3,9 @@ import streamlit as st
 import pandas as pd
 import re
 
-st.title("CRF Excel Viewer (SoA Control)")
+st.title("CRF Excel Viewer")
 
-uploaded_file = st.file_uploader("請上傳 Excel 檔案", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("請上傳 CRF Schema 檔案", type=["xlsx", "xls"])
 
 
 # ✅ function：從 Form OID 抽 domain
@@ -31,8 +31,6 @@ if uploaded_file is not None:
         # ✅ 讀全部 sheet 名稱
         xls = pd.ExcelFile(uploaded_file)
         all_sheets = xls.sheet_names
-
-        st.write("Excel所有Sheets:", all_sheets)
 
         # ✅ 檢查 SoA
         if "SoA" not in all_sheets:
@@ -95,7 +93,7 @@ if uploaded_file is not None:
                         sorted(available_sheets)
                     )
 
-                    df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+                    df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, header=4)
 
                     st.subheader(f"Sheet: {selected_sheet}")
 
