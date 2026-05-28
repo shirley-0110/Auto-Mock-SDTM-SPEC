@@ -722,6 +722,7 @@ if uploaded_file is not None:
             on_click=trigger_step2
         )
 
+
         # -------------------------------------------------
         # Step 2：SPEC Generator
         # -------------------------------------------------
@@ -731,47 +732,145 @@ if uploaded_file is not None:
             if mapping_df.empty:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
-                # -------------------------------
-                # 2.1 選擇 SDTM Version
-                # -------------------------------
-                st.markdown("### 2.1 選擇 SDTM Version")
+            st.success("✅ 已成功進入 Step 2")
 
-                version = st.selectbox(
-                    "請選擇 SDTM Version",
-                    ["Version 3.3", "Version 3.4"]
-                )
+            # -------------------------------
+            # 2.1 選擇 SDTM Version
+            # -------------------------------
+            st.markdown("### 2.1 選擇 SDTM Version")
 
-                # -------------------------------
-                # 2.2 組 config 路徑
-                # -------------------------------
-                BASE_PATH = r"Y:\BS Files\CDISC\04. SDTM"
+            version = st.selectbox(
+                "請選擇 SDTM Version",
+                ["Version 3.3", "Version 3.4"],
+                key="sdtm_version_selector"
+            )
 
-                config_base_path = f"{BASE_PATH}\\{version}"
+            BASE_PATH = r"Y:\BS Files\CDISC\04. SDTM"
+            config_base_path = f"{BASE_PATH}\\{version}"
 
-                st.write("使用的 config 路徑：")
-                st.code(config_base_path)
+            st.write("📂 Config base path：")
+            st.code(config_base_path)
 
+            # -------------------------------
+            # 2.2 Debug：確認路徑是否存在
+            # -------------------------------
+            import os
 
-                # -------------------------------
-                # 2.3 嘗試讀取 SAS config
-                # -------------------------------
-                st.markdown("### 2.2 載入 SAS Config")
+            if not os.path.exists(BASE_PATH):
+                st.error("❌ Server 無法存取 Y:\\，請確認環境是否有 mapping")
+                st.stop()
 
-                config_loaded = False
-                var_cfg_df = pd.DataFrame()
-                ds_cfg_df = pd.DataFrame()
+            if not os.path.exists(config_base_path):
+                st.error("❌ 找不到 Version 資料夾，請確認 Version 資料夾名稱")
+                st.stop()
 
-                try:
-                    import pyreadstat
+            st.success("✅ Config 路徑存在")
 
-                    # 👉 這裡你可以改成你實際檔名
-                    ds_file_path  = f"{config_base_path}\\Datasets\domains.sas7bdat"
-                    ds_cfg_df, _ = pyreadstat.read_sas7bdat(ds_file_path)
+            # -------------------------------
+            # 2.3 列出資料夾內容（關鍵 debug）
+            # -------------------------------
+            st.markdown("### 2.2 Config 資料夾內容")
 
-                    config_loaded = True
+            try:
+                files = os.listdir(config_base_path)
+                st.write("📄 根目錄內容：")
+                st.write(files)
+            except Exception as e:
+                st.error(f"❌ 無法讀取資料夾：{e}")
+                st.stop()
 
-                except Exception as e:
-                    st.warning(f"⚠ 讀取 config 失敗：{e}")
+            # -------------------------------
+            # 找子資料夾（Datasets / Variables）
+            # -------------------------------
+            datasets_path = os.path.join(config_base_path, "Datasets")
+            variables_path = os.path.join(config_base_path, "Variables")
+    
+            ds_files = []
+            var_files = []
+    
+            if os.path.exists(datasets_path):
+                ds_files = [f for f in os.listdir(datasets_path) if f.lower().endswith(".sas7bdat")]
+
+            if os.path.exists(variables_path):
+                var_files = [f for f in os.listdir(variables_path) if f.lower().endswith(".sas7bdat")]
+
+            st.write("📂 Datasets folder：", datasets_path)
+            st.write("📄 Datasets files：", ds_files)
+
+            st.write("📂 Variables folder：", variables_path)
+            st.write("📄 Variables files：", var_files)
+
+            # -------------------------------
+            # 2.4 使用者選擇 config 檔（避免 hardcode 出錯）
+            # -------------------------------
+            st.markdown("### 2.3 選擇 Config 檔")
+
+            selected_ds = None
+            selected_var = None
+
+            if ds_files:
+                selected_ds = st.selectbox("選擇 Datasets config", ds_files, key="ds_select")
+            else:
+                st.warning("⚠ Datasets 資料夾沒有找到 sas7bdat 檔案")
+
+            if var_files:
+                selected_var = st.selectbox("選擇 Variables config", var_files, key="var_select")
+            else:
+                st.warning("⚠ Variables 資料夾沒有找到 sas7bdat 檔案")
+
+            # -------------------------------
+            # 2.5 讀取 SAS config
+            # -------------------------------
+            st.markdown("### 2.4 載入 SAS Config")
+
+            config_loaded = False
+            var_cfg_df = pd.DataFrame()
+            ds_cfg_df = pd.DataFrame()
+
+            try:
+                import pyreadstat
+
+                if selected_ds:
+                    ds_path_full = os.path.join(datasets_path, selected_ds)
+                    ds_cfg_df, _ = pyreadstat.read_sas7bdat(ds_path_full)
+
+                if selected_var:
+                    var_path_full = os.path.join(variables_path, selected_var)
+                    var_cfg_df, _ = pyreadstat.read_sas7bdat(var_path_full)
+
+                config_loaded = True
+
+            except Exception as e:
+                st.error(f"❌ 讀取 config 失敗：{e}")
+
+            # -------------------------------
+            # 2.6 顯示結果
+            # -------------------------------
+            if config_loaded:
+                st.success("✅ Config 載入成功")
+
+            if not var_cfg_df.empty:
+                st.markdown("#### Variables config preview")
+                st.dataframe(var_cfg_df.head(), use_container_width=True)
+
+            if not ds_cfg_df.empty:
+                st.markdown("#### Datasets config preview")
+                st.dataframe(ds_cfg_df.head(), use_container_width=True)
+
+                st.info("👉 下一步我們จะ用 config 自動產生 non‑CRF variables")
+
+            else:
+                st.warning("⚠ 尚未成功載入 config")
+
+            # -------------------------------
+            # 2.7 Mapping Preview（保留）
+            # -------------------------------
+            st.markdown("### 2.5 Mapping Preview")
+
+            summary_df = summarize_sdtm_mapping(mapping_df)
+            st.dataframe(summary_df, use_container_width=True)
+
+            st.write(f"目前 mapping 總變數數量：{len(mapping_df)}")
 
 
     except Exception as e:
