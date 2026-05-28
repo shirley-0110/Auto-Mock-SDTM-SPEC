@@ -238,7 +238,7 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=Non
 
         source_var_col = find_source_variable_column(df.columns)
 
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             raw_target = row[target_col]
             source_var = row[source_var_col] if source_var_col is not None else ""
 
@@ -265,8 +265,7 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=Non
                         "Source CRF Sheet": sheet,
                         "Source CRF Variable": source_var,
                         "SDTM IG Target Raw": raw_target,
-                        "Unparsed Token": token,
-                        "Excel Data Row": idx + 1 + detected_header_row
+                        "Unparsed Token": token
                     })
 
     if mapping_records:
@@ -283,13 +282,15 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=Non
         detail_df = (
             pd.DataFrame(detail_records)
             .drop_duplicates()
-            .sort_values(by=[
-                "SDTM Domain",
-                "SDTM Variable",
-                "Source CRF Sheet",
-                "Source CRF Variable",
-                "Assign Value"
-            ])
+            .sort_values(
+                by=[
+                    "SDTM Domain",
+                    "SDTM Variable",
+                    "Source CRF Sheet",
+                    "Source CRF Variable",
+                    "Assign Value"
+                ]
+            )
             .reset_index(drop=True)
         )
     else:
@@ -325,9 +326,6 @@ def summarize_sdtm_mapping(mapping_df):
 # SPEC mode
 # =========================================================
 def get_default_non_crf_rows(datasets):
-    """
-    預設建議值，可在 UI 直接修改
-    """
     rows = []
 
     for ds in sorted(set(datasets)):
@@ -342,7 +340,7 @@ def get_default_non_crf_rows(datasets):
                 ("STUDYID", "Study Identifier", "text", "", "Assigned", "", "", "", ""),
                 ("DOMAIN", "Domain Abbreviation", "text", "", "Assigned", "", "", "", ""),
                 ("USUBJID", "Unique Subject Identifier", "text", "", "Derived", "", "", "", ""),
-                (f"{ds}SEQ", f"Sequence Number", "integer", "", "Derived", "", "", "", ""),
+                (f"{ds}SEQ", "Sequence Number", "integer", "", "Derived", "", "", "", ""),
             ]
 
         for var, label, dtype, codelist, origin, source, pages, method, comment in defaults:
@@ -363,9 +361,6 @@ def get_default_non_crf_rows(datasets):
 
 
 def build_variables_spec(detail_df, non_crf_df=None):
-    """
-    將 mapping detail 轉成 Variables SPEC 初版
-    """
     if detail_df.empty:
         crf_df = pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type", "Codelist",
@@ -522,74 +517,86 @@ def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, manua
 
 
 # =========================================================
-# UI
+# 主流程 UI
 # =========================================================
-mode = st.sidebar.selectbox(
-    "功能選擇",
-    ["CRF → SDTM Mapping", "SDTM SPEC Generator"]
-)
-
 uploaded_file = st.file_uploader("請上傳 Excel 檔案", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
+    current_upload_key = f"{uploaded_file.name}_{uploaded_file.size}"
+    if st.session_state.get("current_upload_key") != current_upload_key:
+        st.session_state["current_upload_key"] = current_upload_key
+        st.session_state["run_step2"] = False
+
     try:
         file_bytes = uploaded_file.read()
         xls = pd.ExcelFile(BytesIO(file_bytes))
         all_sheets = xls.sheet_names
 
-        # Sidebar：header override
-        st.sidebar.header("Header Override（選填）")
+        # -------------------------------------------------
+        # Header Override：移到上傳檔案下面
+        # -------------------------------------------------
+        st.subheader("Header Override（選填）")
 
-        use_manual_soa_header = st.sidebar.checkbox("手動指定 SoA header row")
-        manual_soa_header = None
+        col1, col2 = st.columns(2)
 
-        if use_manual_soa_header:
-            manual_soa_header = st.sidebar.number_input(
-                "SoA header 在 Excel 第幾列？",
-                min_value=1,
-                value=2,
-                step=1
-            )
-
-        manual_sheet_headers = {}
-
-        # 如果要先猜一次 available sheets 來讓 sidebar 選 override，這裡先做個輕量處理
-        try:
-            tmp_soa_df, _ = read_sheet_with_detected_header(
-                file_bytes=file_bytes,
-                sheet_name="SoA",
-                keyword_groups=[["FORM", "OID"]],
-                manual_header_row_excel=manual_soa_header
-            )
-            tmp_form_oid_col = find_column(tmp_soa_df.columns, ["FORM", "OID"])
-            if tmp_form_oid_col is not None:
-                tmp_valid_domains = extract_form_oids(tmp_soa_df[tmp_form_oid_col])
-                tmp_sheet_upper_map = {s.upper(): s for s in all_sheets}
-                tmp_available_sheets = [
-                    tmp_sheet_upper_map[d] for d in tmp_valid_domains if d in tmp_sheet_upper_map
-                ]
-            else:
-                tmp_available_sheets = []
-        except Exception:
-            tmp_available_sheets = []
-
-        if tmp_available_sheets:
-            st.sidebar.subheader("手動指定個別 Domain Sheet Header")
-            selected_override_sheets = st.sidebar.multiselect(
-                "選擇需要手動指定 header 的 sheet",
-                options=sorted(tmp_available_sheets)
-            )
-
-            for sh in selected_override_sheets:
-                manual_sheet_headers[sh] = st.sidebar.number_input(
-                    f"{sh} header 在 Excel 第幾列？",
+        with col1:
+            use_manual_soa_header = st.checkbox("手動指定 SoA header row")
+            manual_soa_header = None
+            if use_manual_soa_header:
+                manual_soa_header = st.number_input(
+                    "SoA header 在 Excel 第幾列？",
                     min_value=1,
                     value=2,
-                    step=1,
-                    key=f"header_override_{sh}"
+                    step=1
+                )
+            else:
+                manual_soa_header = None
+
+        with col2:
+            manual_sheet_headers = {}
+
+            try:
+                tmp_soa_df, _ = read_sheet_with_detected_header(
+                    file_bytes=file_bytes,
+                    sheet_name="SoA",
+                    keyword_groups=[["FORM", "OID"]],
+                    manual_header_row_excel=manual_soa_header
+                )
+                tmp_form_oid_col = find_column(tmp_soa_df.columns, ["FORM", "OID"])
+
+                if tmp_form_oid_col is not None:
+                    tmp_valid_domains = extract_form_oids(tmp_soa_df[tmp_form_oid_col])
+                    tmp_sheet_upper_map = {s.upper(): s for s in all_sheets}
+                    tmp_available_sheets = [
+                        tmp_sheet_upper_map[d] for d in tmp_valid_domains if d in tmp_sheet_upper_map
+                    ]
+                else:
+                    tmp_available_sheets = []
+            except Exception:
+                tmp_available_sheets = []
+
+            if tmp_available_sheets:
+                selected_override_sheets = st.multiselect(
+                    "手動指定個別 Domain Sheet Header",
+                    options=sorted(tmp_available_sheets)
                 )
 
-        # 執行共用 mapping 流程
+                for sh in selected_override_sheets:
+                    manual_sheet_headers[sh] = st.number_input(
+                        f"{sh} header 在 Excel 第幾列？",
+                        min_value=1,
+                        value=2,
+                        step=1,
+                        key=f"header_override_{sh}"
+                    )
+            else:
+                st.caption("尚未偵測到可設定的 Domain Sheet")
+
+        # -------------------------------------------------
+        # Step 1：CRF → SDTM Mapping
+        # -------------------------------------------------
+        st.subheader("Step 1｜CRF → SDTM Mapping")
+
         result = process_uploaded_excel(
             file_bytes=file_bytes,
             all_sheets=all_sheets,
@@ -607,114 +614,112 @@ if uploaded_file is not None:
         if missing_sheets:
             st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
 
-        if mode == "CRF → SDTM Mapping":
-            st.subheader("整份檔案要呈現的 SDTM Domains / Variables")
+        st.subheader("整份檔案要呈現的 SDTM Domains / Variables")
+        if mapping_df.empty:
+            st.warning("目前沒有從各 CRF sheet 的 SDTM IG Target 抓到可解析的 SDTM domain / variable")
+        else:
+            summary_df = summarize_sdtm_mapping(mapping_df)
+            st.dataframe(summary_df, use_container_width=True)
+
+        st.subheader("SDTM Mapping 明細")
+        if detail_df.empty:
+            st.info("目前沒有可顯示的明細")
+        else:
+            st.dataframe(detail_df, use_container_width=True)
+
+        if sheet_errors:
+            clean_sheets = sorted(set(sheet_errors))
+            st.subheader("無法處理的 Sheets")
+            st.warning(f"header 偵測失敗，無法自動判斷 header row: {clean_sheets}")
+
+        if unparsed_records:
+            st.subheader("無法解析的 SDTM IG Target 值")
+            st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
+
+        # -------------------------------------------------
+        # Step 2 開關：用執行 icon 決定是否進入第二步
+        # -------------------------------------------------
+        def trigger_step2():
+            st.session_state["run_step2"] = True
+
+        st.button(
+            "▶ 執行 Step 2：SPEC Generator",
+            type="primary",
+            on_click=trigger_step2
+        )
+
+        # -------------------------------------------------
+        # Step 2：SPEC Generator
+        # -------------------------------------------------
+        if st.session_state.get("run_step2", False):
+            st.subheader("Step 2｜SPEC Generator")
 
             if mapping_df.empty:
-                st.warning("目前沒有從各 CRF sheet 的 SDTM IG Target 抓到可解析的 SDTM domain / variable")
+                st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
-                summary_df = summarize_sdtm_mapping(mapping_df)
-                st.dataframe(summary_df, use_container_width=True)
+                st.subheader("2.1 補充 non-CRF Variables（可直接編輯）")
 
-            st.subheader("SDTM Mapping 明細")
-            if detail_df.empty:
-                st.info("目前沒有可顯示的明細")
-            else:
-                st.dataframe(detail_df, use_container_width=True)
+                detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().unique())
+                seed_non_crf_df = get_default_non_crf_rows(detected_datasets)
 
-            if sheet_errors:
-                clean_sheets = sorted(set(sheet_errors))
-                st.subheader("無法處理的 Sheets")
-                st.warning(f"header 偵測失敗，無法自動判斷 header row: {clean_sheets}")
+                edited_non_crf_df = st.data_editor(
+                    seed_non_crf_df,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    key="non_crf_editor"
+                )
 
-            if unparsed_records:
-                st.subheader("無法解析的 SDTM IG Target 值")
-                st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
+                st.subheader("2.2 Variables SPEC（初版）")
+                variables_spec_df = build_variables_spec(detail_df, edited_non_crf_df)
+                st.dataframe(variables_spec_df, use_container_width=True)
 
-        elif mode == "SDTM SPEC Generator":
-            st.subheader("Step 1｜CRF → SDTM Mapping 結果")
+                st.subheader("2.3 Datasets SPEC（初版）")
+                datasets_spec_df = build_datasets_spec(variables_spec_df)
+                datasets_spec_df = st.data_editor(
+                    datasets_spec_df,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    key="datasets_spec_editor"
+                )
 
-            if mapping_df.empty:
-                st.warning("目前沒有可用的 CRF → SDTM mapping，無法進一步建立 SPEC")
-            else:
-                summary_df = summarize_sdtm_mapping(mapping_df)
-                st.dataframe(summary_df, use_container_width=True)
+                st.subheader("2.4 Define / Codelists / Dictionaries（模板）")
+                define_df = st.data_editor(
+                    build_define_sheet(),
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    key="define_editor"
+                )
 
-                with st.expander("查看 SDTM Mapping 明細"):
-                    st.dataframe(detail_df, use_container_width=True)
+                codelists_df = st.data_editor(
+                    build_empty_codelists_sheet(),
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    key="codelists_editor"
+                )
 
-            if sheet_errors:
-                clean_sheets = sorted(set(sheet_errors))
-                st.warning(f"header 偵測失敗，無法自動判斷 header row: {clean_sheets}")
+                dictionaries_df = st.data_editor(
+                    build_empty_dictionaries_sheet(),
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    key="dictionaries_editor"
+                )
 
-            if unparsed_records:
-                with st.expander("查看無法解析的 SDTM IG Target 值"):
-                    st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
+                export_sheets = {
+                    "Define": define_df,
+                    "Datasets": datasets_spec_df,
+                    "Variables": variables_spec_df,
+                    "Codelists": codelists_df,
+                    "Dictionaries": dictionaries_df
+                }
 
-            st.subheader("Step 2｜補充 non-CRF Variables（可直接編輯）")
+                excel_bytes = to_excel_bytes(export_sheets)
 
-            detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().unique()) if not mapping_df.empty else []
-            seed_non_crf_df = get_default_non_crf_rows(detected_datasets)
-
-            edited_non_crf_df = st.data_editor(
-                seed_non_crf_df,
-                num_rows="dynamic",
-                use_container_width=True,
-                key="non_crf_editor"
-            )
-
-            st.subheader("Step 3｜Variables SPEC（初版）")
-
-            variables_spec_df = build_variables_spec(detail_df, edited_non_crf_df)
-            st.dataframe(variables_spec_df, use_container_width=True)
-
-            st.subheader("Step 4｜Datasets SPEC（初版）")
-            datasets_spec_df = build_datasets_spec(variables_spec_df)
-            datasets_spec_df = st.data_editor(
-                datasets_spec_df,
-                num_rows="dynamic",
-                use_container_width=True,
-                key="datasets_spec_editor"
-            )
-
-            st.subheader("Step 5｜Define / Codelists / Dictionaries（模板）")
-            define_df = st.data_editor(
-                build_define_sheet(),
-                num_rows="dynamic",
-                use_container_width=True,
-                key="define_editor"
-            )
-
-            codelists_df = st.data_editor(
-                build_empty_codelists_sheet(),
-                num_rows="dynamic",
-                use_container_width=True,
-                key="codelists_editor"
-            )
-
-            dictionaries_df = st.data_editor(
-                build_empty_dictionaries_sheet(),
-                num_rows="dynamic",
-                use_container_width=True,
-                key="dictionaries_editor"
-            )
-
-            export_sheets = {
-                "Define": define_df,
-                "Datasets": datasets_spec_df,
-                "Variables": variables_spec_df,
-                "Codelists": codelists_df,
-                "Dictionaries": dictionaries_df
-            }
-
-            excel_bytes = to_excel_bytes(export_sheets)
-
-            st.download_button(
-                label="下載 SDTM SPEC Excel",
-                data=excel_bytes,
-                file_name="SDTM_SPEC_Draft.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                st.download_button(
+                    label="下載 SDTM SPEC Excel",
+                    data=excel_bytes,
+                    file_name="SDTM_SPEC_Draft.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
