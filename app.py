@@ -46,7 +46,8 @@ if uploaded_file is not None:
         else:
             # 讀 SoA
             soa_df = pd.read_excel(uploaded_file, sheet_name="SoA")
-
+soa_df.columns = soa_df.columns.str.strip()
+st.write("SoA欄位名稱:", list(soa_df.columns))
             # 檢查是否有 Form OID 欄位
             if "Form OID" not in soa_df.columns:
                 st.error("SoA 分頁中找不到 'Form OID' 欄位")
