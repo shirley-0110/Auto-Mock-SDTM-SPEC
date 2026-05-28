@@ -731,17 +731,50 @@ if uploaded_file is not None:
             if mapping_df.empty:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
-                st.success("✅ 已成功進入 Step 2")
+                # -------------------------------
+                # 2.1 選擇 SDTM Version
+                # -------------------------------
+                st.markdown("### 2.1 選擇 SDTM Version")
 
-                st.markdown("### Step 2 Preview")
+                version = st.selectbox(
+                    "請選擇 SDTM Version",
+                    ["Version 3.3", "Version 3.4"]
+                )
 
-                st.write("目前 mapping summary：")
-                summary_df = summarize_sdtm_mapping(mapping_df)
-                st.dataframe(summary_df, use_container_width=True)
+                # -------------------------------
+                # 2.2 組 config 路徑
+                # -------------------------------
+                BASE_PATH = r"Y:\BS Files\CDISC\04. SDTM"
 
-                st.write(f"總變數數量：{len(mapping_df)}")
+                config_base_path = f"{BASE_PATH}\\{version}"
 
-                st.info("👉 下一步我們จะ接 SAS config（非 CRF variables 自動產生）")
+                st.write("使用的 config 路徑：")
+                st.code(config_base_path)
+
+
+                # -------------------------------
+                # 2.3 嘗試讀取 SAS config
+                # -------------------------------
+                st.markdown("### 2.2 載入 SAS Config")
+
+                config_loaded = False
+                var_cfg_df = pd.DataFrame()
+                ds_cfg_df = pd.DataFrame()
+
+                try:
+                    import pyreadstat
+
+                    # 👉 這裡你可以改成你實際檔名
+                    var_file_path = f"{config_base_path}\\Variables.sas7bdat"
+                    ds_file_path  = f"{config_base_path}\\Datasets.sas7bdat"
+    
+                    var_cfg_df, _ = pyreadstat.read_sas7bdat(var_file_path)
+                    ds_cfg_df, _ = pyreadstat.read_sas7bdat(ds_file_path)
+
+                    config_loaded = True
+
+                except Exception as e:
+                    st.warning(f"⚠ 讀取 config 失敗：{e}")
 
 
     except Exception as e:
