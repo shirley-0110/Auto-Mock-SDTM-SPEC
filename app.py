@@ -38,7 +38,7 @@ if uploaded_file is not None:
         if "SoA" not in all_sheets:
             st.error("找不到 SoA 分頁")
         else:
-            soa_df = pd.read_excel(uploaded_file, sheet_name="SoA")
+            soa_df = pd.read_excel(uploaded_file, sheet_name="SoA", header=1)
 
             # ✅ !!! 關鍵：清理欄位名稱
             soa_df.columns = soa_df.columns.str.strip()
