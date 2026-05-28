@@ -508,9 +508,25 @@ if uploaded_file is not None:
                 # Step 6: 問題提示
                 # ---------------------------------------------
                 if sheet_errors:
+                # 把 sheet 名稱整理乾淨（去掉括號後面的說明）
+                clean_sheets = []
+
+                for err in sheet_errors:
+                    # 只抓 sheet name（例如 "VS3（header 偵測失敗...）" → "VS3"）
+                    sheet_name = re.split(r"（|\(", err)[0].strip()
+                    clean_sheets.append(sheet_name)
+
+                    # 去重 + 排序
+                    clean_sheets = sorted(set(clean_sheets))
+
                     st.subheader("無法處理的 Sheets")
-                    for err in sheet_errors:
-                        st.markdown(f"- {err}")
+
+                    # ✅ 黃色警示盒 + 整體訊息
+                    st.warning(
+                        "header 偵測失敗，無法自動判斷 header row:\n\n" +
+                        "\n".join([f"- {s}" for s in clean_sheets])
+                    )
+
 
                 if unparsed_records:
                     st.subheader("無法解析的 SDTM IG Target 值")
