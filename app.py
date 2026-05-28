@@ -93,7 +93,7 @@ if uploaded_file is not None:
                         sorted(available_sheets)
                     )
 
-                    df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, header=4)
+                    df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, header=3)
 
                     st.subheader(f"Sheet: {selected_sheet}")
 
