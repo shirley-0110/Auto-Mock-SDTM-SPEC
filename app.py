@@ -1,29 +1,21 @@
 
-
 import streamlit as st
 import pandas as pd
 import re
 
-st.title("Excel CRF Sheet Viewer")
+st.title("CRF Excel Viewer (SoA Control)")
 
 uploaded_file = st.file_uploader("請上傳 Excel 檔案", type=["xlsx", "xls"])
 
+
+# ✅ function：從 Form OID 抽 domain
 def extract_form_oids(series):
-    """
-    將 SoA 的 Form OID 欄位內容整理成 domain 清單
-    支援：
-    - 一格一個值：DM / AE / VIS
-    - 一格多個值：DM, AE, VIS
-    - 用逗號、分號、換行分隔
-    """
     domains = set()
 
     for value in series.dropna():
         text = str(value).strip()
-        if not text:
-            continue
 
-        # 依逗號、分號、換行切開
+        # 支援：DM, AE / DM;AE / 換行
         parts = re.split(r"[,\n;]+", text)
 
         for part in parts:
@@ -36,48 +28,82 @@ def extract_form_oids(series):
 
 if uploaded_file is not None:
     try:
-        # 先取得所有 sheet 名稱
+        # ✅ 讀全部 sheet 名稱
         xls = pd.ExcelFile(uploaded_file)
         all_sheets = xls.sheet_names
 
-        # 檢查是否有 SoA
+        st.write("Excel所有Sheets:", all_sheets)
+
+        # ✅ 檢查 SoA
         if "SoA" not in all_sheets:
             st.error("找不到 SoA 分頁")
         else:
-            # 讀 SoA
             soa_df = pd.read_excel(uploaded_file, sheet_name="SoA")
-soa_df.columns = soa_df.columns.str.strip()
-st.write("SoA欄位名稱:", list(soa_df.columns))
-            # 檢查是否有 Form OID 欄位
-            if "Form OID" not in soa_df.columns:
-                st.error("SoA 分頁中找不到 'Form OID' 欄位")
-            else:
-                # 從 Form OID 擷取 domain 名稱
-                valid_domains = extract_form_oids(soa_df["Form OID"])
 
-                # 只保留 Excel 裡真正存在的 sheet
+            # ✅ !!! 關鍵：清理欄位名稱
+            soa_df.columns = soa_df.columns.str.strip()
+
+            # ✅ Debug：顯示欄位
+            st.write("SoA 欄位名稱:", list(soa_df.columns))
+
+            # ✅ 找 Form OID（容錯）
+            form_oid_col = None
+
+            for col in soa_df.columns:
+                if "FORM" in col.upper() and "OID" in col.upper():
+                    form_oid_col = col
+                    break
+
+            if form_oid_col is None:
+                st.error("找不到 Form OID 欄位")
+            else:
+                st.success(f"使用欄位: {form_oid_col}")
+
+                # ✅ 抓 domain
+                valid_domains = extract_form_oids(soa_df[form_oid_col])
+
+                st.write("SoA 定義的 Domain:", sorted(valid_domains))
+
+                # ✅ Excel實際存在的 sheet（轉大寫）
+                sheet_upper_map = {s.upper(): s for s in all_sheets}
+
+                # ✅ 有交集的
                 available_sheets = [
-                    sheet for sheet in all_sheets
-                    if sheet.upper() in valid_domains
+                    sheet_upper_map[d]
+                    for d in valid_domains
+                    if d in sheet_upper_map
                 ]
 
+                # ✅ SoA有但Excel沒有（很重要）
+                missing_sheets = [
+                    d for d in valid_domains
+                    if d not in sheet_upper_map
+                ]
+
+                # ✅ 顯示 missing
+                if missing_sheets:
+                    st.warning(f"SoA 中有但 Excel 沒有的 Sheet: {missing_sheets}")
+
+                # ✅ 顯示可選Sheet
                 if not available_sheets:
-                    st.warning("SoA 的 Form OID 沒有對應到任何實際存在的 sheet")
+                    st.error("沒有可顯示的 sheet")
                 else:
-                    st.success("已依 SoA 的 Form OID 篩選可顯示的 sheet")
+                    st.success("已依 SoA 過濾 sheet")
 
-                    # 只顯示這些 sheet 給使用者選
-                    selected_sheet = st.selectbox("請選擇要查看的 CRF sheet", available_sheets)
+                    selected_sheet = st.selectbox(
+                        "請選擇 CRF Domain",
+                        sorted(available_sheets)
+                    )
 
-                    # 讀取選到的 sheet
                     df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
 
-                    st.subheader(f"Sheet：{selected_sheet}")
-                    st.write(f"資料筆數：{len(df)}")
-                    st.write("欄位名稱：", df.columns.tolist())
+                    st.subheader(f"Sheet: {selected_sheet}")
+
+                    st.write(f"資料筆數: {len(df)}")
+                    st.write("欄位名稱:", list(df.columns))
+
                     st.dataframe(df)
 
     except Exception as e:
-        st.error(f"讀取檔案時發生錯誤：{e}")
-
+        st.error(f"發生錯誤: {e}")
 
