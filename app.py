@@ -732,7 +732,7 @@ if uploaded_file is not None:
             if mapping_df.empty:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
-            st.success("✅ 已成功進入 Step 2")
+                st.success("✅ 已成功進入 Step 2")
 
             # -------------------------------
             # 2.1 選擇 SDTM Version
