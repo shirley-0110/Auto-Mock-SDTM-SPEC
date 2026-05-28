@@ -3,8 +3,8 @@ import pandas as pd
 import re
 from io import BytesIO
 
-st.set_page_config(page_title="CRF → SDTM Mapping / SPEC Generator", layout="wide")
-st.title("CRF → SDTM Mapping / SPEC Generator")
+st.set_page_config(page_title="Auto SDTM SPEC", layout="wide")
+st.title("Auto SDTM SPEC")
 
 
 # =========================================================
@@ -207,10 +207,11 @@ def parse_sdtm_targets(value):
     return parsed_records, unparsed_tokens
 
 
-def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=None):
-    if manual_sheet_headers is None:
-        manual_sheet_headers = {}
-
+def build_sdtm_mapping(file_bytes, selected_crf_sheets, common_domain_header=None):
+    """
+    common_domain_header:
+      所有 Domain Sheet 共用 header row（Excel 1-based）
+    """
     mapping_records = []
     detail_records = []
     sheet_errors = []
@@ -218,15 +219,12 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=Non
 
     for sheet in selected_crf_sheets:
         try:
-            manual_header = manual_sheet_headers.get(sheet)
-
-            df, detected_header_row = read_sheet_with_detected_header(
+            df, _ = read_sheet_with_detected_header(
                 file_bytes=file_bytes,
                 sheet_name=sheet,
                 keyword_groups=[["SDTM", "TARGET"]],
-                manual_header_row_excel=manual_header
+                manual_header_row_excel=common_domain_header
             )
-
         except Exception:
             sheet_errors.append(sheet)
             continue
@@ -323,92 +321,149 @@ def summarize_sdtm_mapping(mapping_df):
 
 
 # =========================================================
-# SPEC mode
+# Reference SPEC 讀取 / 比對
 # =========================================================
-def get_default_non_crf_rows(datasets):
-    rows = []
-
-    for ds in sorted(set(datasets)):
-        if ds == "DM":
-            defaults = [
-                ("STUDYID", "Study Identifier", "text", "", "Assigned", "", "", "", ""),
-                ("DOMAIN", "Domain Abbreviation", "text", "", "Assigned", "", "", "", ""),
-                ("USUBJID", "Unique Subject Identifier", "text", "", "Derived", "", "", "", ""),
-            ]
-        else:
-            defaults = [
-                ("STUDYID", "Study Identifier", "text", "", "Assigned", "", "", "", ""),
-                ("DOMAIN", "Domain Abbreviation", "text", "", "Assigned", "", "", "", ""),
-                ("USUBJID", "Unique Subject Identifier", "text", "", "Derived", "", "", "", ""),
-                (f"{ds}SEQ", "Sequence Number", "integer", "", "Derived", "", "", "", ""),
-            ]
-
-        for var, label, dtype, codelist, origin, source, pages, method, comment in defaults:
-            rows.append({
-                "Dataset": ds,
-                "Variable": var,
-                "Label": label,
-                "Data Type": dtype,
-                "Codelist": codelist,
-                "Origin": origin,
-                "Source": source,
-                "Pages": pages,
-                "Method": method,
-                "Comment": comment
-            })
-
-    return pd.DataFrame(rows)
+def load_reference_sheet(reference_file, sheet_name):
+    try:
+        xls = pd.ExcelFile(reference_file)
+        if sheet_name not in xls.sheet_names:
+            return pd.DataFrame()
+        df = pd.read_excel(reference_file, sheet_name=sheet_name)
+        df = normalize_columns(df)
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 
-def build_variables_spec(detail_df, non_crf_df=None):
-    if detail_df.empty:
-        crf_df = pd.DataFrame(columns=[
+def get_non_crf_from_reference(detail_df, ref_variables_df):
+    """
+    從 reference Variables sheet 補 non-CRF variables：
+    - 只保留目前 mapping 有出現的 datasets
+    - 排除已經在 CRF mapping detail 裡出現的 (Dataset, Variable)
+    """
+    if detail_df.empty or ref_variables_df.empty:
+        return pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type", "Codelist",
             "Origin", "Source", "Pages", "Method", "Comment"
         ])
-    else:
-        crf_df = detail_df.copy()
-        crf_df["Dataset"] = crf_df["SDTM Domain"]
-        crf_df["Variable"] = crf_df["SDTM Variable"]
-        crf_df["Label"] = ""
-        crf_df["Data Type"] = ""
-        crf_df["Codelist"] = ""
 
-        def derive_origin(row):
-            if str(row.get("Assign Value", "")).strip() != "":
-                return "Assigned"
-            return "CRF"
-
-        crf_df["Origin"] = crf_df.apply(derive_origin, axis=1)
-        crf_df["Source"] = crf_df.apply(
-            lambda r: f"{r['Source CRF Sheet']} / {r['Source CRF Variable']}".strip(" /"),
-            axis=1
-        )
-        crf_df["Pages"] = ""
-        crf_df["Method"] = ""
-        crf_df["Comment"] = crf_df.apply(
-            lambda r: f"Assign Value={r['Assign Value']}" if str(r.get("Assign Value", "")).strip() != "" else "",
-            axis=1
-        )
-
-        crf_df = crf_df[[
+    if "Dataset" not in ref_variables_df.columns or "Variable" not in ref_variables_df.columns:
+        return pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type", "Codelist",
             "Origin", "Source", "Pages", "Method", "Comment"
-        ]]
+        ])
 
-    if non_crf_df is not None and not non_crf_df.empty:
-        combined = pd.concat([crf_df, non_crf_df], ignore_index=True)
-    else:
-        combined = crf_df.copy()
+    crf_pairs = set(
+        zip(
+            detail_df["SDTM Domain"].astype(str).str.upper(),
+            detail_df["SDTM Variable"].astype(str).str.upper()
+        )
+    )
 
-    combined = combined.drop_duplicates().reset_index(drop=True)
-    combined = combined.sort_values(by=["Dataset", "Variable"]).reset_index(drop=True)
-    combined.insert(0, "Order", range(1, len(combined) + 1))
+    detected_datasets = set(detail_df["SDTM Domain"].astype(str).str.upper())
 
-    return combined
+    ref = ref_variables_df.copy()
+    ref["Dataset"] = ref["Dataset"].astype(str).str.upper()
+    ref["Variable"] = ref["Variable"].astype(str).str.upper()
+
+    ref = ref[ref["Dataset"].isin(detected_datasets)]
+
+    ref["pair"] = list(zip(ref["Dataset"], ref["Variable"]))
+    non_crf = ref[~ref["pair"].isin(crf_pairs)].copy()
+
+    if "pair" in non_crf.columns:
+        non_crf = non_crf.drop(columns=["pair"])
+
+    for col in ["Label", "Data Type", "Codelist", "Origin", "Source", "Pages", "Method", "Comment"]:
+        if col not in non_crf.columns:
+            non_crf[col] = ""
+
+    return non_crf[[
+        "Dataset", "Variable", "Label", "Data Type", "Codelist",
+        "Origin", "Source", "Pages", "Method", "Comment"
+    ]].drop_duplicates().reset_index(drop=True)
 
 
-def build_datasets_spec(variables_spec_df):
+def enrich_crf_variables_with_reference(detail_df, ref_variables_df):
+    """
+    若 reference Variables sheet 有同 Dataset / Variable，帶回 metadata
+    """
+    if detail_df.empty:
+        return pd.DataFrame(columns=[
+            "Dataset", "Variable", "Label", "Data Type", "Codelist",
+            "Origin", "Source", "Pages", "Method", "Comment"
+        ])
+
+    crf_df = detail_df.copy()
+    crf_df["Dataset"] = crf_df["SDTM Domain"].astype(str).str.upper()
+    crf_df["Variable"] = crf_df["SDTM Variable"].astype(str).str.upper()
+    crf_df["Label"] = ""
+    crf_df["Data Type"] = ""
+    crf_df["Codelist"] = ""
+
+    def derive_origin(row):
+        if str(row.get("Assign Value", "")).strip() != "":
+            return "Assigned"
+        return "CRF"
+
+    crf_df["Origin"] = crf_df.apply(derive_origin, axis=1)
+    crf_df["Source"] = crf_df.apply(
+        lambda r: f"{r['Source CRF Sheet']} / {r['Source CRF Variable']}".strip(" /"),
+        axis=1
+    )
+    crf_df["Pages"] = ""
+    crf_df["Method"] = ""
+    crf_df["Comment"] = crf_df.apply(
+        lambda r: f"Assign Value={r['Assign Value']}" if str(r.get("Assign Value", "")).strip() != "" else "",
+        axis=1
+    )
+
+    base_crf_df = crf_df[[
+        "Dataset", "Variable", "Label", "Data Type", "Codelist",
+        "Origin", "Source", "Pages", "Method", "Comment"
+    ]].copy()
+
+    if ref_variables_df.empty:
+        return base_crf_df.drop_duplicates().reset_index(drop=True)
+
+    if "Dataset" not in ref_variables_df.columns or "Variable" not in ref_variables_df.columns:
+        return base_crf_df.drop_duplicates().reset_index(drop=True)
+
+    ref = ref_variables_df.copy()
+    ref["Dataset"] = ref["Dataset"].astype(str).str.upper()
+    ref["Variable"] = ref["Variable"].astype(str).str.upper()
+
+    merge_cols = ["Dataset", "Variable"]
+    ref_meta_cols = []
+    for c in ["Label", "Data Type", "Codelist", "Origin", "Source", "Pages", "Method", "Comment"]:
+        if c in ref.columns:
+            ref_meta_cols.append(c)
+
+    if not ref_meta_cols:
+        return base_crf_df.drop_duplicates().reset_index(drop=True)
+
+    ref_for_merge = ref[merge_cols + ref_meta_cols].drop_duplicates()
+
+    merged = base_crf_df.merge(
+        ref_for_merge,
+        on=["Dataset", "Variable"],
+        how="left",
+        suffixes=("", "_REF")
+    )
+
+    for c in ref_meta_cols:
+        ref_col = f"{c}_REF"
+        if ref_col in merged.columns:
+            merged[c] = merged.apply(
+                lambda r: r[c] if str(r[c]).strip() != "" else (r[ref_col] if pd.notna(r[ref_col]) else ""),
+                axis=1
+            )
+            merged = merged.drop(columns=[ref_col])
+
+    return merged.drop_duplicates().reset_index(drop=True)
+
+
+def build_datasets_spec(variables_spec_df, ref_datasets_df=None):
     if variables_spec_df.empty:
         return pd.DataFrame(columns=[
             "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard"
@@ -434,10 +489,39 @@ def build_datasets_spec(variables_spec_df):
             "Standard": "SDTM"
         })
 
-    return pd.DataFrame(rows)
+    ds_df = pd.DataFrame(rows)
+
+    if ref_datasets_df is not None and not ref_datasets_df.empty and "Dataset" in ref_datasets_df.columns:
+        ref = ref_datasets_df.copy()
+        ref["Dataset"] = ref["Dataset"].astype(str).str.upper()
+
+        keep_cols = ["Dataset"]
+        for c in ["Label", "Class", "Structure", "Key Variables", "Standard"]:
+            if c in ref.columns:
+                keep_cols.append(c)
+
+        ref = ref[keep_cols].drop_duplicates()
+
+        merged = ds_df.merge(ref, on="Dataset", how="left", suffixes=("", "_REF"))
+
+        for c in ["Label", "Class", "Structure", "Key Variables", "Standard"]:
+            ref_col = f"{c}_REF"
+            if ref_col in merged.columns:
+                merged[c] = merged.apply(
+                    lambda r: r[c] if str(r[c]).strip() != "" else (r[ref_col] if pd.notna(r[ref_col]) else ""),
+                    axis=1
+                )
+                merged = merged.drop(columns=[ref_col])
+
+        ds_df = merged
+
+    return ds_df
 
 
-def build_define_sheet():
+def build_define_sheet(ref_define_df=None):
+    if ref_define_df is not None and not ref_define_df.empty:
+        return ref_define_df.copy()
+
     return pd.DataFrame([
         {"Attribute": "Standard", "Value": "SDTM"},
         {"Attribute": "StandardVersion", "Value": ""},
@@ -447,17 +531,38 @@ def build_define_sheet():
     ])
 
 
-def build_empty_codelists_sheet():
+def build_empty_codelists_sheet(ref_codelists_df=None):
+    if ref_codelists_df is not None and not ref_codelists_df.empty:
+        return ref_codelists_df.copy()
+
     return pd.DataFrame(columns=[
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
     ])
 
 
-def build_empty_dictionaries_sheet():
+def build_empty_dictionaries_sheet(ref_dictionaries_df=None):
+    if ref_dictionaries_df is not None and not ref_dictionaries_df.empty:
+        return ref_dictionaries_df.copy()
+
     return pd.DataFrame(columns=[
         "ID", "Name", "Data Type", "Dictionary", "Version"
     ])
+
+
+def build_variables_spec(detail_df, non_crf_df=None, ref_variables_df=None):
+    crf_df = enrich_crf_variables_with_reference(detail_df, ref_variables_df)
+
+    if non_crf_df is not None and not non_crf_df.empty:
+        combined = pd.concat([crf_df, non_crf_df], ignore_index=True)
+    else:
+        combined = crf_df.copy()
+
+    combined = combined.drop_duplicates().reset_index(drop=True)
+    combined = combined.sort_values(by=["Dataset", "Variable"]).reset_index(drop=True)
+    combined.insert(0, "Order", range(1, len(combined) + 1))
+
+    return combined
 
 
 def to_excel_bytes(sheet_dict):
@@ -474,7 +579,7 @@ def to_excel_bytes(sheet_dict):
 # =========================================================
 # 共用：從 Excel 建立 CRF mapping
 # =========================================================
-def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, manual_sheet_headers=None):
+def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, common_domain_header=None):
     if "SoA" not in all_sheets:
         raise ValueError("找不到 SoA 分頁")
 
@@ -503,7 +608,7 @@ def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, manua
     mapping_df, detail_df, sheet_errors, unparsed_records = build_sdtm_mapping(
         file_bytes=file_bytes,
         selected_crf_sheets=available_sheets,
-        manual_sheet_headers=manual_sheet_headers or {}
+        common_domain_header=common_domain_header
     )
 
     return {
@@ -519,7 +624,7 @@ def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, manua
 # =========================================================
 # 主流程 UI
 # =========================================================
-uploaded_file = st.file_uploader("請上傳 Excel 檔案", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("請上傳 CRF Mapping Excel", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
     current_upload_key = f"{uploaded_file.name}_{uploaded_file.size}"
@@ -533,9 +638,9 @@ if uploaded_file is not None:
         all_sheets = xls.sheet_names
 
         # -------------------------------------------------
-        # Header Override：移到上傳檔案下面
+        # Header Override：放在上傳檔案下面
         # -------------------------------------------------
-        st.subheader("Header Override（選填）")
+        st.markdown("### Header Override（選填）")
 
         col1, col2 = st.columns(2)
 
@@ -549,59 +654,28 @@ if uploaded_file is not None:
                     value=2,
                     step=1
                 )
-            else:
-                manual_soa_header = None
 
         with col2:
-            manual_sheet_headers = {}
-
-            try:
-                tmp_soa_df, _ = read_sheet_with_detected_header(
-                    file_bytes=file_bytes,
-                    sheet_name="SoA",
-                    keyword_groups=[["FORM", "OID"]],
-                    manual_header_row_excel=manual_soa_header
+            use_manual_domain_header = st.checkbox("所有 Domain Sheet 使用同一個 header row")
+            common_domain_header = None
+            if use_manual_domain_header:
+                common_domain_header = st.number_input(
+                    "所有 Domain Sheet header 在 Excel 第幾列？",
+                    min_value=1,
+                    value=2,
+                    step=1
                 )
-                tmp_form_oid_col = find_column(tmp_soa_df.columns, ["FORM", "OID"])
-
-                if tmp_form_oid_col is not None:
-                    tmp_valid_domains = extract_form_oids(tmp_soa_df[tmp_form_oid_col])
-                    tmp_sheet_upper_map = {s.upper(): s for s in all_sheets}
-                    tmp_available_sheets = [
-                        tmp_sheet_upper_map[d] for d in tmp_valid_domains if d in tmp_sheet_upper_map
-                    ]
-                else:
-                    tmp_available_sheets = []
-            except Exception:
-                tmp_available_sheets = []
-
-            if tmp_available_sheets:
-                selected_override_sheets = st.multiselect(
-                    "手動指定個別 Domain Sheet Header",
-                    options=sorted(tmp_available_sheets)
-                )
-
-                for sh in selected_override_sheets:
-                    manual_sheet_headers[sh] = st.number_input(
-                        f"{sh} header 在 Excel 第幾列？",
-                        min_value=1,
-                        value=2,
-                        step=1,
-                        key=f"header_override_{sh}"
-                    )
-            else:
-                st.caption("尚未偵測到可設定的 Domain Sheet")
 
         # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
         # -------------------------------------------------
-        st.subheader("Step 1｜CRF → SDTM Mapping")
+        st.markdown("## Step 1｜CRF → SDTM Mapping")
 
         result = process_uploaded_excel(
             file_bytes=file_bytes,
             all_sheets=all_sheets,
             manual_soa_header=manual_soa_header,
-            manual_sheet_headers=manual_sheet_headers
+            common_domain_header=common_domain_header
         )
 
         available_sheets = result["available_sheets"]
@@ -614,14 +688,14 @@ if uploaded_file is not None:
         if missing_sheets:
             st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
 
-        st.subheader("整份檔案要呈現的 SDTM Domains / Variables")
+        st.markdown("### 整份檔案要呈現的 SDTM Domains / Variables")
         if mapping_df.empty:
             st.warning("目前沒有從各 CRF sheet 的 SDTM IG Target 抓到可解析的 SDTM domain / variable")
         else:
             summary_df = summarize_sdtm_mapping(mapping_df)
             st.dataframe(summary_df, use_container_width=True)
 
-        st.subheader("SDTM Mapping 明細")
+        st.markdown("### SDTM Mapping 明細")
         if detail_df.empty:
             st.info("目前沒有可顯示的明細")
         else:
@@ -629,15 +703,15 @@ if uploaded_file is not None:
 
         if sheet_errors:
             clean_sheets = sorted(set(sheet_errors))
-            st.subheader("無法處理的 Sheets")
+            st.markdown("### 無法處理的 Sheets")
             st.warning(f"header 偵測失敗，無法自動判斷 header row: {clean_sheets}")
 
         if unparsed_records:
-            st.subheader("無法解析的 SDTM IG Target 值")
+            st.markdown("### 無法解析的 SDTM IG Target 值")
             st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
 
         # -------------------------------------------------
-        # Step 2 開關：用執行 icon 決定是否進入第二步
+        # Step 2 開關：使用者決定是否執行
         # -------------------------------------------------
         def trigger_step2():
             st.session_state["run_step2"] = True
@@ -652,15 +726,58 @@ if uploaded_file is not None:
         # Step 2：SPEC Generator
         # -------------------------------------------------
         if st.session_state.get("run_step2", False):
-            st.subheader("Step 2｜SPEC Generator")
+            st.markdown("## Step 2｜SPEC Generator")
 
             if mapping_df.empty:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
-                st.subheader("2.1 補充 non-CRF Variables（可直接編輯）")
+                st.markdown("### 2.1 上傳 internal reference SPEC（選填）")
+                reference_spec_file = st.file_uploader(
+                    "上傳 internal reference SPEC（用來補 non-CRF variables / metadata）",
+                    type=["xlsx"],
+                    key="reference_spec_uploader"
+                )
 
-                detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().unique())
-                seed_non_crf_df = get_default_non_crf_rows(detected_datasets)
+                ref_variables_df = pd.DataFrame()
+                ref_datasets_df = pd.DataFrame()
+                ref_define_df = pd.DataFrame()
+                ref_codelists_df = pd.DataFrame()
+                ref_dictionaries_df = pd.DataFrame()
+
+                if reference_spec_file is not None:
+                    ref_define_df = load_reference_sheet(reference_spec_file, "Define")
+                    ref_datasets_df = load_reference_sheet(reference_spec_file, "Datasets")
+                    ref_variables_df = load_reference_sheet(reference_spec_file, "Variables")
+                    ref_codelists_df = load_reference_sheet(reference_spec_file, "Codelists")
+                    ref_dictionaries_df = load_reference_sheet(reference_spec_file, "Dictionaries")
+
+                st.markdown("### 2.2 補充 non-CRF Variables（可直接編輯）")
+
+                if not ref_variables_df.empty:
+                    seed_non_crf_df = get_non_crf_from_reference(detail_df, ref_variables_df)
+                else:
+                    # 若沒有 reference SPEC，就只給空模板（由使用者自行補）
+                    detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().unique())
+                    seed_non_crf_df = pd.DataFrame(columns=[
+                        "Dataset", "Variable", "Label", "Data Type", "Codelist",
+                        "Origin", "Source", "Pages", "Method", "Comment"
+                    ])
+                    if detected_datasets:
+                        seed_non_crf_df = pd.DataFrame([
+                            {
+                                "Dataset": ds,
+                                "Variable": "",
+                                "Label": "",
+                                "Data Type": "",
+                                "Codelist": "",
+                                "Origin": "",
+                                "Source": "",
+                                "Pages": "",
+                                "Method": "",
+                                "Comment": ""
+                            }
+                            for ds in detected_datasets
+                        ])
 
                 edited_non_crf_df = st.data_editor(
                     seed_non_crf_df,
@@ -669,12 +786,19 @@ if uploaded_file is not None:
                     key="non_crf_editor"
                 )
 
-                st.subheader("2.2 Variables SPEC（初版）")
-                variables_spec_df = build_variables_spec(detail_df, edited_non_crf_df)
+                st.markdown("### 2.3 Variables SPEC（初版）")
+                variables_spec_df = build_variables_spec(
+                    detail_df=detail_df,
+                    non_crf_df=edited_non_crf_df,
+                    ref_variables_df=ref_variables_df
+                )
                 st.dataframe(variables_spec_df, use_container_width=True)
 
-                st.subheader("2.3 Datasets SPEC（初版）")
-                datasets_spec_df = build_datasets_spec(variables_spec_df)
+                st.markdown("### 2.4 Datasets SPEC（初版）")
+                datasets_spec_df = build_datasets_spec(
+                    variables_spec_df=variables_spec_df,
+                    ref_datasets_df=ref_datasets_df
+                )
                 datasets_spec_df = st.data_editor(
                     datasets_spec_df,
                     num_rows="dynamic",
@@ -682,23 +806,23 @@ if uploaded_file is not None:
                     key="datasets_spec_editor"
                 )
 
-                st.subheader("2.4 Define / Codelists / Dictionaries（模板）")
+                st.markdown("### 2.5 Define / Codelists / Dictionaries")
                 define_df = st.data_editor(
-                    build_define_sheet(),
+                    build_define_sheet(ref_define_df),
                     num_rows="dynamic",
                     use_container_width=True,
                     key="define_editor"
                 )
 
                 codelists_df = st.data_editor(
-                    build_empty_codelists_sheet(),
+                    build_empty_codelists_sheet(ref_codelists_df),
                     num_rows="dynamic",
                     use_container_width=True,
                     key="codelists_editor"
                 )
 
                 dictionaries_df = st.data_editor(
-                    build_empty_dictionaries_sheet(),
+                    build_empty_dictionaries_sheet(ref_dictionaries_df),
                     num_rows="dynamic",
                     use_container_width=True,
                     key="dictionaries_editor"
