@@ -745,7 +745,7 @@ if uploaded_file is not None:
                 key="sdtm_version_selector"
             )
 
-            BASE_PATH = r"Y:\BS Files\CDISC\04. SDTM"
+            BASE_PATH = r"\\172.21.9.16\BDM_File\BS Files\CDISC\04. SDTM"
             config_base_path = f"{BASE_PATH}\\{version}"
 
             st.write("📂 Config base path：")
