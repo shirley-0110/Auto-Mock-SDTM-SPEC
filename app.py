@@ -508,13 +508,13 @@ if uploaded_file is not None:
                 # Step 6: 問題提示
                 # ---------------------------------------------
                 if sheet_errors:
-                # 把 sheet 名稱整理乾淨（去掉括號後面的說明）
-                clean_sheets = []
+                    # 把 sheet 名稱整理乾淨（去掉括號後面的說明）
+                    clean_sheets = []
                 
-                for err in sheet_errors:
-                    # 只抓 sheet name（例如 "VS3（header 偵測失敗...）" → "VS3"）
-                    sheet_name = re.split(r"（|\(", err)[0].strip()
-                    clean_sheets.append(sheet_name)
+                    for err in sheet_errors:
+                        # 只抓 sheet name（例如 "VS3（header 偵測失敗...）" → "VS3"）
+                        sheet_name = re.split(r"（|\(", err)[0].strip()
+                        clean_sheets.append(sheet_name)
 
                     # 去重 + 排序
                     clean_sheets = sorted(set(clean_sheets))
