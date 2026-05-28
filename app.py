@@ -731,119 +731,18 @@ if uploaded_file is not None:
             if mapping_df.empty:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
-                st.markdown("### 2.1 上傳 internal reference SPEC（選填）")
-                reference_spec_file = st.file_uploader(
-                    "上傳 internal reference SPEC（用來補 non-CRF variables / metadata）",
-                    type=["xlsx"],
-                    key="reference_spec_uploader"
-                )
+                st.success("✅ 已成功進入 Step 2")
 
-                ref_variables_df = pd.DataFrame()
-                ref_datasets_df = pd.DataFrame()
-                ref_define_df = pd.DataFrame()
-                ref_codelists_df = pd.DataFrame()
-                ref_dictionaries_df = pd.DataFrame()
+                st.markdown("### Step 2 Preview")
 
-                if reference_spec_file is not None:
-                    ref_define_df = load_reference_sheet(reference_spec_file, "Define")
-                    ref_datasets_df = load_reference_sheet(reference_spec_file, "Datasets")
-                    ref_variables_df = load_reference_sheet(reference_spec_file, "Variables")
-                    ref_codelists_df = load_reference_sheet(reference_spec_file, "Codelists")
-                    ref_dictionaries_df = load_reference_sheet(reference_spec_file, "Dictionaries")
+                st.write("目前 mapping summary：")
+                summary_df = summarize_sdtm_mapping(mapping_df)
+                st.dataframe(summary_df, use_container_width=True)
 
-                st.markdown("### 2.2 補充 non-CRF Variables（可直接編輯）")
+                st.write(f"總變數數量：{len(mapping_df)}")
 
-                if not ref_variables_df.empty:
-                    seed_non_crf_df = get_non_crf_from_reference(detail_df, ref_variables_df)
-                else:
-                    # 若沒有 reference SPEC，就只給空模板（由使用者自行補）
-                    detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().unique())
-                    seed_non_crf_df = pd.DataFrame(columns=[
-                        "Dataset", "Variable", "Label", "Data Type", "Codelist",
-                        "Origin", "Source", "Pages", "Method", "Comment"
-                    ])
-                    if detected_datasets:
-                        seed_non_crf_df = pd.DataFrame([
-                            {
-                                "Dataset": ds,
-                                "Variable": "",
-                                "Label": "",
-                                "Data Type": "",
-                                "Codelist": "",
-                                "Origin": "",
-                                "Source": "",
-                                "Pages": "",
-                                "Method": "",
-                                "Comment": ""
-                            }
-                            for ds in detected_datasets
-                        ])
+                st.info("👉 下一步我們จะ接 SAS config（非 CRF variables 自動產生）")
 
-                edited_non_crf_df = st.data_editor(
-                    seed_non_crf_df,
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    key="non_crf_editor"
-                )
-
-                st.markdown("### 2.3 Variables SPEC（初版）")
-                variables_spec_df = build_variables_spec(
-                    detail_df=detail_df,
-                    non_crf_df=edited_non_crf_df,
-                    ref_variables_df=ref_variables_df
-                )
-                st.dataframe(variables_spec_df, use_container_width=True)
-
-                st.markdown("### 2.4 Datasets SPEC（初版）")
-                datasets_spec_df = build_datasets_spec(
-                    variables_spec_df=variables_spec_df,
-                    ref_datasets_df=ref_datasets_df
-                )
-                datasets_spec_df = st.data_editor(
-                    datasets_spec_df,
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    key="datasets_spec_editor"
-                )
-
-                st.markdown("### 2.5 Define / Codelists / Dictionaries")
-                define_df = st.data_editor(
-                    build_define_sheet(ref_define_df),
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    key="define_editor"
-                )
-
-                codelists_df = st.data_editor(
-                    build_empty_codelists_sheet(ref_codelists_df),
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    key="codelists_editor"
-                )
-
-                dictionaries_df = st.data_editor(
-                    build_empty_dictionaries_sheet(ref_dictionaries_df),
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    key="dictionaries_editor"
-                )
-
-                export_sheets = {
-                    "Define": define_df,
-                    "Datasets": datasets_spec_df,
-                    "Variables": variables_spec_df,
-                    "Codelists": codelists_df,
-                    "Dictionaries": dictionaries_df
-                }
-
-                excel_bytes = to_excel_bytes(export_sheets)
-
-                st.download_button(
-                    label="下載 SDTM SPEC Excel",
-                    data=excel_bytes,
-                    file_name="SDTM_SPEC_Draft.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
 
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
