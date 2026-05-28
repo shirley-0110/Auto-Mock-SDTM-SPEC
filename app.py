@@ -523,8 +523,7 @@ if uploaded_file is not None:
 
                     # ✅ 黃色警示盒 + 整體訊息
                     st.warning(
-                        "header 偵測失敗，無法自動判斷 header row:\n\n" +
-                        "\n".join([f"- {s}" for s in clean_sheets])
+                        f"header 偵測失敗，無法自動判斷 header row: {clean_sheets}"
                     )
 
 
