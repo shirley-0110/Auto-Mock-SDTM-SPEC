@@ -42,7 +42,6 @@ def row_contains_keywords(row_values, keyword_groups):
     keyword_groups 範例:
       [["FORM", "OID"]]
       [["SDTM", "TARGET"]]
-    代表只要某個儲存格同時包含該組關鍵字，就算找到
     """
     cells = [normalize_text(v) for v in row_values]
 
@@ -81,7 +80,7 @@ def read_sheet_with_detected_header(
     max_scan_rows=30
 ):
     """
-    自動或手動指定 header row後讀取 sheet
+    自動或手動指定 header row 後讀取 sheet
     manual_header_row_excel: Excel 中第幾列是 header（1-based）
     回傳:
       df, detected_header_row_excel
@@ -106,7 +105,7 @@ def read_sheet_with_detected_header(
     )
     df = normalize_columns(df)
 
-    return df, header_row_zero_based + 1  # 回傳 Excel 可讀列號（1-based）
+    return df, header_row_zero_based + 1  # 回傳 Excel 列號（1-based）
 
 
 def find_column(columns, required_keywords):
@@ -123,6 +122,37 @@ def find_column(columns, required_keywords):
     return None
 
 
+def find_source_variable_column(columns):
+    """
+    找來源 CRF variable 欄位
+    優先找：
+      - Variable
+      - Variable Name
+    但避免抓到 SDTM IG Target 這種欄位
+    """
+    priority_exact = [
+        "VARIABLE",
+        "VARIABLE NAME",
+        "CRF VARIABLE",
+        "SOURCE VARIABLE"
+    ]
+
+    normalized_map = {col: normalize_text(col) for col in columns}
+
+    # 先 exact match
+    for target in priority_exact:
+        for col, norm_col in normalized_map.items():
+            if norm_col == target:
+                return col
+
+    # 再 fuzzy：含 VARIABLE 但不含 TARGET / SDTM
+    for col, norm_col in normalized_map.items():
+        if "VARIABLE" in norm_col and "TARGET" not in norm_col and "SDTM" not in norm_col:
+            return col
+
+    return None
+
+
 # =========================================================
 # SoA：抓 CRF domain / sheet
 # =========================================================
@@ -134,7 +164,7 @@ def extract_form_oids(series):
       AE, VIS
       AE;VIS
       AE/VIS
-      AE\nVIS
+      AE\\nVIS
     """
     domains = set()
 
@@ -158,18 +188,11 @@ def extract_form_oids(series):
 # =========================================================
 def parse_sdtm_targets(value):
     """
-    從 SDTM IG Target 抓出 (domain, variable)
-
-    支援範例：
-      AE.AETERM
-      DM.USUBJID
-      AE.AEDECOD, AE.AETOXGR
-      AE.AESTDTC; AE.AEENDTC
-      DM.USUBJID / DM.SUBJID
-
-    回傳：
-      parsed_pairs: [(domain, variable), ...]
-      unparsed_tokens: 不能解析的 token
+    解析 SDTM IG Target
+    規則：
+      - 只用分號 ; 和換行當作多 target 分隔
+      - 不用逗號 , 和斜線 / 分隔
+      - 每個 token 嘗試抓單一 DOMAIN.VARIABLE
     """
     parsed_pairs = []
     unparsed_tokens = []
@@ -181,22 +204,20 @@ def parse_sdtm_targets(value):
     if not text:
         return parsed_pairs, unparsed_tokens
 
-    tokens = re.split(r"[,\n;/]+", text)
+    # 只用分號與換行切
+    tokens = re.split(r"[;\n]+", text)
+
+    pattern = re.compile(r"^\s*([A-Za-z][A-Za-z0-9]{0,7})\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*$")
 
     for token in tokens:
         token = token.strip()
         if not token:
             continue
 
-        # 抓像 DOMAIN.VARIABLE
-        matches = re.findall(
-            r"([A-Za-z][A-Za-z0-9]{0,7})\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)",
-            token
-        )
-
-        if matches:
-            for dom, var in matches:
-                parsed_pairs.append((dom.upper(), var.upper()))
+        match = pattern.match(token)
+        if match:
+            dom, var = match.groups()
+            parsed_pairs.append((dom.upper(), var.upper()))
         else:
             unparsed_tokens.append(token)
 
@@ -207,25 +228,19 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=Non
     """
     從各 CRF sheet 的 SDTM IG Target 產生整份檔案的 SDTM domain/variable
 
-    manual_sheet_headers:
-      dict，例如 {"AE": 3, "DM": 2}
-      表示某些 sheet 使用手動指定 header row（Excel 1-based）
-
     回傳：
       mapping_df
-      source_detail_df
-      sheet_without_target_col
+      detail_df
+      sheet_errors
       unparsed_records
-      header_info_df
     """
     if manual_sheet_headers is None:
         manual_sheet_headers = {}
 
-    records = []
-    source_details = []
-    sheet_without_target_col = []
+    mapping_records = []
+    detail_records = []
+    sheet_errors = []
     unparsed_records = []
-    detected_header_info = []
 
     for sheet in selected_crf_sheets:
         try:
@@ -238,70 +253,74 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, manual_sheet_headers=Non
                 manual_header_row_excel=manual_header
             )
 
-            detected_header_info.append({
-                "Sheet": sheet,
-                "Detected Header Row (Excel)": detected_header_row
-            })
-
         except Exception as e:
-            sheet_without_target_col.append(f"{sheet}（header 偵測失敗: {e}）")
+            sheet_errors.append(f"{sheet}（header 偵測失敗: {e}）")
             continue
 
         target_col = find_column(df.columns, ["SDTM", "TARGET"])
-
         if target_col is None:
-            sheet_without_target_col.append(f"{sheet}（找不到 SDTM IG Target 欄位）")
+            sheet_errors.append(f"{sheet}（找不到 SDTM IG Target 欄位）")
             continue
 
-        for idx, val in df[target_col].items():
-            parsed_pairs, unparsed_tokens = parse_sdtm_targets(val)
+        source_var_col = find_source_variable_column(df.columns)
+
+        for idx, row in df.iterrows():
+            raw_target = row[target_col]
+            source_var = row[source_var_col] if source_var_col is not None else ""
+
+            parsed_pairs, unparsed_tokens = parse_sdtm_targets(raw_target)
 
             for dom, var in parsed_pairs:
-                records.append({
-                    "SDTM Domain": dom,
-                    "SDTM Variable": var,
-                    "Source CRF Sheet": sheet
-                })
-
-                source_details.append({
-                    "Source CRF Sheet": sheet,
-                    "Excel Data Row": idx + 1 + detected_header_row,
-                    "SDTM IG Target Raw": val,
+                mapping_records.append({
                     "SDTM Domain": dom,
                     "SDTM Variable": var
                 })
 
-            for token in unparsed_tokens:
-                unparsed_records.append({
+                detail_records.append({
                     "Source CRF Sheet": sheet,
-                    "Excel Data Row": idx + 1 + detected_header_row,
-                    "SDTM IG Target Raw": val,
-                    "Unparsed Token": token
+                    "Source CRF Variable": source_var,
+                    "SDTM Domain": dom,
+                    "SDTM Variable": var,
+                    "SDTM IG Target Raw": raw_target
                 })
 
-    if records:
+            for token in unparsed_tokens:
+                if str(token).strip():
+                    unparsed_records.append({
+                        "Source CRF Sheet": sheet,
+                        "Source CRF Variable": source_var,
+                        "SDTM IG Target Raw": raw_target,
+                        "Unparsed Token": token,
+                        "Excel Data Row": idx + 1 + detected_header_row
+                    })
+
+    if mapping_records:
         mapping_df = (
-            pd.DataFrame(records)
+            pd.DataFrame(mapping_records)
             .drop_duplicates()
-            .sort_values(by=["SDTM Domain", "SDTM Variable", "Source CRF Sheet"])
+            .sort_values(by=["SDTM Domain", "SDTM Variable"])
             .reset_index(drop=True)
         )
     else:
-        mapping_df = pd.DataFrame(columns=["SDTM Domain", "SDTM Variable", "Source CRF Sheet"])
+        mapping_df = pd.DataFrame(columns=["SDTM Domain", "SDTM Variable"])
 
-    if source_details:
-        source_detail_df = pd.DataFrame(source_details).drop_duplicates().reset_index(drop=True)
-    else:
-        source_detail_df = pd.DataFrame(
-            columns=["Source CRF Sheet", "Excel Data Row", "SDTM IG Target Raw", "SDTM Domain", "SDTM Variable"]
+    if detail_records:
+        detail_df = (
+            pd.DataFrame(detail_records)
+            .drop_duplicates()
+            .sort_values(by=["SDTM Domain", "SDTM Variable", "Source CRF Sheet", "Source CRF Variable"])
+            .reset_index(drop=True)
         )
-
-    if detected_header_info:
-        header_info_df = pd.DataFrame(detected_header_info).reset_index(drop=True)
     else:
-        header_info_df = pd.DataFrame(columns=["Sheet", "Detected Header Row (Excel)"])
+        detail_df = pd.DataFrame(columns=[
+            "Source CRF Sheet",
+            "Source CRF Variable",
+            "SDTM Domain",
+            "SDTM Variable",
+            "SDTM IG Target Raw"
+        ])
 
-    return mapping_df, source_detail_df, sheet_without_target_col, unparsed_records, header_info_df
+    return mapping_df, detail_df, sheet_errors, unparsed_records
 
 
 def summarize_sdtm_mapping(mapping_df):
@@ -318,7 +337,7 @@ def summarize_sdtm_mapping(mapping_df):
     )
 
     summary_df["Variable Count"] = summary_df["SDTM Variable"].apply(len)
-    summary_df["Variables"] = summary_df["SDTM Variable"].apply(lambda x: ", ".join(x))
+    summary_df["Variables"] = summary_df["SDTM Variable"].apply(lambda x: "; ".join(x))
 
     return summary_df[["SDTM Domain", "Variable Count", "Variables"]]
 
@@ -333,9 +352,6 @@ if uploaded_file is not None:
         file_bytes = uploaded_file.read()
         xls = pd.ExcelFile(BytesIO(file_bytes))
         all_sheets = xls.sheet_names
-
-        st.subheader("Excel 內所有 Sheets")
-        st.write(all_sheets)
 
         # ---------------------------------------------
         # Sidebar：SoA header override
@@ -366,22 +382,11 @@ if uploaded_file is not None:
                 manual_header_row_excel=manual_soa_header
             )
 
-            st.subheader("SoA 偵測結果")
-            c1, c2 = st.columns(2)
-
-            with c1:
-                st.write(f"SoA header row（Excel）: 第 {detected_soa_header} 列")
-
-            with c2:
-                st.write("SoA 欄位名稱：", list(soa_df.columns))
-
             form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
 
             if form_oid_col is None:
                 st.error("SoA 分頁中找不到 Form OID 欄位")
             else:
-                st.success(f"SoA 使用欄位：{form_oid_col}")
-
                 # ---------------------------------------------
                 # Step 2: 從 SoA 抓 CRF domains
                 # ---------------------------------------------
@@ -397,22 +402,8 @@ if uploaded_file is not None:
                     d for d in valid_domains if d not in sheet_upper_map
                 ]
 
-                c3, c4 = st.columns(2)
-
-                with c3:
-                    st.subheader("SoA 定義的 CRF Domains")
-                    st.write(sorted(valid_domains))
-
-                with c4:
-                    st.subheader("可用的 CRF Sheets")
-                    if available_sheets:
-                        st.write(sorted(available_sheets))
-                    else:
-                        st.warning("SoA 沒有對應到任何實際存在的 sheet")
-
                 if missing_sheets:
-                    st.subheader("SoA 有，但 Excel 沒有的 Sheets")
-                    st.warning(missing_sheets)
+                    st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
 
                 # ---------------------------------------------
                 # Sidebar：手動指定個別 sheet 的 header
@@ -438,17 +429,11 @@ if uploaded_file is not None:
                 # ---------------------------------------------
                 # Step 3: 從各 sheet 的 SDTM IG Target 抓 SDTM domain/variable
                 # ---------------------------------------------
-                mapping_df, source_detail_df, sheet_without_target_col, unparsed_records, header_info_df = build_sdtm_mapping(
+                mapping_df, detail_df, sheet_errors, unparsed_records = build_sdtm_mapping(
                     file_bytes=file_bytes,
                     selected_crf_sheets=available_sheets,
                     manual_sheet_headers=manual_sheet_headers
                 )
-
-                st.subheader("各 Domain Sheet 偵測到的 Header Row")
-                if not header_info_df.empty:
-                    st.dataframe(header_info_df, use_container_width=True)
-                else:
-                    st.info("目前沒有可顯示的 header 偵測結果")
 
                 # ---------------------------------------------
                 # Step 4: SDTM summary
@@ -461,51 +446,26 @@ if uploaded_file is not None:
                     summary_df = summarize_sdtm_mapping(mapping_df)
                     st.dataframe(summary_df, use_container_width=True)
 
-                    with st.expander("查看 SDTM domain-variable 明細（含來源 sheet）", expanded=False):
-                        st.dataframe(mapping_df, use_container_width=True)
+                # ---------------------------------------------
+                # Step 5: 整合後明細表
+                # ---------------------------------------------
+                st.subheader("SDTM Mapping 明細")
 
-                    with st.expander("查看來源明細（每列 SDTM IG Target 對應）", expanded=False):
-                        st.dataframe(source_detail_df, use_container_width=True)
+                if detail_df.empty:
+                    st.info("目前沒有可顯示的明細")
+                else:
+                    st.dataframe(detail_df, use_container_width=True)
 
                 # ---------------------------------------------
-                # Step 5: 問題提示
+                # Step 6: 問題提示
                 # ---------------------------------------------
-                if sheet_without_target_col:
-                    st.subheader("找不到 SDTM IG Target 欄位 / Header 偵測失敗的 Sheets")
-                    st.warning(sheet_without_target_col)
+                if sheet_errors:
+                    st.subheader("無法處理的 Sheets")
+                    st.warning(sheet_errors)
 
                 if unparsed_records:
                     st.subheader("無法解析的 SDTM IG Target 值")
                     st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
-
-                # ---------------------------------------------
-                # Step 6: 單一 CRF sheet 預覽
-                # ---------------------------------------------
-                if available_sheets:
-                    st.subheader("查看單一 CRF Sheet")
-
-                    selected_sheet = st.selectbox(
-                        "請選擇要查看的 CRF Domain Sheet",
-                        options=sorted(available_sheets)
-                    )
-
-                    preview_manual_header = manual_sheet_headers.get(selected_sheet)
-
-                    try:
-                        preview_df, preview_header_row = read_sheet_with_detected_header(
-                            file_bytes=file_bytes,
-                            sheet_name=selected_sheet,
-                            keyword_groups=[["SDTM", "TARGET"]],
-                            manual_header_row_excel=preview_manual_header
-                        )
-
-                        st.write(f"{selected_sheet} header row（Excel）: 第 {preview_header_row} 列")
-                        st.write(f"資料筆數：{len(preview_df)}")
-                        st.write("欄位名稱：", list(preview_df.columns))
-                        st.dataframe(preview_df, use_container_width=True)
-
-                    except Exception as e:
-                        st.error(f"讀取 {selected_sheet} 時發生錯誤：{e}")
 
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
