@@ -1273,7 +1273,7 @@ def apply_origin_source_method_overrides(df):
         "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
     }
     
-    mask = (origin == "ASSIGNED") & (~var_upper.isin(ae_dict_vars))
+    mask = (origin == "ASSIGNED") & (~var.isin(ae_dict_vars))
     out.loc[mask, "Source"] = "Sponsor"
 
 
