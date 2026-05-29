@@ -728,11 +728,11 @@ def append_required_partner_variables(final_df, config_df):
         # ---------- DS ----------
         if ds == "DS":
             for tgt_var in ["DSDTC", "DSDY"]:
-            if (ds, tgt_var) not in existing_pairs:
-                row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
-                if row is not None:
-                    new_rows.append(row)
-                    existing_pairs.add((ds, tgt_var))
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
 
 
         # Rule A: exact VISITNUM -> VISIT, VISITDY
