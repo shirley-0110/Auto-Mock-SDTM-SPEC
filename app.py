@@ -1263,34 +1263,6 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
 
 
 
-
-
-def normalize_data_type_by_config(raw_type, variable_name=""):
-    """
-    規則：
-      - config type=1 -> integer
-      - config type=2 -> text
-      - 若 variable 以 DTC / STDTC / ENDTC 結尾 -> datetime
-    """
-    var = normalize_text(variable_name)
-
-    if var.endswith("STDTC") or var.endswith("ENDTC") or var.endswith("DTC"):
-        return "datetime"
-
-    text = normalize_text(raw_type)
-
-    # 處理 1 / 1.0 / "1"
-    if text in ["1", "1.0", "INTEGER", "INT", "NUMERIC"]:
-        return "integer"
-
-    # 處理 2 / 2.0 / "2"
-    if text in ["2", "2.0", "TEXT", "CHAR", "STRING"]:
-        return "text"
-
-    return str(raw_type).strip() if str(raw_type).strip().lower() not in ["nan", "none"] else ""
-
-
-
 def apply_variable_level_overrides(df):
     if df.empty:
         return df
