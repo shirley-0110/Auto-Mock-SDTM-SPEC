@@ -539,10 +539,7 @@ def enrich_crf_variables_with_config(detail_df, config_df):
     crf_df["Source"] = crf_df.apply(derive_source, axis=1)
     crf_df["Pages"] = ""
     crf_df["Method"] = ""
-    crf_df["Comment"] = crf_df.apply(
-        lambda r: f"Assign Value={r['Assign Value']}" if str(r.get("Assign Value", "")).strip() != "" else "",
-        axis=1
-    )
+    crf_df["Comment"] = ""
     crf_df["IsCRFVariable"] = True
 
     cfg_keep_cols = [
@@ -1212,6 +1209,33 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Origin"] = "Collected"
     out.loc[mask, "Source"] = "Investigator"
 
+
+
+    # -------------------------------------------------
+    # Comment overrides
+    # -------------------------------------------------
+    ds = out["Dataset"].astype(str).str.upper()
+    var = out["Variable"].astype(str).str.upper()
+
+    # 1) 所有 VISITNUM
+    mask = var == "VISITNUM"
+    out.loc[mask, "Comment"] = "Assigned from the TV domain based on the VISIT"
+
+    # 2) TA.EPOCH
+    mask = (ds == "TA") & (var == "EPOCH")
+    out.loc[mask, "Comment"] = "Assigned based on protocol design"
+
+    # 3) IDVAR
+    mask = var == "IDVAR"
+    out.loc[mask, "Comment"] = (
+        "Name of the variables for the related records, such as --SEQ, VISIT or --DTC in related domain"
+    )
+
+    # 4) IDVARVAL
+    mask = var == "IDVARVAL"
+    out.loc[mask, "Comment"] = "Value of identifying variable described in IDVAR"
+
+    
 
     # =================================================
     # FINAL RULES（一定要放最後）
