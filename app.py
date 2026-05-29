@@ -1705,7 +1705,10 @@ if uploaded_file is not None:
 
                     # 2.6 Trial Design
                     st.markdown("### 2.6 Trial Design")
-                    ta_df, te_df, ti_df, ts_df, tv_df = build_trial_design_templates(protocol_no=protocol_no)
+                    ta_df, te_df, ti_df, ts_df, tv_df = build_trial_design_templates(
+                        protocol_no=protocol_no,
+                        config_df=cfg_df
+                    )
 
                     with st.expander("TA / TE / TI / TS / TV 基本欄位骨架", expanded=False):
                         st.markdown("#### TA")
