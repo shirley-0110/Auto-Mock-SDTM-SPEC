@@ -1406,7 +1406,7 @@ def apply_variable_level_overrides(df):
     # ---------------------------
     CODELIST_BEHAVIOR = {
         "UNIT": "SUFFIX_DOMAIN",
-        # "FRM": "SUFFIX_DOMAIN",  # 如果你們確認要做，再打開
+        "FRM": "SUFFIX_DOMAIN",
         "ARMCD": "KEEP",
         "ARM": "KEEP",
         "NY": "KEEP",
