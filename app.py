@@ -3,6 +3,7 @@ import pandas as pd
 import re
 import os
 import hashlib
+
 from io import BytesIO
 
 # Step 2 用到 sas7bdat
@@ -846,110 +847,6 @@ def build_trial_design_variables_spec(config_df):
             rows.append(row)
 
     return pd.DataFrame(rows)
-
-
-def apply_variable_level_overrides(df):
-    """
-    套用變數層級規則：
-      1. Data Type 規則化
-      2. DOMAIN -> Codelist=DOMAIN_<DATASET>
-      3. EPOCH -> Codelist=EPOCH
-      4. AE dictionary -> AEDICT_F
-      5. AEREL -> AEREL
-      6. 若 code 同時出現在兩個以上 domain，則改成 <CODE>_<DOMAIN>
-         - 排除：NY, Y, ND, EPOCH
-      7. STRTPT / ENRTPT -> STENRF_<DOMAIN>_START / STENRF_<DOMAIN>_END
-    """
-    if df.empty:
-        return df
-
-    out = df.copy()
-
-    for c in ["Dataset", "Variable", "Codelist", "Data Type"]:
-        if c not in out.columns:
-            out[c] = ""
-
-    ds_upper = out["Dataset"].astype(str).str.upper()
-    var_upper = out["Variable"].astype(str).str.upper()
-
-    # -------------------------------------------------
-    # 1) Data Type normalize
-    # -------------------------------------------------
-    out["Data Type"] = out.apply(
-        lambda r: normalize_data_type_by_config(r.get("Data Type", ""), r.get("Variable", "")),
-        axis=1
-    )
-
-    # -------------------------------------------------
-    # 2) DOMAIN -> DOMAIN_<Dataset>
-    # -------------------------------------------------
-    mask = var_upper == "DOMAIN"
-    out.loc[mask, "Codelist"] = ds_upper[mask].apply(lambda x: f"DOMAIN_{x}")
-
-    # -------------------------------------------------
-    # 3) EPOCH
-    # -------------------------------------------------
-    mask = var_upper == "EPOCH"
-    out.loc[mask, "Codelist"] = "EPOCH"
-
-    # -------------------------------------------------
-    # 4) AE dictionary vars
-    # -------------------------------------------------
-    ae_dict_vars = {
-        "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
-        "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
-        "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
-    }
-    out.loc[var_upper.isin(ae_dict_vars), "Codelist"] = "AEDICT_F"
-
-    # -------------------------------------------------
-    # 5) AEREL
-    # -------------------------------------------------
-    out.loc[var_upper == "AEREL", "Codelist"] = "AEREL"
-
-    # -------------------------------------------------
-    # 6) STRTPT / ENRTPT -> STENRF_<DOMAIN>_START / END
-    # -------------------------------------------------
-    mask = var_upper.str.endswith("STRTPT")
-    out.loc[mask, "Codelist"] = ds_upper[mask].apply(lambda x: f"STENRF_{x}_START")
-
-    mask = var_upper.str.endswith("ENRTPT")
-    out.loc[mask, "Codelist"] = ds_upper[mask].apply(lambda x: f"STENRF_{x}_END")
-
-    # -------------------------------------------------
-    # 7) 若同一 code 出現在兩個以上 domain，改為 <CODE>_<DOMAIN>
-    #    排除：NY, Y, ND, EPOCH
-    # -------------------------------------------------
-    excluded_codes = {"NY", "Y", "ND", "EPOCH", "", "NAN", "NONE"}
-
-    temp = out.copy()
-    temp["Codelist_norm"] = temp["Codelist"].astype(str).str.strip().str.upper()
-    temp["Dataset_norm"] = temp["Dataset"].astype(str).str.strip().str.upper()
-
-    # 先排除已經是 domain-specific 的 code，例如 DOMAIN_AE / STENRF_MH_START
-    # 僅針對「原始短碼」做判斷
-    candidate = temp[
-        ~temp["Codelist_norm"].isin(excluded_codes)
-        & ~temp["Codelist_norm"].str.startswith("DOMAIN_")
-        & ~temp["Codelist_norm"].str.startswith("STENRF_")
-    ].copy()
-
-    # 同一 codelist 出現在幾個不同 domain
-    domain_counts = (
-        candidate.groupby("Codelist_norm")["Dataset_norm"]
-        .nunique()
-        .reset_index(name="domain_n")
-    )
-
-    shared_codes = set(domain_counts.loc[domain_counts["domain_n"] >= 2, "Codelist_norm"].tolist())
-
-    # 對 shared code 改成 CODE_DOMAIN
-    share_mask = temp["Codelist_norm"].isin(shared_codes)
-    out.loc[share_mask, "Codelist"] = (
-        temp.loc[share_mask, "Codelist_norm"] + "_" + temp.loc[share_mask, "Dataset_norm"]
-    )
-
-    return out
 
 
 
