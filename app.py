@@ -1354,31 +1354,6 @@ def apply_variable_level_overrides(df):
 
 
 
-
-def build_config_variable_lookup(config_df):
-    """
-    建立 (Dataset, Variable) -> config metadata 的 lookup
-    """
-    lookup = {}
-
-    if config_df.empty:
-        return lookup
-
-    temp = config_df.copy()
-
-    if "Dataset" not in temp.columns or "Variable" not in temp.columns:
-        return lookup
-
-    for _, row in temp.iterrows():
-        ds = str(row.get("Dataset", "")).strip().upper()
-        var = str(row.get("Variable", "")).strip().upper()
-
-        if ds and var:
-            lookup[(ds, var)] = row.to_dict()
-
-    return lookup
-
-
 def make_empty_variable_row(dataset, variable):
     return {
         "Dataset": dataset,
@@ -1394,38 +1369,6 @@ def make_empty_variable_row(dataset, variable):
         "Core": "",
         "VarNum": ""
     }
-
-
-
-def build_variable_row_from_config(dataset, variable, cfg_lookup):
-    """
-    只在 config 找得到時才回傳 row；
-    找不到就回傳 None
-    """
-    key = (str(dataset).upper(), str(variable).upper())
-
-    if key not in cfg_lookup:
-        return None
-
-    meta = cfg_lookup[key]
-
-    row = {
-        "Dataset": str(meta.get("Dataset", dataset)).upper(),
-        "Variable": str(meta.get("Variable", variable)).upper(),
-        "Label": meta.get("Variable Label", ""),
-        "Data Type": normalize_data_type_by_config(meta.get("Data Type", ""), variable),
-        "Codelist": meta.get("Codelist", ""),
-        "Origin": "Derived",
-        "Source": "",
-        "Pages": "",
-        "Method": "",
-        "Comment": "",
-        "Core": meta.get("Core", ""),
-        "VarNum": meta.get("VarNum", "")
-    }
-
-    return row
-
 
 
 
