@@ -1045,25 +1045,21 @@ def apply_origin_source_method_overrides(df):
     # -------------------------------------------------
     # RDOMAIN 特例
     # -------------------------------------------------
+    # CO 特例
     mask = non_crf_mask((ds == "CO") & (var == "RDOMAIN"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Codelist"] = "RDOMAIN_CO"
 
-    mask = non_crf_mask((ds == "SUPPAE") & (var == "RDOMAIN"))
-    out.loc[mask, "Origin"] = "Assigned"
-    out.loc[mask, "Source"] = "Sponsor"
-    out.loc[mask, "Codelist"] = "DOMAIN_AE"
+    # SUPP-- 通用規則
+    mask = non_crf_mask(ds.str.startswith("SUPP") & (var == "RDOMAIN"))
 
-    mask = non_crf_mask((ds == "SUPPDS") & (var == "RDOMAIN"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
-    out.loc[mask, "Codelist"] = "DOMAIN_DS"
 
-    mask = non_crf_mask((ds == "SUPPEG") & (var == "RDOMAIN"))
-    out.loc[mask, "Origin"] = "Assigned"
-    out.loc[mask, "Source"] = "Sponsor"
-    out.loc[mask, "Codelist"] = "DOMAIN_EG"
+    # 把 SUPPxx -> xx
+    out.loc[mask, "Codelist"] = ds[mask].str.replace(r"^SUPP", "DOMAIN_", regex=True)
+
 
     # -------------------------------------------------
     # CO 保留欄位
