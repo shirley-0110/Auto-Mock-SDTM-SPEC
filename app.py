@@ -1134,6 +1134,19 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Source"] = "Sponsor"
 
     # -------------------------------------------------
+    # EC/EX 特規
+    # -------------------------------------------------
+    EX_vars = {
+        "ECTRT", "ECDOSE", "ECDOSU", "ECDOSFRM",
+        "EXTRT", "EXDOSE", "EXDOSU", "EXDOSFRM"
+    }
+    mask = non_crf_mask(var.isin(EX_vars))
+    out.loc[mask, "Origin"] = "Protocol"
+    out.loc[mask, "Source"] = "Sponsor"
+
+
+    
+    # -------------------------------------------------
     # Protocol-driven trial design vars
     # -------------------------------------------------
     protocol_vars = {
