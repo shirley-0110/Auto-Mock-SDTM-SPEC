@@ -1213,15 +1213,6 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Source"] = "Investigator"
 
 
-    # -------------------------------------------------
-    # 所有 Protocol/Derived 的 Source 一律 Sponsor
-    # -------------------------------------------------
-    mask = out["Origin"].astype(str).str.upper() == "PROTOCOL"
-    out.loc[mask, "Source"] = "Sponsor"
-
-
-
-
     # =================================================
     # FINAL RULES（一定要放最後）
     # =================================================
