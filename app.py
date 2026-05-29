@@ -1634,6 +1634,7 @@ def get_trial_design_definitions():
                 ("ELEMENT", "Description of Element", "text"),
                 ("TABRANCH", "Branch", "text"),
                 ("TATRANS", "Transition Rule", "text"),
+                ("EPOCH", "Epoch", "text")            
             ]
         },
         "TE": {
