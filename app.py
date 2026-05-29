@@ -1174,6 +1174,7 @@ def normalize_data_type_by_config(raw_type, variable_name=""):
     return str(raw_type).strip() if str(raw_type).strip().lower() not in ["nan", "none"] else ""
 
 
+
 def apply_variable_level_overrides(df):
     if df.empty:
         return df
@@ -1184,12 +1185,14 @@ def apply_variable_level_overrides(df):
         if c not in out.columns:
             out[c] = ""
 
-    ds = out["Dataset"].astype(str).str.upper()
-    var = out["Variable"].astype(str).str.upper()
-    cl  = out["Codelist"].astype(str).str.strip().str.upper()
+    ds_upper = out["Dataset"].astype(str).str.upper()
+    var_upper = out["Variable"].astype(str).str.upper()
+
+    # 先不要太早固定 cl_upper，因為後面 Codelist 會被改寫
+    # cl_upper 如有需要，務必在後面重新計算
 
     # ---------------------------
-    # Data Type normalize
+    # 1) Data Type normalize
     # ---------------------------
     out["Data Type"] = out.apply(
         lambda r: normalize_data_type_by_config(r.get("Data Type", ""), r.get("Variable", "")),
@@ -1197,69 +1200,70 @@ def apply_variable_level_overrides(df):
     )
 
     # ---------------------------
-    # Rule table
+    # 2) variable-driven special rules
+    #    這些不能只靠原始 Codelist 判斷
     # ---------------------------
-    CODELIST_RULES = {
-        "DOMAIN": "DOMAIN_SUFFIX",
-        "UNIT": "DOMAIN_SUFFIX",
-        "FRM": "DOMAIN_SUFFIX",
+    # DOMAIN
+    mask = var_upper == "DOMAIN"
+    out.loc[mask, "Codelist"] = ds_upper[mask].apply(lambda x: f"DOMAIN_{x}")
 
-        "STRTPT": "REL_TIME_START",
-        "ENRTPT": "REL_TIME_END",
-    }
+    # STRTPT / ENRTPT
+    mask = var_upper.str.endswith("STRTPT")
+    out.loc[mask, "Codelist"] = ds_upper[mask].apply(lambda x: f"STENRF_{x}_START")
 
-    # ---------------------------
+    mask = var_upper.str.endswith("ENRTPT")
+    out.loc[mask, "Codelist"] = ds_upper[mask].apply(lambda x: f"STENRF_{x}_END")
+
+    # EPOCH
+    mask = var_upper == "EPOCH"
+    out.loc[mask, "Codelist"] = "EPOCH"
+
     # AE dictionary
-    # ---------------------------
     ae_dict_vars = {
         "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
         "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
         "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
     }
-    out.loc[var.isin(ae_dict_vars), "Codelist"] = "AEDICT_F"
+    out.loc[var_upper.isin(ae_dict_vars), "Codelist"] = "AEDICT_F"
 
-    # ---------------------------
     # AEREL
-    # ---------------------------
-    out.loc[var == "AEREL", "Codelist"] = "AEREL"
+    out.loc[var_upper == "AEREL", "Codelist"] = "AEREL"
 
     # ---------------------------
-    # EPOCH
+    # 3) base codelist behavior table
     # ---------------------------
-    out.loc[var == "EPOCH", "Codelist"] = "EPOCH"
+    CODELIST_BEHAVIOR = {
+        "UNIT": "SUFFIX_DOMAIN",
+        # "FRM": "SUFFIX_DOMAIN",  # 如果你們確認要做，再打開
+        "ARMCD": "KEEP",
+        "ARM": "KEEP",
+        "NY": "KEEP",
+        "Y": "KEEP",
+        "ND": "KEEP",
+        "EPOCH": "KEEP",
+        "IETESTCD": "KEEP",
+        "IETEST": "KEEP",
+        "TSPARMCD": "KEEP",
+        "TSPARM": "KEEP",
+    }
 
-    # ---------------------------
-    # Apply rule table
-    # ---------------------------
+    # 這裡再重新抓一次，因為前面已經改過 Codelist
+    cl_upper = out["Codelist"].astype(str).str.strip().str.upper()
+
     for i in out.index:
-        v = var[i]
-        c = cl[i]
+        code = cl_upper[i]
+        ds = ds_upper[i]
 
-        # skip empty
-        if c in ["", "NAN", "NONE"]:
+        if code in ["", "NAN", "NONE"]:
             continue
 
-        # ---------- STRTPT / ENRTPT ----------
-        if v.endswith("STRTPT"):
-            out.at[i, "Codelist"] = f"STENRF_{ds[i]}_START"
-            continue
+        behavior = CODELIST_BEHAVIOR.get(code, "KEEP")
 
-        if v.endswith("ENRTPT"):
-            out.at[i, "Codelist"] = f"STENRF_{ds[i]}_END"
-            continue
-
-        # ---------- DOMAIN ----------
-        if v == "DOMAIN":
-            out.at[i, "Codelist"] = f"DOMAIN_{ds[i]}"
-            continue
-
-        # ---------- general suffix rule ----------
-        if c in CODELIST_RULES:
-            if CODELIST_RULES[c] == "DOMAIN_SUFFIX":
-                out.at[i, "Codelist"] = f"{c}_{ds[i]}"
-            continue
+        if behavior == "SUFFIX_DOMAIN":
+            out.at[i, "Codelist"] = f"{code}_{ds}"
 
     return out
+
 
 
 
