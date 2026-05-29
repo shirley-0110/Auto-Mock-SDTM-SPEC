@@ -1240,7 +1240,11 @@ def apply_origin_source_method_overrides(df):
     # RULE 2：--TEST / --TESTCD 的 Codelist fallback
     # 不看 Origin，只要 codelist 為空就直接等於 variable 本身
     # -------------------------------------------------
-    empty_cl_mask = test_mask & (
+    test_mask2 = (
+        (var.str.endswith("TEST") | var.str.endswith("TESTCD"))
+    )
+
+    empty_cl_mask = test_mask2 & (
         out["Codelist"].fillna("").astype(str).str.strip() == ""
     )
     out.loc[empty_cl_mask, "Codelist"] = var[empty_cl_mask]
