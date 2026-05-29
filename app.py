@@ -979,7 +979,7 @@ if uploaded_file is not None:
                         key="protocol_title"
                     )
 
-                st.markdown("#### Version Control")
+                st.markdown("##### Version Control")
 
                 # ---------------------------
                 # Row 1：SDTM IG + SDTM CT
