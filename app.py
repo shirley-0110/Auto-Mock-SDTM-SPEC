@@ -1205,24 +1205,87 @@ def get_trial_design_definitions():
     }
 
 
-def build_trial_design_templates(protocol_no=""):
-    defs = get_trial_design_definitions()
 
+def get_trial_design_columns_from_config(domain, config_df, fallback_columns):
+    """
+    依 config 中的 VarNum 排 Trial Design template 欄位順序。
+    若 config 沒有某些欄位，仍保留並放在最後（依 fallback 原順序）。
+    """
+    domain = str(domain).upper()
+    fallback_columns = [str(c).upper() for c in fallback_columns]
+
+    if config_df is None or config_df.empty:
+        return fallback_columns
+
+    cfg = config_df.copy()
+
+    required_cols = {"Dataset", "Variable"}
+    if not required_cols.issubset(set(cfg.columns)):
+        return fallback_columns
+
+    td_cfg = cfg[cfg["Dataset"].astype(str).str.upper() == domain].copy()
+
+    if td_cfg.empty:
+        return fallback_columns
+
+    if "VarNum" in td_cfg.columns:
+        td_cfg["VarNum_num"] = pd.to_numeric(td_cfg["VarNum"], errors="coerce")
+    else:
+        td_cfg["VarNum_num"] = pd.NA
+
+    td_cfg["Variable"] = td_cfg["Variable"].astype(str).str.upper()
+
+    # 只取 fallback_columns 裡有定義的欄位，避免 config 多出不想顯示的內容
+    td_cfg = td_cfg[td_cfg["Variable"].isin(fallback_columns)].copy()
+
+    td_cfg = td_cfg.sort_values(
+        by=["VarNum_num", "Variable"],
+        na_position="last"
+    )
+
+    ordered_from_cfg = td_cfg["Variable"].dropna().astype(str).str.upper().tolist()
+
+    # 把 config 沒列到的欄位補到後面，維持 fallback 順序
+    remaining = [c for c in fallback_columns if c not in ordered_from_cfg]
+
+    final_cols = ordered_from_cfg + remaining
+
+    # 去重，保留順序
+    final_cols = list(dict.fromkeys(final_cols))
+
+    return final_cols
+
+
+def build_trial_design_templates(protocol_no="", config_df=None):
+    """
+    Trial Design template:
+      - STUDYID 自動帶 protocol_no
+      - DOMAIN 自動帶 TA/TE/TI/TS/TV
+      - 欄位順序依 config 的 VarNum 排
+    """
+    defs = get_trial_design_definitions()
     outputs = []
 
     for domain in ["TA", "TE", "TI", "TS", "TV"]:
-        cols = [v[0] for v in defs[domain]["variables"]]
+        fallback_columns = [v[0].upper() for v in defs[domain]["variables"]]
+        ordered_columns = get_trial_design_columns_from_config(
+            domain=domain,
+            config_df=config_df,
+            fallback_columns=fallback_columns
+        )
 
-        row = {c: "" for c in cols}
+        row = {c: "" for c in ordered_columns}
+
         if "STUDYID" in row:
             row["STUDYID"] = protocol_no
         if "DOMAIN" in row:
             row["DOMAIN"] = domain
 
-        df = pd.DataFrame([row], columns=cols)
+        df = pd.DataFrame([row], columns=ordered_columns)
         outputs.append(df)
 
     return tuple(outputs)
+
 
 
 def build_trial_design_datasets_spec(version):
