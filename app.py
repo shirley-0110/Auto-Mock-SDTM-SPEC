@@ -575,6 +575,7 @@ def enrich_crf_variables_with_config(detail_df, config_df):
     ]]
 
 
+
 def build_variables_spec_from_domains_config(detail_df, config_df):
     detected_datasets = sorted(detail_df["SDTM Domain"].astype(str).str.upper().unique()) if not detail_df.empty else []
     expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
@@ -584,6 +585,13 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
 
     final_df = pd.concat([crf_part, non_crf_part], ignore_index=True)
     final_df = final_df.drop_duplicates(subset=["Dataset", "Variable"])
+
+    # ---------------------------
+    # Append Trial Design variables
+    # ---------------------------
+    td_var_df = build_trial_design_variables_spec()
+    final_df = pd.concat([final_df, td_var_df], ignore_index=True)
+    final_df = final_df.drop_duplicates(subset=["Dataset", "Variable"], keep="first")
 
     if "VarNum" in final_df.columns:
         final_df["VarNum_num"] = pd.to_numeric(final_df["VarNum"], errors="coerce")
@@ -595,12 +603,19 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
     final_df = final_df.reset_index(drop=True)
     final_df.insert(0, "Order", range(1, len(final_df) + 1))
 
-    final_df = final_df[[
+    keep_cols = [
         "Order", "Dataset", "Variable", "Label", "Data Type", "Codelist",
         "Origin", "Source", "Pages", "Method", "Comment", "Core"
-    ]]
+    ]
+
+    for c in keep_cols:
+        if c not in final_df.columns:
+            final_df[c] = ""
+
+    final_df = final_df[keep_cols]
 
     return final_df
+
 
 
 
