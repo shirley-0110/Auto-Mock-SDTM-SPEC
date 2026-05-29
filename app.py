@@ -953,6 +953,30 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Vendor"
 
+
+    # -------------------------------------------------
+    # --TEST / --TESTCD（非 CRF）
+    # 規則：
+    #   - 直接 Assigned / Sponsor
+    #   - 若 config 的 Codelist 為空，則 Codelist = Variable
+    #   - 例外：TI.IETEST 不套用
+    # -------------------------------------------------
+    mask = non_crf_mask(
+        (var.str.endswith("TEST") | var.str.endswith("TESTCD")) &
+        ~((ds == "TI") & (var == "IETEST"))
+    )
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+
+    # 若 Codelist 為空，直接設為變數名本身
+    empty_cl_mask = mask & (
+        out["Codelist"].fillna("").astype(str).str.strip() == ""
+    )
+    out.loc[empty_cl_mask, "Codelist"] = var[empty_cl_mask]
+
+
+
+    
     # -------------------------------------------------
     # VISIT / VISITNUM / VISITDY
     # -------------------------------------------------
@@ -1195,6 +1219,19 @@ def apply_origin_source_method_overrides(df):
     mask = out["Origin"].astype(str).str.upper() == "PROTOCOL"
     out.loc[mask, "Source"] = "Sponsor"
 
+
+    # -------------------------------------------------
+    # 所有 Assigned 的 Source 一律 Sponsor
+    # 但 AE dictionary vars 例外，維持 Vendor
+    # 且仍只作用在 non-CRF
+    # -------------------------------------------------
+    assigned_mask = non_crf_mask(
+        (out["Origin"].astype(str).str.upper() == "ASSIGNED") &
+        (~var.isin(ae_dict_vars))
+    )
+    out.loc[assigned_mask, "Source"] = "Sponsor"
+
+    
     return out
 
 
