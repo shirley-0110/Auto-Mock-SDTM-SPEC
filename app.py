@@ -1278,46 +1278,92 @@ def normalize_data_type_by_config(raw_type, variable_name=""):
 
 
 def apply_variable_level_overrides(df):
-    """
-    套用使用者指定的變數層級規則：
-      1. DOMAIN -> Codelist=DOMAIN
-      2. AE dictionary variables -> Codelist=AEDICT_F
-      3. AEREL -> Codelist=AEREL
-      4. Data Type 依規則重算
-    """
     if df.empty:
         return df
 
     out = df.copy()
 
-    # 確保欄位存在
-    for c in ["Variable", "Codelist", "Data Type"]:
+    for c in ["Dataset", "Variable", "Codelist", "Data Type"]:
         if c not in out.columns:
             out[c] = ""
 
-    var_upper = out["Variable"].astype(str).str.upper()
+    ds = out["Dataset"].astype(str).str.upper()
+    var = out["Variable"].astype(str).str.upper()
+    cl  = out["Codelist"].astype(str).str.strip().str.upper()
 
-    # DOMAIN
-    out.loc[var_upper == "DOMAIN", "Codelist"] = "DOMAIN"
-
-    # AE dictionary vars
-    ae_dict_vars = {
-        "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
-        "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
-        "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
-    }
-    out.loc[var_upper.isin(ae_dict_vars), "Codelist"] = "AEDICT_F"
-
-    # AEREL
-    out.loc[var_upper == "AEREL", "Codelist"] = "AEREL"
-
-    # Data Type 規則化
+    # ---------------------------
+    # Data Type normalize
+    # ---------------------------
     out["Data Type"] = out.apply(
         lambda r: normalize_data_type_by_config(r.get("Data Type", ""), r.get("Variable", "")),
         axis=1
     )
 
+    # ---------------------------
+    # Rule table
+    # ---------------------------
+    CODELIST_RULES = {
+        "DOMAIN": "DOMAIN_SUFFIX",
+        "UNIT": "DOMAIN_SUFFIX",
+        "FRM": "DOMAIN_SUFFIX",
+
+        "STRTPT": "REL_TIME_START",
+        "ENRTPT": "REL_TIME_END",
+    }
+
+    # ---------------------------
+    # AE dictionary
+    # ---------------------------
+    ae_dict_vars = {
+        "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
+        "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
+        "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
+    }
+    out.loc[var.isin(ae_dict_vars), "Codelist"] = "AEDICT_F"
+
+    # ---------------------------
+    # AEREL
+    # ---------------------------
+    out.loc[var == "AEREL", "Codelist"] = "AEREL"
+
+    # ---------------------------
+    # EPOCH
+    # ---------------------------
+    out.loc[var == "EPOCH", "Codelist"] = "EPOCH"
+
+    # ---------------------------
+    # Apply rule table
+    # ---------------------------
+    for i in out.index:
+        v = var[i]
+        c = cl[i]
+
+        # skip empty
+        if c in ["", "NAN", "NONE"]:
+            continue
+
+        # ---------- STRTPT / ENRTPT ----------
+        if v.endswith("STRTPT"):
+            out.at[i, "Codelist"] = f"STENRF_{ds[i]}_START"
+            continue
+
+        if v.endswith("ENRTPT"):
+            out.at[i, "Codelist"] = f"STENRF_{ds[i]}_END"
+            continue
+
+        # ---------- DOMAIN ----------
+        if v == "DOMAIN":
+            out.at[i, "Codelist"] = f"DOMAIN_{ds[i]}"
+            continue
+
+        # ---------- general suffix rule ----------
+        if c in CODELIST_RULES:
+            if CODELIST_RULES[c] == "DOMAIN_SUFFIX":
+                out.at[i, "Codelist"] = f"{c}_{ds[i]}"
+            continue
+
     return out
+
 
 
 def build_config_variable_lookup(config_df):
