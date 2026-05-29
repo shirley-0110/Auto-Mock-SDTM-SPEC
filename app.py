@@ -959,7 +959,7 @@ def apply_origin_source_method_overrides(df):
     mask = non_crf_mask((ds == "TA") & (var == "EPOCH"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
-    out.loc[mask, "Method"] = "Assigned based on protocol design"
+    out.loc[mask, "Method"] = ""
 
     # -------------------------------------------------
     # AE dictionary variables
@@ -980,8 +980,8 @@ def apply_origin_source_method_overrides(df):
     mask = non_crf_mask(var == "VISITNUM")
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
-    out.loc[mask, "Method"] = "Assigned from the TV domain based on the VISIT"
-
+    out.loc[mask, "Method"] = ""
+    
     mask = non_crf_mask(var == "VISIT")
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
@@ -1362,7 +1362,7 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
 
     keep_cols = [
         "Order", "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment", "Core"
+        "Origin", "Source", "Pages", "Method", "Comment"
     ]
 
     for c in keep_cols:
@@ -1612,7 +1612,7 @@ def build_codelists_sheet_from_variables(variables_df):
         .astype(str)
         .str.strip()
     )
-    ids = ids[ids != ""]
+    ids = ids[ids != "" & (ids.str.upper() != "AEDICT_F")]
     ids = sorted(ids.drop_duplicates().tolist())
 
     return pd.DataFrame({
