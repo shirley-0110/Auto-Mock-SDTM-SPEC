@@ -1405,6 +1405,21 @@ def apply_variable_level_overrides(df):
     # AEREL
     out.loc[var_upper == "AEREL", "Codelist"] = "AEREL"
 
+    # DSDECOD
+    out.loc[var_upper == "DSDECOD", "Codelist"] = "NCOMPLT"
+
+
+    var_upper = out["Variable"].astype(str).str.upper()
+    
+    # ARMCD / ACTARMCD → ARMCD
+    mask = var_upper.isin(["ARMCD", "ACTARMCD"])
+    out.loc[mask, "Codelist"] = "ARMCD"
+
+    # ARM / ACTARM → ARM
+    mask = var_upper.isin(["ARM", "ACTARM"])
+    out.loc[mask, "Codelist"] = "ARM"
+
+    
     # ---------------------------
     # 3) base codelist behavior table
     # ---------------------------
