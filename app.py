@@ -483,6 +483,7 @@ def get_non_crf_from_config(detail_df, config_df):
     non_crf["Method"] = non_crf.get("Method", "")
     non_crf["Comment"] = non_crf.get("Comment", "")
     non_crf["Core"] = non_crf.get("Core", "")
+    non_crf["IsCRFVariable"] = False
 
     out = non_crf[[
         "Dataset", "Variable", "Label", "Data Type", "Codelist",
@@ -490,6 +491,7 @@ def get_non_crf_from_config(detail_df, config_df):
     ]].drop_duplicates(subset=["Dataset", "Variable"])
 
     return out.reset_index(drop=True)
+
 
 
 
@@ -503,11 +505,13 @@ def enrich_crf_variables_with_config(detail_df, config_df):
     規則：
       - 有 Assign Value -> Origin=Assigned
       - 其他 CRF 收集來的 -> Origin=Collected, Source=Investigator
+      - 來自 CRF 的變數一律標記 IsCRFVariable=True
     """
     if detail_df.empty:
         return pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type", "Codelist",
-            "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum"
+            "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum",
+            "IsCRFVariable"
         ])
 
     detected_datasets = sorted(detail_df["SDTM Domain"].astype(str).str.upper().unique())
@@ -538,6 +542,7 @@ def enrich_crf_variables_with_config(detail_df, config_df):
         lambda r: f"Assign Value={r['Assign Value']}" if str(r.get("Assign Value", "")).strip() != "" else "",
         axis=1
     )
+    crf_df["IsCRFVariable"] = True
 
     cfg_keep_cols = [
         c for c in [
@@ -575,12 +580,14 @@ def enrich_crf_variables_with_config(detail_df, config_df):
         "Method": "first",
         "Comment": join_unique,
         "Core": "first",
-        "VarNum": "first"
+        "VarNum": "first",
+        "IsCRFVariable": "first"
     }).reset_index()
 
     return grouped[[
         "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum"
+        "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum",
+        "IsCRFVariable"
     ]]
 
 
@@ -634,6 +641,7 @@ def build_config_variable_lookup(config_df):
     return lookup
 
 
+
 def build_variable_row_from_config(dataset, variable, cfg_lookup):
     """
     只在 config 找得到時才建立 row；
@@ -659,10 +667,12 @@ def build_variable_row_from_config(dataset, variable, cfg_lookup):
         "Method": "",
         "Comment": "",
         "Core": meta.get("Core", ""),
-        "VarNum": meta.get("VarNum", "")
+        "VarNum": meta.get("VarNum", ""),
+        "IsCRFVariable": False
     }
 
     return row
+
 
 
 def append_required_partner_variables(final_df, config_df):
@@ -827,6 +837,7 @@ def build_trial_design_variables_spec(config_df):
                     "Comment": "",
                     "Core": meta.get("Core", ""),
                     "VarNum": meta.get("VarNum", "")
+                    "IsCRFVariable": False
                 }
             else:
                 row = {
@@ -842,6 +853,7 @@ def build_trial_design_variables_spec(config_df):
                     "Comment": "",
                     "Core": "",
                     "VarNum": ""
+                    "IsCRFVariable": False
                 }
 
             rows.append(row)
@@ -851,37 +863,47 @@ def build_trial_design_variables_spec(config_df):
 
 
 
+
 def apply_origin_source_method_overrides(df):
     """
     最終修正 Origin / Source / Method / 特定 Codelist
-    依目前 mock SPEC 與使用者規則做 rule engine
+    注意：
+      - 只有 IsCRFVariable=False 的列才允許被 override
+      - CRF 來的變數一律保留原本狀態，不被 non-CRF 規則覆蓋
     """
     if df.empty:
         return df
 
     out = df.copy()
 
-    for c in ["Dataset", "Variable", "Origin", "Source", "Method", "Codelist"]:
+    for c in ["Dataset", "Variable", "Origin", "Source", "Method", "Codelist", "IsCRFVariable"]:
         if c not in out.columns:
             out[c] = ""
 
     ds = out["Dataset"].astype(str).str.upper()
     var = out["Variable"].astype(str).str.upper()
 
+    # True 表示來自 CRF -> 不可 override
+    is_crf = out["IsCRFVariable"].fillna(False).astype(bool)
+
+    # helper: 只對 non-CRF 套規則
+    def non_crf_mask(base_mask):
+        return base_mask & (~is_crf)
+
     # -------------------------------------------------
     # Core identifiers
     # -------------------------------------------------
-    mask = var == "STUDYID"
+    mask = non_crf_mask(var == "STUDYID")
     out.loc[mask, "Origin"] = "Protocol"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = ""
 
-    mask = var == "DOMAIN"
+    mask = non_crf_mask(var == "DOMAIN")
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = ""
 
-    mask = var == "USUBJID"
+    mask = non_crf_mask(var == "USUBJID")
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = "Concatenation of STUDYID-SITEID-SUBJID"
@@ -889,7 +911,7 @@ def apply_origin_source_method_overrides(df):
     # -------------------------------------------------
     # Sequence
     # -------------------------------------------------
-    mask = (var.str.endswith("SEQ")) & (var != "TSSEQ")
+    mask = non_crf_mask((var.str.endswith("SEQ")) & (var != "TSSEQ"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = (
@@ -897,7 +919,7 @@ def apply_origin_source_method_overrides(df):
         "which sorted by key variables in the domain"
     )
 
-    mask = var == "TSSEQ"
+    mask = non_crf_mask(var == "TSSEQ")
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = (
@@ -907,13 +929,13 @@ def apply_origin_source_method_overrides(df):
     # -------------------------------------------------
     # EPOCH
     # -------------------------------------------------
-    mask = var == "EPOCH"
+    mask = non_crf_mask(var == "EPOCH")
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = ""
 
     # TA.EPOCH 例外
-    mask = (ds == "TA") & (var == "EPOCH")
+    mask = non_crf_mask((ds == "TA") & (var == "EPOCH"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = "Assigned based on protocol design"
@@ -926,24 +948,24 @@ def apply_origin_source_method_overrides(df):
         "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
         "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
     }
-    mask = var.isin(ae_dict_vars)
+    mask = non_crf_mask(var.isin(ae_dict_vars))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Vendor"
 
     # -------------------------------------------------
     # VISIT / VISITNUM / VISITDY
     # -------------------------------------------------
-    mask = var == "VISITNUM"
+    mask = non_crf_mask(var == "VISITNUM")
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = "Assigned from the TV domain based on the VISIT"
 
-    mask = var == "VISIT"
+    mask = non_crf_mask(var == "VISIT")
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = ""
 
-    mask = var == "VISITDY"
+    mask = non_crf_mask(var == "VISITDY")
     out.loc[mask, "Origin"] = "Protocol"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = ""
@@ -951,36 +973,35 @@ def apply_origin_source_method_overrides(df):
     # -------------------------------------------------
     # STTPT / ENTPT
     # -------------------------------------------------
-    mask = var.str.endswith("STTPT") | var.str.endswith("ENTPT")
+    mask = non_crf_mask(var.str.endswith("STTPT") | var.str.endswith("ENTPT"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
-    # Method 先留空白
 
     # -------------------------------------------------
     # STRES / STAT
     # -------------------------------------------------
-    mask = var.str.endswith("STRESC")
+    mask = non_crf_mask(var.str.endswith("STRESC"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = var[mask].str.replace("STRESC", "ORRES", regex=False).apply(
         lambda x: f"Equal to {x}"
     )
 
-    mask = var.str.endswith("STRESN")
+    mask = non_crf_mask(var.str.endswith("STRESN"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = var[mask].str.replace("STRESN", "STRESC", regex=False).apply(
         lambda x: f"Equal to numeric value of {x} if {x} contains numeric data"
     )
 
-    mask = var.str.endswith("STRESU")
+    mask = non_crf_mask(var.str.endswith("STRESU"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = var[mask].str.replace("STRESU", "ORRESU", regex=False).apply(
         lambda x: f"Equal to {x}"
     )
 
-    mask = var.str.endswith("STAT")
+    mask = non_crf_mask(var.str.endswith("STAT"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = var[mask].str.replace("STAT", "ORRES", regex=False).apply(
@@ -1004,7 +1025,7 @@ def apply_origin_source_method_overrides(df):
             f"Equal to {src} - DM.RFSTDTC if {src} precedes DM.RFSTDTC"
         )
 
-    mask = var.str.endswith("DY")
+    mask = non_crf_mask(var.str.endswith("DY"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = var[mask].apply(build_dy_method)
@@ -1012,7 +1033,7 @@ def apply_origin_source_method_overrides(df):
     # -------------------------------------------------
     # LOBXFL
     # -------------------------------------------------
-    mask = var.str.endswith("LOBXFL")
+    mask = non_crf_mask(var.str.endswith("LOBXFL"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = (
@@ -1023,22 +1044,22 @@ def apply_origin_source_method_overrides(df):
     # -------------------------------------------------
     # RDOMAIN 特例
     # -------------------------------------------------
-    mask = (ds == "CO") & (var == "RDOMAIN")
+    mask = non_crf_mask((ds == "CO") & (var == "RDOMAIN"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Codelist"] = "RDOMAIN_CO"
 
-    mask = (ds == "SUPPAE") & (var == "RDOMAIN")
+    mask = non_crf_mask((ds == "SUPPAE") & (var == "RDOMAIN"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Codelist"] = "DOMAIN_AE"
 
-    mask = (ds == "SUPPDS") & (var == "RDOMAIN")
+    mask = non_crf_mask((ds == "SUPPDS") & (var == "RDOMAIN"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Codelist"] = "DOMAIN_DS"
 
-    mask = (ds == "SUPPEG") & (var == "RDOMAIN")
+    mask = non_crf_mask((ds == "SUPPEG") & (var == "RDOMAIN"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Codelist"] = "DOMAIN_EG"
@@ -1047,67 +1068,67 @@ def apply_origin_source_method_overrides(df):
     # CO 保留欄位
     # -------------------------------------------------
     co_assigned_vars = {"RDOMAIN", "IDVAR", "IDVARVAL", "COREF", "COEVAL"}
-    mask = (ds == "CO") & var.isin(co_assigned_vars)
+    mask = non_crf_mask((ds == "CO") & var.isin(co_assigned_vars))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
 
     # -------------------------------------------------
     # DM 特規
     # -------------------------------------------------
-    mask = (ds == "DM") & (var == "RFSTDTC")
+    mask = non_crf_mask((ds == "DM") & (var == "RFSTDTC"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = (
         "Equal to date/time of first exposure to study treatment (the earliest value of EXSTDTC)"
     )
 
-    mask = (ds == "DM") & (var == "RFENDTC")
+    mask = non_crf_mask((ds == "DM") & (var == "RFENDTC"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = (
         "Equal to date/time of last exposure to study treatment (the latest value of EXENDTC)"
     )
 
-    mask = (ds == "DM") & (var == "RFXSTDTC")
+    mask = non_crf_mask((ds == "DM") & (var == "RFXSTDTC"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = "Equal to RFSTDTC"
 
-    mask = (ds == "DM") & (var == "RFXENDTC")
+    mask = non_crf_mask((ds == "DM") & (var == "RFXENDTC"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = "Equal to RFENDTC"
 
-    mask = (ds == "DM") & (var == "RFPENDTC")
+    mask = non_crf_mask((ds == "DM") & (var == "RFPENDTC"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = "Equal to the last known date during the study"
 
-    mask = (ds == "DM") & (var == "DTHFL")
+    mask = non_crf_mask((ds == "DM") & (var == "DTHFL"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = 'Set to "Y" if DTHDTC is populated'
 
-    mask = (ds == "DM") & (var == "ARMNRS")
+    mask = non_crf_mask((ds == "DM") & (var == "ARMNRS"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
 
-    mask = (ds == "DM") & (var == "ACTARMUD")
+    mask = non_crf_mask((ds == "DM") & (var == "ACTARMUD"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
 
-    mask = (ds == "DM") & (var == "COUNTRY")
+    mask = non_crf_mask((ds == "DM") & (var == "COUNTRY"))
     out.loc[mask, "Codelist"] = "ISO3166"
 
     # -------------------------------------------------
     # DS 特規
     # -------------------------------------------------
-    mask = (ds == "DS") & (var == "DSDTC")
+    mask = non_crf_mask((ds == "DS") & (var == "DSDTC"))
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = "Equal to DSSTDTC"
 
-    mask = (ds == "DS") & (var == "DSCAT")
+    mask = non_crf_mask((ds == "DS") & (var == "DSCAT"))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
 
@@ -1120,7 +1141,8 @@ def apply_origin_source_method_overrides(df):
         ("TI", "IETEST"), ("TI", "TIVERS"),
         ("TV", "VISITDY"), ("TV", "TVSTRL"), ("TV", "TVENRL"),
     }
-    protocol_mask = [(d, v) in protocol_vars for d, v in zip(ds, var)]
+    protocol_mask = pd.Series([(d, v) in protocol_vars for d, v in zip(ds, var)], index=out.index)
+    protocol_mask = non_crf_mask(protocol_mask)
     out.loc[protocol_mask, "Origin"] = "Protocol"
     out.loc[protocol_mask, "Source"] = "Sponsor"
 
@@ -1134,13 +1156,12 @@ def apply_origin_source_method_overrides(df):
         "TSPARMCD", "TSPARM", "TSVALCD", "TSVCDREF", "TSVCDVER",
         "AGEU", "DSCAT"
     }
-    mask = var.isin(assigned_vars)
+    mask = non_crf_mask(var.isin(assigned_vars))
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
 
     # -------------------------------------------------
     # Common Collected/Investigator vars
-    # (保留已被更高優先規則覆蓋者)
     # -------------------------------------------------
     collected_vars = {
         "AESPID", "AETERM", "AESER", "AEACN", "AEREL", "AEOUT", "AESCONG",
@@ -1153,9 +1174,10 @@ def apply_origin_source_method_overrides(df):
         "EGDTC", "VSDTC", "EGTPT", "MHSTRTPT", "MHENRTPT",
         "AEENRTPT", "DSSTDTC"
     }
-    mask = var.isin(collected_vars)
+    mask = non_crf_mask(var.isin(collected_vars))
     out.loc[mask, "Origin"] = "Collected"
     out.loc[mask, "Source"] = "Investigator"
+
 
     # -------------------------------------------------
     # 所有 Protocol 的 Source 一律 Sponsor
