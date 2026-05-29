@@ -1219,37 +1219,6 @@ def apply_origin_source_method_overrides(df):
     mask = out["Origin"].astype(str).str.upper() == "PROTOCOL"
     out.loc[mask, "Source"] = "Sponsor"
 
-
-
-
-    # =================================================
-    # FINAL RULES（一定要放最後）
-    # =================================================
-
-    ds = out["Dataset"].astype(str).str.upper()
-    var = out["Variable"].astype(str).str.upper()
-
-    # ---------------------------
-    # RULE：TEST / TESTCD（無條件）
-    # ---------------------------
-    test_mask = (
-        (var.str.endswith("TEST") | var.str.endswith("TESTCD")) &
-        ~((ds == "TI") & (var == "IETEST"))   # 排除 TI.IETEST
-    )
-
-    # 強制 Assigned / Sponsor
-    out.loc[test_mask, "Origin"] = "Assigned"
-    out.loc[test_mask, "Source"] = "Sponsor"
-
-    # ---------------------------
-    # RULE：Codelist fallback
-    # ---------------------------
-    empty_cl_mask = test_mask & (
-        out["Codelist"].fillna("").astype(str).str.strip() == ""
-    )
-
-    out.loc[empty_cl_mask, "Codelist"] = var[empty_cl_mask]
-
     
     return out
 
