@@ -491,11 +491,16 @@ def get_non_crf_from_config(detail_df, config_df):
     return out.reset_index(drop=True)
 
 
+
 def enrich_crf_variables_with_config(detail_df, config_df):
     """
     CRF 收集到的都保留
     並排除 SEND Only
     同一個 Dataset+Variable 只保留一筆
+
+    規則：
+      - 有 Assign Value -> Origin=Assigned
+      - 其他 CRF 收集來的 -> Origin=Collected, Source=Investigator
     """
     if detail_df.empty:
         return pd.DataFrame(columns=[
@@ -516,13 +521,15 @@ def enrich_crf_variables_with_config(detail_df, config_df):
     def derive_origin(row):
         if str(row.get("Assign Value", "")).strip() != "":
             return "Assigned"
-        return "CRF"
+        return "Collected"
+
+    def derive_source(row):
+        if str(row.get("Assign Value", "")).strip() != "":
+            return ""
+        return "Investigator"
 
     crf_df["Origin"] = crf_df.apply(derive_origin, axis=1)
-    crf_df["Source"] = crf_df.apply(
-        lambda r: f"{r['Source CRF Sheet']} / {r['Source CRF Variable']}".strip(" /"),
-        axis=1
-    )
+    crf_df["Source"] = crf_df.apply(derive_source, axis=1)
     crf_df["Pages"] = ""
     crf_df["Method"] = ""
     crf_df["Comment"] = crf_df.apply(
@@ -560,8 +567,8 @@ def enrich_crf_variables_with_config(detail_df, config_df):
         "Label": "first",
         "Data Type": "first",
         "Codelist": "first",
-        "Origin": lambda s: "Assigned" if "Assigned" in list(s) else "CRF",
-        "Source": join_unique,
+        "Origin": lambda s: "Assigned" if "Assigned" in list(s) else "Collected",
+        "Source": lambda s: "Investigator" if "Investigator" in list(s) else "",
         "Pages": "first",
         "Method": "first",
         "Comment": join_unique,
@@ -576,16 +583,289 @@ def enrich_crf_variables_with_config(detail_df, config_df):
 
 
 
+
+
 def build_variables_spec_from_domains_config(detail_df, config_df):
     detected_datasets = sorted(detail_df["SDTM Domain"].astype(str).str.upper().unique()) if not detail_df.empty else []
     expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
 
+    # ---------------------------
+    # Part 1: CRF collected / assigned variables
+    # ---------------------------
     crf_part = enrich_crf_variables_with_config(detail_df, expanded_cfg)
+
+    # ---------------------------
+    # Part 2: non-CRF variables from config
+    # ---------------------------
     non_crf_part = get_non_crf_from_config(detail_df, expanded_cfg)
 
     final_df = pd.concat([crf_part, non_crf_part], ignore_index=True)
-    final_df = final_df.drop_duplicates(subset=["Dataset", "Variable"])
+    final_df = final_df.drop_duplicates(subset=["Dataset", "Variable"], keep="first")
 
+    # ---------------------------
+    # 若你前面已經把 Trial Design variables 整進來，這段會一起加進來
+    # 若尚未定義 build_trial_design_variables_spec，也不會報錯
+    # ---------------------------
+    try:
+        td_var_df = build_trial_design_variables_spec()
+        final_df = pd.concat([final_df, td_var_df], ignore_index=True)
+        final_df = final_df.drop_duplicates(subset=["Dataset", "Variable"], keep="first")
+    except Exception:
+        pass
+
+    # ---------------------------
+    # 補齊 partner variables
+    # --DTC -> --DY
+    # --STDTC -> --STDY
+    # --ENDTC -> --ENDY
+    # --STRTPT -> --STTPT
+    # --ENRTPT -> --ENTPT
+    # ---------------------------
+    final_df = append_required_partner_variables(final_df, expanded_cfg)
+
+    # ---------------------------
+    # Data Type / Codelist 規則化
+    # ---------------------------
+    final_df = apply_variable_level_overrides(final_df)
+
+    # ---------------------------
+    # 排序：
+    # 1. Dataset
+    # 2. VarNum
+    # 3. Variable
+    # 然後每個 Dataset 的 Order 重跑 1,2,3...
+    # ---------------------------
+    if "VarNum" not in final_df.columns:
+        final_df["VarNum"] = ""
+
+    final_df["VarNum_num"] = pd.to_numeric(final_df["VarNum"], errors="coerce")
+    final_df = final_df.sort_values(
+        by=["Dataset", "VarNum_num", "Variable"],
+        na_position="last"
+    ).reset_index(drop=True)
+
+    # 每個 domain / dataset 重新編流水號
+    final_df["Order"] = final_df.groupby("Dataset").cumcount() + 1
+
+    # 最後欄位整理
+    keep_cols = [
+        "Order", "Dataset", "Variable", "Label", "Data Type", "Codelist",
+        "Origin", "Source", "Pages", "Method", "Comment", "Core"
+    ]
+
+    for c in keep_cols:
+        if c not in final_df.columns:
+            final_df[c] = ""
+
+    final_df = final_df[keep_cols]
+
+    return final_df
+
+
+
+
+def normalize_data_type_by_config(raw_type, variable_name=""):
+    """
+    規則：
+      - config type=1 -> integer
+      - config type=2 -> text
+      - 若 variable 以 DTC / STDTC / ENDTC 結尾 -> datetime
+    """
+    var = normalize_text(variable_name)
+
+    if var.endswith("STDTC") or var.endswith("ENDTC") or var.endswith("DTC"):
+        return "datetime"
+
+    text = normalize_text(raw_type)
+
+    # 處理 1 / 1.0 / "1"
+    if text in ["1", "1.0", "INTEGER", "INT", "NUMERIC"]:
+        return "integer"
+
+    # 處理 2 / 2.0 / "2"
+    if text in ["2", "2.0", "TEXT", "CHAR", "STRING"]:
+        return "text"
+
+    return str(raw_type).strip() if str(raw_type).strip().lower() not in ["nan", "none"] else ""
+
+
+def apply_variable_level_overrides(df):
+    """
+    套用使用者指定的變數層級規則：
+      1. DOMAIN -> Codelist=DOMAIN
+      2. AE dictionary variables -> Codelist=AEDICT_F
+      3. AEREL -> Codelist=AEREL
+      4. Data Type 依規則重算
+    """
+    if df.empty:
+        return df
+
+    out = df.copy()
+
+    # 確保欄位存在
+    for c in ["Variable", "Codelist", "Data Type"]:
+        if c not in out.columns:
+            out[c] = ""
+
+    var_upper = out["Variable"].astype(str).str.upper()
+
+    # DOMAIN
+    out.loc[var_upper == "DOMAIN", "Codelist"] = "DOMAIN"
+
+    # AE dictionary vars
+    ae_dict_vars = {
+        "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
+        "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
+        "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
+    }
+    out.loc[var_upper.isin(ae_dict_vars), "Codelist"] = "AEDICT_F"
+
+    # AEREL
+    out.loc[var_upper == "AEREL", "Codelist"] = "AEREL"
+
+    # Data Type 規則化
+    out["Data Type"] = out.apply(
+        lambda r: normalize_data_type_by_config(r.get("Data Type", ""), r.get("Variable", "")),
+        axis=1
+    )
+
+    return out
+
+
+def build_config_variable_lookup(config_df):
+    """
+    建立 (Dataset, Variable) -> config metadata 的 lookup
+    """
+    lookup = {}
+
+    if config_df.empty:
+        return lookup
+
+    temp = config_df.copy()
+
+    if "Dataset" not in temp.columns or "Variable" not in temp.columns:
+        return lookup
+
+    for _, row in temp.iterrows():
+        ds = str(row.get("Dataset", "")).strip().upper()
+        var = str(row.get("Variable", "")).strip().upper()
+
+        if ds and var:
+            lookup[(ds, var)] = row.to_dict()
+
+    return lookup
+
+
+def make_empty_variable_row(dataset, variable):
+    return {
+        "Dataset": dataset,
+        "Variable": variable,
+        "Label": "",
+        "Data Type": "",
+        "Codelist": "",
+        "Origin": "Derived",
+        "Source": "",
+        "Pages": "",
+        "Method": "",
+        "Comment": "",
+        "Core": "",
+        "VarNum": ""
+    }
+
+
+def build_variable_row_from_config(dataset, variable, cfg_lookup, comment=""):
+    """
+    如果 config 找得到，就用 config metadata 建 row；
+    找不到就建一個最基本的 row。
+    """
+    key = (str(dataset).upper(), str(variable).upper())
+
+    if key not in cfg_lookup:
+        row = make_empty_variable_row(dataset, variable)
+        row["Comment"] = comment
+        row["Data Type"] = normalize_data_type_by_config("", variable)
+        return row
+
+    meta = cfg_lookup[key]
+
+    row = {
+        "Dataset": str(meta.get("Dataset", dataset)).upper(),
+        "Variable": str(meta.get("Variable", variable)).upper(),
+        "Label": meta.get("Variable Label", ""),
+        "Data Type": normalize_data_type_by_config(meta.get("Data Type", ""), variable),
+        "Codelist": meta.get("Codelist", ""),
+        "Origin": "Derived",
+        "Source": "",
+        "Pages": "",
+        "Method": "",
+        "Comment": comment,
+        "Core": meta.get("Core", ""),
+        "VarNum": meta.get("VarNum", "")
+    }
+
+    return row
+
+
+def append_required_partner_variables(final_df, config_df):
+    """
+    規則：
+      --DTC    -> --DY
+      --STDTC  -> --STDY
+      --ENDTC  -> --ENDY
+      --STRTPT -> --STTPT
+      --ENRTPT -> --ENTPT
+    """
+    if final_df.empty:
+        return final_df
+
+    pair_rules = [
+        ("STDTC", "STDY"),
+        ("ENDTC", "ENDY"),
+        ("DTC", "DY"),
+        ("STRTPT", "STTPT"),
+        ("ENRTPT", "ENTPT"),
+    ]
+
+    out = final_df.copy()
+    cfg_lookup = build_config_variable_lookup(config_df)
+
+    existing_pairs = set(
+        zip(
+            out["Dataset"].astype(str).str.upper(),
+            out["Variable"].astype(str).str.upper()
+        )
+    )
+
+    new_rows = []
+
+    for dataset, grp in out.groupby("Dataset", dropna=False):
+        ds = str(dataset).upper()
+        vars_in_ds = set(grp["Variable"].astype(str).str.upper())
+
+        for src_suffix, tgt_suffix in pair_rules:
+            matched_vars = [v for v in vars_in_ds if v.endswith(src_suffix)]
+
+            for src_var in matched_vars:
+                base = src_var[:-len(src_suffix)]
+                tgt_var = f"{base}{tgt_suffix}"
+
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(
+                        dataset=ds,
+                        variable=tgt_var,
+                        cfg_lookup=cfg_lookup,
+                        comment=f"Auto-added because {src_var} exists"
+                    )
+                    new_rows.append(row)
+                    existing_pairs.add((ds, tgt_var))
+                    vars_in_ds.add(tgt_var)
+
+    if new_rows:
+        out = pd.concat([out, pd.DataFrame(new_rows)], ignore_index=True)
+
+    return out
+
+    
     # ---------------------------
     # Append Trial Design variables
     # ---------------------------
