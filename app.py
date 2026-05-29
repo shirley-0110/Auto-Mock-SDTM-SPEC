@@ -1214,7 +1214,7 @@ def apply_origin_source_method_overrides(df):
 
 
     # -------------------------------------------------
-    # 所有 Protocol 的 Source 一律 Sponsor
+    # 所有 Protocol/Derived 的 Source 一律 Sponsor
     # -------------------------------------------------
     mask = out["Origin"].astype(str).str.upper() == "PROTOCOL"
     out.loc[mask, "Source"] = "Sponsor"
@@ -1226,7 +1226,6 @@ def apply_origin_source_method_overrides(df):
     # FINAL RULES（一定要放最後）
     # =================================================
 
-    # refresh
     ds = out["Dataset"].astype(str).str.upper()
     var = out["Variable"].astype(str).str.upper()
     origin = out["Origin"].astype(str).str.upper()
@@ -1256,21 +1255,26 @@ def apply_origin_source_method_overrides(df):
     out.loc[empty_cl_mask, "Codelist"] = var[empty_cl_mask]
 
     # -------------------------------------------------
-    # RULE 3：除了 AE dictionary vars 之外，
-    #         其他 Assigned 的 Source 一律 Sponsor
+    # RULE 3
     # -------------------------------------------------
+
+    # Protocol → Sponsor
+    mask = origin == "PROTOCOL"
+    out.loc[mask, "Source"] = "Sponsor"
+
+    # Derived → Sponsor
+    mask = origin == "DERIVED"
+    out.loc[mask, "Source"] = "Sponsor"
+
+    # Assigned → Sponsor（排除 AE dictionary）
     ae_dict_vars = {
         "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
         "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
         "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
     }
-
-    assigned_mask = (
-        (out["Origin"].astype(str).str.upper() == "ASSIGNED") &
-        (~var.isin(ae_dict_vars))
-    )
-    out.loc[assigned_mask, "Source"] = "Sponsor"
-
+    
+    mask = (origin == "ASSIGNED") & (~var_upper.isin(ae_dict_vars))
+    out.loc[mask, "Source"] = "Sponsor"
 
 
     
