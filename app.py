@@ -442,16 +442,21 @@ def expand_suppqual_to_supp_datasets(config_df, detected_datasets):
     return expanded_cfg.reset_index(drop=True)
 
 
+def is_send_only(core_value):
+    text = normalize_text(core_value)
+    return "SEND" in text and "ONLY" in text
+
+
 def get_non_crf_from_config(detail_df, config_df):
     """
     non-CRF = config 裡所有 variables - Step 1 mapping 已有的 variables
     只保留目前 mapping 有出現的 datasets
+    並排除 SEND Only
     """
     if detail_df.empty or config_df.empty:
         return pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type", "Codelist",
-            "Origin", "Source", "Pages", "Method", "Comment",
-            "Mandatory", "Role", "Core", "Class", "VarNum"
+            "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum"
         ])
 
     crf_pairs = set(
@@ -471,6 +476,9 @@ def get_non_crf_from_config(detail_df, config_df):
 
     cfg = cfg[cfg["Dataset"].isin(detected_datasets)]
 
+    if "Core" in cfg.columns:
+        cfg = cfg[~cfg["Core"].apply(is_send_only)].copy()
+
     cfg["pair"] = list(zip(cfg["Dataset"], cfg["Variable"]))
     non_crf = cfg[~cfg["pair"].isin(crf_pairs)].copy()
 
@@ -483,33 +491,34 @@ def get_non_crf_from_config(detail_df, config_df):
     non_crf["Pages"] = ""
     non_crf["Method"] = non_crf.get("Method", "")
     non_crf["Comment"] = non_crf.get("Comment", "")
+    non_crf["Core"] = non_crf.get("Core", "")
 
-    for col in ["Label", "Data Type", "Codelist", "Origin", "Source", "Pages", "Method", "Comment",
-                "Mandatory", "Role", "Core", "Class", "VarNum"]:
-        if col not in non_crf.columns:
-            non_crf[col] = ""
-
-    return non_crf[[
+    out = non_crf[[
         "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment",
-        "Mandatory", "Role", "Core", "Class", "VarNum"
-    ]].drop_duplicates().reset_index(drop=True)
+        "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum"
+    ]].drop_duplicates()
+
+    return out.reset_index(drop=True)
 
 
 def enrich_crf_variables_with_config(detail_df, config_df):
     """
     用 domains.sas7bdat 補 Step 1 抓到的 CRF variables metadata
     SUPP-- 會自動連到 SUPPQUAL 的展開結果
+    並排除 SEND Only
+    同一個 Dataset+Variable 只保留一筆
     """
     if detail_df.empty:
         return pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type", "Codelist",
-            "Origin", "Source", "Pages", "Method", "Comment",
-            "Mandatory", "Role", "Core", "Class", "VarNum"
+            "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum"
         ])
 
     detected_datasets = sorted(detail_df["SDTM Domain"].astype(str).str.upper().unique())
     expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
+
+    if "Core" in expanded_cfg.columns:
+        expanded_cfg = expanded_cfg[~expanded_cfg["Core"].apply(is_send_only)].copy()
 
     crf_df = detail_df.copy()
     crf_df["Dataset"] = crf_df["SDTM Domain"].astype(str).str.upper()
@@ -535,7 +544,7 @@ def enrich_crf_variables_with_config(detail_df, config_df):
     cfg_keep_cols = [
         c for c in [
             "Dataset", "Variable", "Variable Label", "Data Type", "Codelist",
-            "Mandatory", "Role", "Core", "Class", "VarNum"
+            "Core", "VarNum"
         ] if c in expanded_cfg.columns
     ]
 
@@ -548,16 +557,34 @@ def enrich_crf_variables_with_config(detail_df, config_df):
     )
 
     merged["Label"] = merged.get("Variable Label", "")
+    if "Core" not in merged.columns:
+        merged["Core"] = ""
+    if "VarNum" not in merged.columns:
+        merged["VarNum"] = ""
 
-    for col in ["Label", "Data Type", "Codelist", "Mandatory", "Role", "Core", "Class", "VarNum"]:
-        if col not in merged.columns:
-            merged[col] = ""
+    # 同 Dataset + Variable 聚合
+    def join_unique(series):
+        vals = [str(x).strip() for x in series if str(x).strip() not in ["", "nan", "None"]]
+        vals = list(dict.fromkeys(vals))
+        return "; ".join(vals)
 
-    # 只保留你指定的欄位
-    return merged[[
+    grouped = merged.groupby(["Dataset", "Variable"], dropna=False).agg({
+        "Label": "first",
+        "Data Type": "first",
+        "Codelist": "first",
+        "Origin": lambda s: "Assigned" if "Assigned" in list(s) else "CRF",
+        "Source": join_unique,
+        "Pages": "first",
+        "Method": "first",
+        "Comment": join_unique,
+        "Core": "first",
+        "VarNum": "first"
+    }).reset_index()
+
+    return grouped[[
         "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment", "VarNum"
-    ]].drop_duplicates().reset_index(drop=True)
+        "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum"
+    ]]
 
 
 def build_variables_spec_from_domains_config(detail_df, config_df):
@@ -567,14 +594,8 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
     crf_part = enrich_crf_variables_with_config(detail_df, expanded_cfg)
     non_crf_part = get_non_crf_from_config(detail_df, expanded_cfg)
 
-    # non-CRF 也只保留你指定欄位
-    non_crf_part = non_crf_part[[
-        "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment", "VarNum"
-    ]].copy()
-
     final_df = pd.concat([crf_part, non_crf_part], ignore_index=True)
-    final_df = final_df.drop_duplicates()
+    final_df = final_df.drop_duplicates(subset=["Dataset", "Variable"])
 
     if "VarNum" in final_df.columns:
         final_df["VarNum_num"] = pd.to_numeric(final_df["VarNum"], errors="coerce")
@@ -586,10 +607,9 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
     final_df = final_df.reset_index(drop=True)
     final_df.insert(0, "Order", range(1, len(final_df) + 1))
 
-    # 最終欄位順序
     final_df = final_df[[
         "Order", "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment"
+        "Origin", "Source", "Pages", "Method", "Comment", "Core"
     ]]
 
     return final_df
@@ -633,7 +653,7 @@ def build_datasets_spec_from_domains_config(mapping_df, config_df, version):
 
 
 # =========================================================
-# Define sheet：Study info
+# Define / Dictionaries / Trial Design
 # =========================================================
 def extract_protocol_no_from_filename(file_name):
     """
@@ -678,9 +698,9 @@ def build_define_sheet(version, protocol_no="", protocol_title=""):
             "Language"
         ],
         "Value": [
-            protocol_no,     # StudyName
-            protocol_title,  # StudyDescription
-            protocol_no,     # ProtocolName
+            protocol_no,
+            protocol_title,
+            protocol_no,
             "SDTM-IG",
             std_ver,
             "en"
@@ -697,21 +717,21 @@ def build_empty_codelists_sheet():
     ])
 
 
-def build_default_dictionaries_sheet():
+def build_default_dictionaries_sheet(meddra_version="", cm_dictionary="WHO ATC/DDD", cm_version=""):
     return pd.DataFrame([
         {
             "ID": "AEDICT_F",
             "Name": "Adverse Event Dictionary",
             "Data Type": "text",
             "Dictionary": "MEDDRA",
-            "Version": "28.1"
+            "Version": meddra_version
         },
         {
             "ID": "CMDICT_F",
             "Name": "Concomitant Meds Dictionary",
             "Data Type": "text",
-            "Dictionary": "WHO ATC/DDD",
-            "Version": "2025"
+            "Dictionary": cm_dictionary,
+            "Version": cm_version
         },
         {
             "ID": "ISO3166",
@@ -881,7 +901,6 @@ if uploaded_file is not None:
             st.session_state["step1_cache_key"] = step1_cache_key
             st.session_state["step1_result"] = result
 
-        available_sheets = result["available_sheets"]
         missing_sheets = result["missing_sheets"]
         mapping_df = result["mapping_df"]
         detail_df = result["detail_df"]
@@ -942,48 +961,74 @@ if uploaded_file is not None:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
                 # -------------------------------
-                # 2.1 所有使用者輸入集中
+                # Basic Information
                 # -------------------------------
                 st.markdown("### Basic Information")
 
                 default_protocol_no = extract_protocol_no_from_filename(uploaded_file.name)
 
-                col_a, col_b, col_c = st.columns([1, 2, 1])
-
-                with col_a:
+                col1, col2 = st.columns(2)
+                with col1:
                     protocol_no = st.text_input(
                         "Protocol No",
                         value=default_protocol_no,
                         key="protocol_no"
                     )
-
-                with col_b:
+                with col2:
                     protocol_title = st.text_input(
                         "Protocol Title (請填寫)",
                         value="",
                         key="protocol_title"
                     )
 
-                with col_c:
+                col3, col4, col5 = st.columns(3)
+                with col3:
                     version = st.selectbox(
                         "SDTM Version",
                         ["Version 3.3", "Version 3.4"],
                         key="sdtm_version_selector"
                     )
+                with col4:
+                    sdtm_ct = st.text_input(
+                        "SDTM CT",
+                        value="",
+                        key="sdtm_ct"
+                    )
+                with col5:
+                    meddra_version = st.text_input(
+                        "MEDDRA version",
+                        value="28.1",
+                        key="meddra_version"
+                    )
 
-                define_df = build_define_sheet(
-                    version=version,
-                    protocol_no=protocol_no,
-                    protocol_title=protocol_title
-                )
-
-                st.dataframe(define_df, use_container_width=True)
+                col6, col7 = st.columns(2)
+                with col6:
+                    cm_dictionary = st.selectbox(
+                        "CM 字典",
+                        ["WHO ATC/DDD", "WHODrug Global B3"],
+                        key="cm_dictionary"
+                    )
+                with col7:
+                    cm_version = st.text_input(
+                        "CM 版本",
+                        value="2025",
+                        key="cm_version"
+                    )
 
                 try:
                     raw_cfg_df, cfg_path = load_domains_config(version)
                     cfg_df = standardize_domains_config(raw_cfg_df)
 
                     st.success(f"✅ 已成功載入 config：{cfg_path}")
+
+                    # 2.1 Define
+                    st.markdown("### 2.1 Define")
+                    define_df = build_define_sheet(
+                        version=version,
+                        protocol_no=protocol_no,
+                        protocol_title=protocol_title
+                    )
+                    st.dataframe(define_df, use_container_width=True)
 
                     # 2.2 Datasets
                     st.markdown("### 2.2 Datasets")
@@ -1010,7 +1055,11 @@ if uploaded_file is not None:
                     # 2.5 Dictionaries
                     st.markdown("### 2.5 Dictionaries")
                     dictionaries_df = st.data_editor(
-                        build_default_dictionaries_sheet(),
+                        build_default_dictionaries_sheet(
+                            meddra_version=meddra_version,
+                            cm_dictionary=cm_dictionary,
+                            cm_version=cm_version
+                        ),
                         num_rows="dynamic",
                         use_container_width=True,
                         key="dictionaries_editor"
