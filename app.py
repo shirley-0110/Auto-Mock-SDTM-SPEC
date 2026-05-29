@@ -735,142 +735,56 @@ if uploaded_file is not None:
                 st.success("✅ 已成功進入 Step 2")
 
             # -------------------------------
-            # 2.1 選擇 SDTM Version
+            # 2.1 選擇 Version
             # -------------------------------
-            st.markdown("### 2.1 選擇 SDTM Version")
-
             version = st.selectbox(
                 "請選擇 SDTM Version",
-                ["Version 3.3", "Version 3.4"],
-                key="sdtm_version_selector"
+                ["Version 3.3", "Version 3.4"]
             )
 
-            BASE_PATH = r"\\172.21.9.16\BDM_File\BS Files\CDISC\04. SDTM"
-            config_base_path = f"{BASE_PATH}\\{version}"
+            # -------------------------------
+            # 2.2 config 路徑
+            # -------------------------------
+            if version == "Version 3.3":
+                base_path = "config/v33"
+            else:
+                base_path = "config/v34"
 
-            st.write("📂 Config base path：")
-            st.code(config_base_path)
+            var_path = f"{base_path}/variables.sas7bdat"
+            ds_path  = f"{base_path}/domains.sas7bdat"
+
+            st.write("使用 config：", base_path)
 
             # -------------------------------
-            # 2.2 Debug：確認路徑是否存在
+            # 2.3 讀 config
             # -------------------------------
-            import os
-
-            if not os.path.exists(BASE_PATH):
-                st.error("❌ Server 無法存取 Y:\\，請確認環境是否有 mapping")
-                st.stop()
-
-            if not os.path.exists(config_base_path):
-                st.error("❌ 找不到 Version 資料夾，請確認 Version 資料夾名稱")
-                st.stop()
-
-            st.success("✅ Config 路徑存在")
-
-            # -------------------------------
-            # 2.3 列出資料夾內容（關鍵 debug）
-            # -------------------------------
-            st.markdown("### 2.2 Config 資料夾內容")
+            import pyreadstat
 
             try:
-                files = os.listdir(config_base_path)
-                st.write("📄 根目錄內容：")
-                st.write(files)
-            except Exception as e:
-                st.error(f"❌ 無法讀取資料夾：{e}")
-                st.stop()
+                var_cfg_df, _ = pyreadstat.read_sas7bdat(var_path)
+                ds_cfg_df, _ = pyreadstat.read_sas7bdat(ds_path)
 
-            # -------------------------------
-            # 找子資料夾（Datasets / Variables）
-            # -------------------------------
-            datasets_path = os.path.join(config_base_path, "Datasets")
-            variables_path = os.path.join(config_base_path, "Variables")
-    
-            ds_files = []
-            var_files = []
-    
-            if os.path.exists(datasets_path):
-                ds_files = [f for f in os.listdir(datasets_path) if f.lower().endswith(".sas7bdat")]
-
-            if os.path.exists(variables_path):
-                var_files = [f for f in os.listdir(variables_path) if f.lower().endswith(".sas7bdat")]
-
-            st.write("📂 Datasets folder：", datasets_path)
-            st.write("📄 Datasets files：", ds_files)
-
-            st.write("📂 Variables folder：", variables_path)
-            st.write("📄 Variables files：", var_files)
-
-            # -------------------------------
-            # 2.4 使用者選擇 config 檔（避免 hardcode 出錯）
-            # -------------------------------
-            st.markdown("### 2.3 選擇 Config 檔")
-
-            selected_ds = None
-            selected_var = None
-
-            if ds_files:
-                selected_ds = st.selectbox("選擇 Datasets config", ds_files, key="ds_select")
-            else:
-                st.warning("⚠ Datasets 資料夾沒有找到 sas7bdat 檔案")
-
-            if var_files:
-                selected_var = st.selectbox("選擇 Variables config", var_files, key="var_select")
-            else:
-                st.warning("⚠ Variables 資料夾沒有找到 sas7bdat 檔案")
-
-            # -------------------------------
-            # 2.5 讀取 SAS config
-            # -------------------------------
-            st.markdown("### 2.4 載入 SAS Config")
-
-            config_loaded = False
-            var_cfg_df = pd.DataFrame()
-            ds_cfg_df = pd.DataFrame()
-
-            try:
-                import pyreadstat
-
-                if selected_ds:
-                    ds_path_full = os.path.join(datasets_path, selected_ds)
-                    ds_cfg_df, _ = pyreadstat.read_sas7bdat(ds_path_full)
-
-                if selected_var:
-                    var_path_full = os.path.join(variables_path, selected_var)
-                    var_cfg_df, _ = pyreadstat.read_sas7bdat(var_path_full)
-
-                config_loaded = True
-
-            except Exception as e:
-                st.error(f"❌ 讀取 config 失敗：{e}")
-
-            # -------------------------------
-            # 2.6 顯示結果
-            # -------------------------------
-            if config_loaded:
                 st.success("✅ Config 載入成功")
 
-            if not var_cfg_df.empty:
-                st.markdown("#### Variables config preview")
-                st.dataframe(var_cfg_df.head(), use_container_width=True)
+                st.write("Variables config preview")
+                st.dataframe(var_cfg_df.head())
 
-            if not ds_cfg_df.empty:
-                st.markdown("#### Datasets config preview")
-                st.dataframe(ds_cfg_df.head(), use_container_width=True)
+                st.write("Datasets config preview")
+                st.dataframe(ds_cfg_df.head())
 
-                st.info("👉 下一步我們จะ用 config 自動產生 non‑CRF variables")
-
-            else:
-                st.warning("⚠ 尚未成功載入 config")
+            except Exception as e:
+                st.error(f"❌ Config 讀取失敗：{e}")
 
             # -------------------------------
-            # 2.7 Mapping Preview（保留）
+            # 2.4 Mapping Preview（保留）
             # -------------------------------
-            st.markdown("### 2.5 Mapping Preview")
+            st.markdown("### Mapping Preview")
 
             summary_df = summarize_sdtm_mapping(mapping_df)
-            st.dataframe(summary_df, use_container_width=True)
+            st.dataframe(summary_df)
 
-            st.write(f"目前 mapping 總變數數量：{len(mapping_df)}")
+            st.write(f"mapping 總數：{len(mapping_df)}")
+
 
 
     except Exception as e:
