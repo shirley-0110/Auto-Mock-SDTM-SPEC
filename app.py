@@ -744,24 +744,149 @@ def build_default_dictionaries_sheet(meddra_version="", cm_dictionary="WHO ATC/D
     ])
 
 
-def build_trial_design_templates():
-    ta_df = pd.DataFrame(columns=[
-        "STUDYID", "ARMCD", "ARM", "TAETORD", "ETCD", "ELEMENT", "TABRANCH", "TATRANS"
-    ])
-    te_df = pd.DataFrame(columns=[
-        "STUDYID", "ETCD", "ELEMENT", "TESTRL", "TEDUR"
-    ])
-    ti_df = pd.DataFrame(columns=[
-        "STUDYID", "IETESTCD", "IETEST", "IECAT"
-    ])
-    ts_df = pd.DataFrame(columns=[
-        "STUDYID", "TSSEQ", "TSGRPID", "TSPARMCD", "TSPARM", "TSVAL", "TSVALCD", "TSVCDREF", "TSVALNF"
-    ])
-    tv_df = pd.DataFrame(columns=[
-        "STUDYID", "VISITNUM", "VISIT", "VISITDY", "ARMCD"
-    ])
 
-    return ta_df, te_df, ti_df, ts_df, tv_df
+def get_trial_design_definitions():
+    return {
+        "TA": {
+            "label": "Trial Arms",
+            "class": "Trial Design",
+            "structure": "One record per planned arm",
+            "key_variables": "STUDYID, ARMCD",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("ARMCD", "Planned Arm Code", "text"),
+                ("ARM", "Description of Planned Arm", "text"),
+                ("TAETORD", "Planned Order of Elements Within Arm", "integer"),
+                ("ETCD", "Element Code", "text"),
+                ("ELEMENT", "Description of Element", "text"),
+                ("TABRANCH", "Branch", "text"),
+                ("TATRANS", "Transition Rule", "text"),
+            ]
+        },
+        "TE": {
+            "label": "Trial Elements",
+            "class": "Trial Design",
+            "structure": "One record per element",
+            "key_variables": "STUDYID, ETCD",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("ETCD", "Element Code", "text"),
+                ("ELEMENT", "Description of Element", "text"),
+                ("TESTRL", "Rule for Start of Element", "text"),
+                ("TEDUR", "Planned Duration of Element", "text"),
+            ]
+        },
+        "TI": {
+            "label": "Trial Inclusion/Exclusion Criteria",
+            "class": "Trial Design",
+            "structure": "One record per inclusion/exclusion criterion",
+            "key_variables": "STUDYID, IETESTCD",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("IETESTCD", "Inclusion/Exclusion Criterion Short Name", "text"),
+                ("IETEST", "Inclusion/Exclusion Criterion", "text"),
+                ("IECAT", "Inclusion/Exclusion Category", "text"),
+            ]
+        },
+        "TS": {
+            "label": "Trial Summary",
+            "class": "Trial Design",
+            "structure": "One record per trial summary parameter",
+            "key_variables": "STUDYID, TSSEQ",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("TSSEQ", "Sequence Number", "integer"),
+                ("TSGRPID", "Group ID", "text"),
+                ("TSPARMCD", "Trial Summary Parameter Short Name", "text"),
+                ("TSPARM", "Trial Summary Parameter", "text"),
+                ("TSVAL", "Parameter Value", "text"),
+                ("TSVALCD", "Parameter Value (Code)", "text"),
+                ("TSVCDREF", "Code Dictionary Reference", "text"),
+                ("TSVALNF", "Null Flavor", "text"),
+            ]
+        },
+        "TV": {
+            "label": "Trial Visits",
+            "class": "Trial Design",
+            "structure": "One record per visit per arm",
+            "key_variables": "STUDYID, VISITNUM",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("VISITNUM", "Visit Number", "float"),
+                ("VISIT", "Visit Name", "text"),
+                ("VISITDY", "Planned Study Day of Visit", "integer"),
+                ("ARMCD", "Planned Arm Code", "text"),
+            ]
+        }
+    }
+
+
+def build_trial_design_templates(protocol_no=""):
+    defs = get_trial_design_definitions()
+
+    outputs = []
+
+    for domain in ["TA", "TE", "TI", "TS", "TV"]:
+        cols = [v[0] for v in defs[domain]["variables"]]
+
+        row = {c: "" for c in cols}
+        if "STUDYID" in row:
+            row["STUDYID"] = protocol_no
+        if "DOMAIN" in row:
+            row["DOMAIN"] = domain
+
+        df = pd.DataFrame([row], columns=cols)
+        outputs.append(df)
+
+    return tuple(outputs)
+
+
+def build_trial_design_datasets_spec(version):
+    defs = get_trial_design_definitions()
+    std_ver = version.replace("Version", "").strip()
+
+    rows = []
+    for domain in ["TA", "TE", "TI", "TS", "TV"]:
+        info = defs[domain]
+        rows.append({
+            "Dataset": domain,
+            "Label": info["label"],
+            "Class": info["class"],
+            "Structure": info["structure"],
+            "Key Variables": info["key_variables"],
+            "Standard": f"SDTMIG {std_ver}"
+        })
+
+    return pd.DataFrame(rows)
+
+
+def build_trial_design_variables_spec():
+    defs = get_trial_design_definitions()
+
+    rows = []
+    for domain in ["TA", "TE", "TI", "TS", "TV"]:
+        for var, label, dtype in defs[domain]["variables"]:
+            rows.append({
+                "Dataset": domain,
+                "Variable": var,
+                "Label": label,
+                "Data Type": dtype,
+                "Codelist": "",
+                "Origin": "Protocol",
+                "Source": "",
+                "Pages": "",
+                "Method": "",
+                "Comment": "Trial Design template",
+                "Core": ""
+            })
+
+    return pd.DataFrame(rows)
+
 
 
 def to_excel_bytes(sheet_dict):
