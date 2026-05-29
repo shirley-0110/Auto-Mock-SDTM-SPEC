@@ -1145,7 +1145,7 @@ if uploaded_file is not None:
                 with r1_c1:
                     version = st.selectbox(
                         "SDTM IG",
-                        ["Version 3.3", "Version 3.4"],
+                        ["Version 3.4", "Version 3.3"],
                         key="sdtm_version_selector"
                     )
 
@@ -1161,7 +1161,7 @@ if uploaded_file is not None:
                 # ---------------------------
                 meddra_version = st.text_input(
                     "MedDRA",
-                    value="28.1",
+                    value="",
                     key="meddra_version"
                 )
 
@@ -1173,14 +1173,14 @@ if uploaded_file is not None:
                 with r3_c1:
                     cm_dictionary = st.selectbox(
                         "CM 字典",
-                        ["WHO ATC/DDD", "WHODrug Global B3"],
+                        ["WHODrug Global B3", "WHO ATC/DDD"],
                         key="cm_dictionary"
                     )
 
                 with r3_c2:
                     cm_version = st.text_input(
                         "CM 版本",
-                        value="2025",
+                        value="",
                         key="cm_version"
                     )
 
@@ -1263,7 +1263,7 @@ if uploaded_file is not None:
 
                     # 2.6 Trial Design
                     st.markdown("### 2.6 Trial Design")
-                    ta_df, te_df, ti_df, ts_df, tv_df = build_trial_design_templates()
+                    ta_df, te_df, ti_df, ts_df, tv_df = build_trial_design_templates(protocol_no=protocol_no)
 
                     with st.expander("TA / TE / TI / TS / TV 基本欄位骨架", expanded=False):
                         st.markdown("#### TA")
