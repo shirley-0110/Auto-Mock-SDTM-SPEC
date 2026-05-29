@@ -834,4 +834,3 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
-``
