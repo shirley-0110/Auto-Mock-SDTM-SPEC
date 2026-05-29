@@ -1219,6 +1219,60 @@ def apply_origin_source_method_overrides(df):
     mask = out["Origin"].astype(str).str.upper() == "PROTOCOL"
     out.loc[mask, "Source"] = "Sponsor"
 
+
+
+
+    # =================================================
+    # FINAL RULES（一定要放最後）
+    # =================================================
+
+    # refresh
+    ds = out["Dataset"].astype(str).str.upper()
+    var = out["Variable"].astype(str).str.upper()
+    origin = out["Origin"].astype(str).str.upper()
+
+    # -------------------------------------------------
+    # RULE 1：--TEST / --TESTCD
+    # 如果目前 Origin != Collected，則直接 Assigned / Sponsor
+    # 例外：TI.IETEST 不套用
+    # -------------------------------------------------
+    test_mask = (
+        (var.str.endswith("TEST") | var.str.endswith("TESTCD")) &
+        ~((ds == "TI") & (var == "IETEST"))
+    )
+
+    assign_test_mask = test_mask & (origin != "COLLECTED")
+
+    out.loc[assign_test_mask, "Origin"] = "Assigned"
+    out.loc[assign_test_mask, "Source"] = "Sponsor"
+
+    # -------------------------------------------------
+    # RULE 2：--TEST / --TESTCD 的 Codelist fallback
+    # 不看 Origin，只要 codelist 為空就直接等於 variable 本身
+    # -------------------------------------------------
+    empty_cl_mask = test_mask & (
+        out["Codelist"].fillna("").astype(str).str.strip() == ""
+    )
+    out.loc[empty_cl_mask, "Codelist"] = var[empty_cl_mask]
+
+    # -------------------------------------------------
+    # RULE 3：除了 AE dictionary vars 之外，
+    #         其他 Assigned 的 Source 一律 Sponsor
+    # -------------------------------------------------
+    ae_dict_vars = {
+        "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
+        "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
+        "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
+    }
+
+    assigned_mask = (
+        (out["Origin"].astype(str).str.upper() == "ASSIGNED") &
+        (~var.isin(ae_dict_vars))
+    )
+    out.loc[assigned_mask, "Source"] = "Sponsor"
+
+
+
     
     return out
 
