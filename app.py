@@ -396,6 +396,52 @@ def standardize_domains_config(cfg_df):
     return df
 
 
+def expand_suppqual_to_supp_datasets(config_df, detected_datasets):
+    """
+    將 config 中的 SUPPQUAL 展開到所有偵測到的 SUPP-- datasets
+    例如：
+      SUPPQUAL -> SUPPAE, SUPPDM, SUPPVS ...
+    Dataset Label 改成：
+      Supplemental Qualifiers for AE
+      Supplemental Qualifiers for DM
+    """
+    if config_df.empty:
+        return config_df.copy()
+
+    cfg = config_df.copy()
+
+    if "Dataset" not in cfg.columns:
+        return cfg
+
+    suppqual_rows = cfg[cfg["Dataset"] == "SUPPQUAL"].copy()
+    if suppqual_rows.empty:
+        return cfg
+
+    detected_supp = [ds for ds in detected_datasets if str(ds).upper().startswith("SUPP")]
+
+    if not detected_supp:
+        return cfg
+
+    expanded_rows = [cfg]
+
+    for ds in detected_supp:
+        if ds == "SUPPQUAL":
+            continue
+
+        dup = suppqual_rows.copy()
+        dup["Dataset"] = ds
+
+        base_domain = ds[4:]  # SUPPAE -> AE
+        dup["Dataset Label"] = f"Supplemental Qualifiers for {base_domain}"
+
+        expanded_rows.append(dup)
+
+    expanded_cfg = pd.concat(expanded_rows, ignore_index=True)
+    expanded_cfg = expanded_cfg.drop_duplicates()
+
+    return expanded_cfg.reset_index(drop=True)
+
+
 def get_non_crf_from_config(detail_df, config_df):
     """
     non-CRF = config 裡所有 variables - Step 1 mapping 已有的 variables
@@ -453,6 +499,7 @@ def get_non_crf_from_config(detail_df, config_df):
 def enrich_crf_variables_with_config(detail_df, config_df):
     """
     用 domains.sas7bdat 補 Step 1 抓到的 CRF variables metadata
+    SUPP-- 會自動連到 SUPPQUAL 的展開結果
     """
     if detail_df.empty:
         return pd.DataFrame(columns=[
@@ -460,6 +507,9 @@ def enrich_crf_variables_with_config(detail_df, config_df):
             "Origin", "Source", "Pages", "Method", "Comment",
             "Mandatory", "Role", "Core", "Class", "VarNum"
         ])
+
+    detected_datasets = sorted(detail_df["SDTM Domain"].astype(str).str.upper().unique())
+    expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
 
     crf_df = detail_df.copy()
     crf_df["Dataset"] = crf_df["SDTM Domain"].astype(str).str.upper()
@@ -482,15 +532,14 @@ def enrich_crf_variables_with_config(detail_df, config_df):
         axis=1
     )
 
-    merge_cols = ["Dataset", "Variable"]
     cfg_keep_cols = [
         c for c in [
             "Dataset", "Variable", "Variable Label", "Data Type", "Codelist",
             "Mandatory", "Role", "Core", "Class", "VarNum"
-        ] if c in config_df.columns
+        ] if c in expanded_cfg.columns
     ]
 
-    cfg = config_df[cfg_keep_cols].drop_duplicates() if cfg_keep_cols else pd.DataFrame(columns=merge_cols)
+    cfg = expanded_cfg[cfg_keep_cols].drop_duplicates() if cfg_keep_cols else pd.DataFrame(columns=["Dataset", "Variable"])
 
     merged = crf_df.merge(
         cfg,
@@ -512,8 +561,11 @@ def enrich_crf_variables_with_config(detail_df, config_df):
 
 
 def build_variables_spec_from_domains_config(detail_df, config_df):
-    crf_part = enrich_crf_variables_with_config(detail_df, config_df)
-    non_crf_part = get_non_crf_from_config(detail_df, config_df)
+    detected_datasets = sorted(detail_df["SDTM Domain"].astype(str).str.upper().unique()) if not detail_df.empty else []
+    expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
+
+    crf_part = enrich_crf_variables_with_config(detail_df, expanded_cfg)
+    non_crf_part = get_non_crf_from_config(detail_df, expanded_cfg)
 
     final_df = pd.concat([crf_part, non_crf_part], ignore_index=True)
     final_df = final_df.drop_duplicates()
@@ -539,24 +591,13 @@ def build_datasets_spec_from_domains_config(mapping_df, config_df):
         ])
 
     detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().astype(str).str.upper().unique())
-
-    if config_df.empty:
-        return pd.DataFrame({
-            "Dataset": detected_datasets,
-            "Label": "",
-            "Class": "",
-            "Structure": "",
-            "Key Variables": "",
-            "Standard": "SDTM",
-            "Repeat": "",
-            "RefData": ""
-        })
+    expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
 
     ds_cols = [c for c in [
         "Dataset", "Dataset Label", "Class", "Structure", "Key Variables", "Repeat", "RefData"
-    ] if c in config_df.columns]
+    ] if c in expanded_cfg.columns]
 
-    ds_df = config_df[ds_cols].drop_duplicates(subset=["Dataset"]).copy()
+    ds_df = expanded_cfg[ds_cols].drop_duplicates(subset=["Dataset"]).copy()
     ds_df = ds_df[ds_df["Dataset"].isin(detected_datasets)]
 
     ds_df = ds_df.rename(columns={
@@ -578,22 +619,73 @@ def build_datasets_spec_from_domains_config(mapping_df, config_df):
 
     ds_df["Standard"] = "SDTM"
 
-    ds_df = ds_df[[
+    return ds_df[[
         "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard",
         "Repeat", "RefData"
     ]].reset_index(drop=True)
 
-    return ds_df
+
+# =========================================================
+# Define sheet：Study info
+# =========================================================
+def extract_study_info_from_filename(file_name):
+    """
+    從檔名抓 StudyName / ProtocolName
+
+    規則：
+      1. sponsor_protocol no_eCRF schema XXX
+      2. protocol no_eCRF schema XXX
+
+    做法：
+      - 先取 eCRF schema 前面的字串
+      - 用 "_" 切開
+      - 最後一段視為 protocol no
+      - StudyName = ProtocolName = protocol no
+    """
+    if not file_name:
+        return "", ""
+
+    name = os.path.splitext(file_name)[0].strip()
+
+    # 取 eCRF schema 前面的字串
+    parts = re.split(r"ecrf\s*schema", name, flags=re.IGNORECASE)
+    prefix = parts[0].strip().strip("_") if parts else name
+
+    tokens = [t.strip() for t in prefix.split("_") if t.strip()]
+
+    if not tokens:
+        return "", ""
+
+    protocol = tokens[-1]
+    study_name = protocol
+    protocol_name = protocol
+
+    return study_name, protocol_name
 
 
-def build_define_sheet():
-    return pd.DataFrame([
-        {"Attribute": "Standard", "Value": "SDTM"},
-        {"Attribute": "StandardVersion", "Value": ""},
-        {"Attribute": "StudyName", "Value": ""},
-        {"Attribute": "ProtocolName", "Value": ""},
-        {"Attribute": "Comment", "Value": ""}
-    ])
+def build_define_sheet(version, study_name="", study_desc="", protocol_name=""):
+    std_ver = version.replace("Version", "").strip()
+
+    define_df = pd.DataFrame({
+        "Attribute": [
+            "StudyName",
+            "StudyDescription",
+            "ProtocolName",
+            "StandardName",
+            "StandardVersion",
+            "Language"
+        ],
+        "Value": [
+            study_name,
+            study_desc,
+            protocol_name,
+            "SDTM-IG",
+            std_ver,
+            "en"
+        ]
+    })
+
+    return define_df
 
 
 def build_empty_codelists_sheet():
@@ -607,6 +699,10 @@ def build_empty_dictionaries_sheet():
     return pd.DataFrame(columns=[
         "ID", "Name", "Data Type", "Dictionary", "Version"
     ])
+
+
+def build_empty_trial_design_sheet(sheet_name):
+    return pd.DataFrame()
 
 
 def to_excel_bytes(sheet_dict):
@@ -726,7 +822,6 @@ if uploaded_file is not None:
         # -------------------------------------------------
         st.markdown("## Step 1｜CRF → SDTM Mapping")
 
-        # 只要檔案與 header override 沒變，就不重算 Step 1
         step1_cache_key = make_step1_cache_key(
             file_bytes=file_bytes,
             manual_soa_header=manual_soa_header,
@@ -816,6 +911,31 @@ if uploaded_file is not None:
                     key="sdtm_version_selector"
                 )
 
+                # Define：自動帶 study info + user fill description
+                default_study_name, default_protocol_name = extract_study_info_from_filename(uploaded_file.name)
+
+                st.markdown("### 2.2 Define Information")
+
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    study_name = st.text_input(
+                        "StudyName",
+                        value=default_study_name,
+                        key="define_study_name"
+                    )
+                with col_b:
+                    protocol_name = st.text_input(
+                        "ProtocolName",
+                        value=default_protocol_name,
+                        key="define_protocol_name"
+                    )
+
+                study_desc = st.text_area(
+                    "StudyDescription（請手動填寫）",
+                    value="",
+                    key="define_study_desc"
+                )
+
                 try:
                     raw_cfg_df, cfg_path = load_domains_config(version)
                     cfg_df = standardize_domains_config(raw_cfg_df)
@@ -823,35 +943,52 @@ if uploaded_file is not None:
                     st.success(f"✅ 已成功載入 config：{cfg_path}")
 
                     # 先 Datasets 再 Variables
-                    st.markdown("### 2.2 Datasets SPEC")
+                    st.markdown("### 2.3 Datasets SPEC")
                     datasets_spec_df = build_datasets_spec_from_domains_config(
                         mapping_df=mapping_df,
                         config_df=cfg_df
                     )
                     st.dataframe(datasets_spec_df, use_container_width=True)
 
-                    st.markdown("### 2.3 Variables SPEC")
+                    st.markdown("### 2.4 Variables SPEC")
                     variables_spec_df = build_variables_spec_from_domains_config(
                         detail_df=detail_df,
                         config_df=cfg_df
                     )
                     st.dataframe(variables_spec_df, use_container_width=True)
 
-                    st.markdown("### 2.4 Define / Codelists / Dictionaries")
-                    define_df = build_define_sheet()
+                    st.markdown("### 2.5 Define / Codelists / Dictionaries / Trial Design")
+                    define_df = build_define_sheet(
+                        version=version,
+                        study_name=study_name,
+                        study_desc=study_desc,
+                        protocol_name=protocol_name
+                    )
                     codelists_df = build_empty_codelists_sheet()
                     dictionaries_df = build_empty_dictionaries_sheet()
+
+                    ta_df = build_empty_trial_design_sheet("TA")
+                    te_df = build_empty_trial_design_sheet("TE")
+                    ti_df = build_empty_trial_design_sheet("TI")
+                    ts_df = build_empty_trial_design_sheet("TS")
+                    tv_df = build_empty_trial_design_sheet("TV")
 
                     st.dataframe(define_df, use_container_width=True)
                     st.dataframe(codelists_df, use_container_width=True)
                     st.dataframe(dictionaries_df, use_container_width=True)
 
+                    # 指定輸出順序
                     export_sheets = {
                         "Define": define_df,
                         "Datasets": datasets_spec_df,
                         "Variables": variables_spec_df,
                         "Codelists": codelists_df,
-                        "Dictionaries": dictionaries_df
+                        "Dictionaries": dictionaries_df,
+                        "TA": ta_df,
+                        "TE": te_df,
+                        "TI": ti_df,
+                        "TS": ts_df,
+                        "TV": tv_df
                     }
 
                     excel_bytes = to_excel_bytes(export_sheets)
