@@ -603,21 +603,25 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
     return final_df
 
 
-def build_datasets_spec_from_domains_config(mapping_df, config_df, version):
-    if mapping_df.empty:
-        return pd.DataFrame(columns=[
-            "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard"
-        ])
 
-    detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().astype(str).str.upper().unique())
+def build_datasets_spec_from_domains_config(mapping_df, config_df, version):
+    detected_datasets = []
+
+    if not mapping_df.empty:
+        detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().astype(str).str.upper().unique())
+
     expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
 
     ds_cols = [c for c in [
         "Dataset", "Dataset Label", "Class", "Structure", "Key Variables"
     ] if c in expanded_cfg.columns]
 
-    ds_df = expanded_cfg[ds_cols].drop_duplicates(subset=["Dataset"]).copy()
-    ds_df = ds_df[ds_df["Dataset"].isin(detected_datasets)]
+    if ds_cols:
+        ds_df = expanded_cfg[ds_cols].drop_duplicates(subset=["Dataset"]).copy()
+        if detected_datasets:
+            ds_df = ds_df[ds_df["Dataset"].isin(detected_datasets)]
+    else:
+        ds_df = pd.DataFrame(columns=["Dataset", "Dataset Label", "Class", "Structure", "Key Variables"])
 
     ds_df = ds_df.rename(columns={
         "Dataset Label": "Label"
@@ -635,9 +639,21 @@ def build_datasets_spec_from_domains_config(mapping_df, config_df, version):
     std_ver = version.replace("Version", "").strip()
     ds_df["Standard"] = f"SDTMIG {std_ver}"
 
-    return ds_df[[
+    ds_df = ds_df[[
         "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard"
     ]].reset_index(drop=True)
+
+    # ---------------------------
+    # Append Trial Design datasets
+    # ---------------------------
+    td_df = build_trial_design_datasets_spec(version)
+
+    final_df = pd.concat([ds_df, td_df], ignore_index=True)
+    final_df = final_df.drop_duplicates(subset=["Dataset"], keep="first")
+    final_df = final_df.sort_values(by=["Dataset"]).reset_index(drop=True)
+
+    return final_df
+
 
 
 # =========================================================
