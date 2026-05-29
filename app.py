@@ -850,10 +850,11 @@ def build_trial_design_variables_spec(config_df):
 
 
 
+
 def apply_origin_source_method_overrides(df):
     """
     最終修正 Origin / Source / Method / 特定 Codelist
-    依 mock SPEC Variables sheet 的呈現風格做 rule engine
+    依目前 mock SPEC 與使用者規則做 rule engine
     """
     if df.empty:
         return df
@@ -867,9 +868,9 @@ def apply_origin_source_method_overrides(df):
     ds = out["Dataset"].astype(str).str.upper()
     var = out["Variable"].astype(str).str.upper()
 
-    # ---------------------------
+    # -------------------------------------------------
     # Core identifiers
-    # ---------------------------
+    # -------------------------------------------------
     mask = var == "STUDYID"
     out.loc[mask, "Origin"] = "Protocol"
     out.loc[mask, "Source"] = "Sponsor"
@@ -885,9 +886,9 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = "Concatenation of STUDYID-SITEID-SUBJID"
 
-    # ---------------------------
+    # -------------------------------------------------
     # Sequence
-    # ---------------------------
+    # -------------------------------------------------
     mask = (var.str.endswith("SEQ")) & (var != "TSSEQ")
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
@@ -903,9 +904,9 @@ def apply_origin_source_method_overrides(df):
         "Equal to sequential number identifying records within each TSPARMCD in the domain"
     )
 
-    # ---------------------------
+    # -------------------------------------------------
     # EPOCH
-    # ---------------------------
+    # -------------------------------------------------
     mask = var == "EPOCH"
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
@@ -917,9 +918,9 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = "Assigned based on protocol design"
 
-    # ---------------------------
+    # -------------------------------------------------
     # AE dictionary variables
-    # ---------------------------
+    # -------------------------------------------------
     ae_dict_vars = {
         "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
         "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
@@ -929,9 +930,9 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Vendor"
 
-    # ---------------------------
+    # -------------------------------------------------
     # VISIT / VISITNUM / VISITDY
-    # ---------------------------
+    # -------------------------------------------------
     mask = var == "VISITNUM"
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
@@ -947,9 +948,17 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = ""
 
-    # ---------------------------
+    # -------------------------------------------------
+    # STTPT / ENTPT
+    # -------------------------------------------------
+    mask = var.str.endswith("STTPT") | var.str.endswith("ENTPT")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    # Method 先留空白
+
+    # -------------------------------------------------
     # STRES / STAT
-    # ---------------------------
+    # -------------------------------------------------
     mask = var.str.endswith("STRESC")
     out.loc[mask, "Origin"] = "Derived"
     out.loc[mask, "Source"] = "Sponsor"
@@ -978,9 +987,9 @@ def apply_origin_source_method_overrides(df):
         lambda x: f'Equal to "NOT DONE" if {x} is null'
     )
 
-    # ---------------------------
+    # -------------------------------------------------
     # DY / STDY / ENDY
-    # ---------------------------
+    # -------------------------------------------------
     def build_dy_method(v):
         if v.endswith("STDY"):
             src = v[:-4] + "STDTC"
@@ -1000,9 +1009,20 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Method"] = var[mask].apply(build_dy_method)
 
-    # ---------------------------
+    # -------------------------------------------------
+    # LOBXFL
+    # -------------------------------------------------
+    mask = var.str.endswith("LOBXFL")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = (
+        'Equal to "Y" for last record with non-missing value on or before the first exposure date (DM.RFSTDTC);\n'
+        'Null otherwise'
+    )
+
+    # -------------------------------------------------
     # RDOMAIN 特例
-    # ---------------------------
+    # -------------------------------------------------
     mask = (ds == "CO") & (var == "RDOMAIN")
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
@@ -1023,9 +1043,77 @@ def apply_origin_source_method_overrides(df):
     out.loc[mask, "Source"] = "Sponsor"
     out.loc[mask, "Codelist"] = "DOMAIN_EG"
 
-    # ---------------------------
+    # -------------------------------------------------
+    # CO 保留欄位
+    # -------------------------------------------------
+    co_assigned_vars = {"RDOMAIN", "IDVAR", "IDVARVAL", "COREF", "COEVAL"}
+    mask = (ds == "CO") & var.isin(co_assigned_vars)
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+
+    # -------------------------------------------------
+    # DM 特規
+    # -------------------------------------------------
+    mask = (ds == "DM") & (var == "RFSTDTC")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = (
+        "Equal to date/time of first exposure to study treatment (the earliest value of EXSTDTC)"
+    )
+
+    mask = (ds == "DM") & (var == "RFENDTC")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = (
+        "Equal to date/time of last exposure to study treatment (the latest value of EXENDTC)"
+    )
+
+    mask = (ds == "DM") & (var == "RFXSTDTC")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = "Equal to RFSTDTC"
+
+    mask = (ds == "DM") & (var == "RFXENDTC")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = "Equal to RFENDTC"
+
+    mask = (ds == "DM") & (var == "RFPENDTC")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = "Equal to the last known date during the study"
+
+    mask = (ds == "DM") & (var == "DTHFL")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = 'Set to "Y" if DTHDTC is populated'
+
+    mask = (ds == "DM") & (var == "ARMNRS")
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+
+    mask = (ds == "DM") & (var == "ACTARMUD")
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+
+    mask = (ds == "DM") & (var == "COUNTRY")
+    out.loc[mask, "Codelist"] = "ISO3166"
+
+    # -------------------------------------------------
+    # DS 特規
+    # -------------------------------------------------
+    mask = (ds == "DS") & (var == "DSDTC")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = "Equal to DSSTDTC"
+
+    mask = (ds == "DS") & (var == "DSCAT")
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+
+    # -------------------------------------------------
     # Protocol-driven trial design vars
-    # ---------------------------
+    # -------------------------------------------------
     protocol_vars = {
         ("TA", "ELEMENT"), ("TA", "TABRANCH"), ("TA", "TATRANS"),
         ("TE", "ELEMENT"), ("TE", "TESTRL"), ("TE", "TEENRL"), ("TE", "TEDUR"),
@@ -1036,24 +1124,24 @@ def apply_origin_source_method_overrides(df):
     out.loc[protocol_mask, "Origin"] = "Protocol"
     out.loc[protocol_mask, "Source"] = "Sponsor"
 
-    # ---------------------------
+    # -------------------------------------------------
     # Common Assigned/Sponsor helper vars
-    # ---------------------------
+    # -------------------------------------------------
     assigned_vars = {
         "IDVAR", "IDVARVAL", "QNAM", "QLABEL", "QORIG", "QEVAL", "COEVAL",
         "ETCD", "TAETORD", "ARMCD", "ARM", "ACTARMCD", "ACTARM",
         "IETESTCD", "EGTESTCD", "EGTEST", "VSTESTCD", "VSTEST",
         "TSPARMCD", "TSPARM", "TSVALCD", "TSVCDREF", "TSVCDVER",
-        "AGEU"
+        "AGEU", "DSCAT"
     }
     mask = var.isin(assigned_vars)
     out.loc[mask, "Origin"] = "Assigned"
     out.loc[mask, "Source"] = "Sponsor"
 
-    # ---------------------------
+    # -------------------------------------------------
     # Common Collected/Investigator vars
     # (保留已被更高優先規則覆蓋者)
-    # ---------------------------
+    # -------------------------------------------------
     collected_vars = {
         "AESPID", "AETERM", "AESER", "AEACN", "AEREL", "AEOUT", "AESCONG",
         "AESDISAB", "AESDTH", "AESHOSP", "AESLIFE", "AESMIE", "AECONTRT",
@@ -1063,11 +1151,17 @@ def apply_origin_source_method_overrides(df):
         "ECSTDTC", "ECENDTC", "EXSTDTC", "EXENDTC",
         "MHSTDTC", "MHENDTC", "AESTDTC", "AEENDTC",
         "EGDTC", "VSDTC", "EGTPT", "MHSTRTPT", "MHENRTPT",
-        "AEENRTPT"
+        "AEENRTPT", "DSSTDTC"
     }
     mask = var.isin(collected_vars)
     out.loc[mask, "Origin"] = "Collected"
     out.loc[mask, "Source"] = "Investigator"
+
+    # -------------------------------------------------
+    # 所有 Protocol 的 Source 一律 Sponsor
+    # -------------------------------------------------
+    mask = out["Origin"].astype(str).str.upper() == "PROTOCOL"
+    out.loc[mask, "Source"] = "Sponsor"
 
     return out
 
