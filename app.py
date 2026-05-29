@@ -584,7 +584,6 @@ def enrich_crf_variables_with_config(detail_df, config_df):
 
 
 
-
 def build_variables_spec_from_domains_config(detail_df, config_df):
     detected_datasets = sorted(detail_df["SDTM Domain"].astype(str).str.upper().unique()) if not detail_df.empty else []
     expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
@@ -603,51 +602,39 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
     final_df = final_df.drop_duplicates(subset=["Dataset", "Variable"], keep="first")
 
     # ---------------------------
-    # 若你前面已經把 Trial Design variables 整進來，這段會一起加進來
-    # 若尚未定義 build_trial_design_variables_spec，也不會報錯
+    # Part 3: Trial Design variables（跟 config 比對）
     # ---------------------------
-    try:
-        td_var_df = build_trial_design_variables_spec()
-        final_df = pd.concat([final_df, td_var_df], ignore_index=True)
-        final_df = final_df.drop_duplicates(subset=["Dataset", "Variable"], keep="first")
-    except Exception:
-        pass
+    td_var_df = build_trial_design_variables_spec(expanded_cfg)
+    final_df = pd.concat([final_df, td_var_df], ignore_index=True)
+    final_df = final_df.drop_duplicates(subset=["Dataset", "Variable"], keep="first")
 
     # ---------------------------
-    # 補齊 partner variables
-    # --DTC -> --DY
-    # --STDTC -> --STDY
-    # --ENDTC -> --ENDY
-    # --STRTPT -> --STTPT
-    # --ENRTPT -> --ENTPT
+    # Part 4: append required partner variables
+    # 只加 config 裡存在的變數
     # ---------------------------
     final_df = append_required_partner_variables(final_df, expanded_cfg)
 
     # ---------------------------
-    # Data Type / Codelist 規則化
+    # Part 5: type / codelist overrides
     # ---------------------------
     final_df = apply_variable_level_overrides(final_df)
 
     # ---------------------------
-    # 排序：
-    # 1. Dataset
-    # 2. VarNum
-    # 3. Variable
-    # 然後每個 Dataset 的 Order 重跑 1,2,3...
+    # Part 6: sort by Dataset + VarNum + Variable
+    # Order 每個 Dataset 重新從 1 開始
     # ---------------------------
     if "VarNum" not in final_df.columns:
         final_df["VarNum"] = ""
 
     final_df["VarNum_num"] = pd.to_numeric(final_df["VarNum"], errors="coerce")
+
     final_df = final_df.sort_values(
         by=["Dataset", "VarNum_num", "Variable"],
         na_position="last"
     ).reset_index(drop=True)
 
-    # 每個 domain / dataset 重新編流水號
     final_df["Order"] = final_df.groupby("Dataset").cumcount() + 1
 
-    # 最後欄位整理
     keep_cols = [
         "Order", "Dataset", "Variable", "Label", "Data Type", "Codelist",
         "Origin", "Source", "Pages", "Method", "Comment", "Core"
@@ -660,6 +647,8 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
     final_df = final_df[keep_cols]
 
     return final_df
+
+
 
 
 
@@ -773,18 +762,16 @@ def make_empty_variable_row(dataset, variable):
     }
 
 
-def build_variable_row_from_config(dataset, variable, cfg_lookup, comment=""):
+
+def build_variable_row_from_config(dataset, variable, cfg_lookup):
     """
-    如果 config 找得到，就用 config metadata 建 row；
-    找不到就建一個最基本的 row。
+    只在 config 找得到時才回傳 row；
+    找不到就回傳 None
     """
     key = (str(dataset).upper(), str(variable).upper())
 
     if key not in cfg_lookup:
-        row = make_empty_variable_row(dataset, variable)
-        row["Comment"] = comment
-        row["Data Type"] = normalize_data_type_by_config("", variable)
-        return row
+        return None
 
     meta = cfg_lookup[key]
 
@@ -798,7 +785,7 @@ def build_variable_row_from_config(dataset, variable, cfg_lookup, comment=""):
         "Source": "",
         "Pages": "",
         "Method": "",
-        "Comment": comment,
+        "Comment": "",
         "Core": meta.get("Core", ""),
         "VarNum": meta.get("VarNum", "")
     }
@@ -806,25 +793,27 @@ def build_variable_row_from_config(dataset, variable, cfg_lookup, comment=""):
     return row
 
 
+
+
 def append_required_partner_variables(final_df, config_df):
     """
-    規則：
-      --DTC    -> --DY
-      --STDTC  -> --STDY
-      --ENDTC  -> --ENDY
-      --STRTPT -> --STTPT
-      --ENRTPT -> --ENTPT
+    規則（僅在 config 有對應 variable 時才補）：
+      1. --DTC    -> --DY
+      2. --STDTC  -> --STDY
+      3. --ENDTC  -> --ENDY
+      4. --STRTPT -> --STTPT
+      5. --ENRTPT -> --ENTPT
+      6. VISITNUM -> VISIT, VISITDY
+      7. --TPT    -> --TPTNUM
+      8. --ORRES  -> --STRESC, --STRESN, --STAT
+      9. --ORRESU -> --STRESU
+
+    注意：
+      - 若 config 沒有該變數，則不加
+      - Auto-added variable 不加 Comment
     """
     if final_df.empty:
         return final_df
-
-    pair_rules = [
-        ("STDTC", "STDY"),
-        ("ENDTC", "ENDY"),
-        ("DTC", "DY"),
-        ("STRTPT", "STTPT"),
-        ("ENRTPT", "ENTPT"),
-    ]
 
     out = final_df.copy()
     cfg_lookup = build_config_variable_lookup(config_df)
@@ -842,28 +831,107 @@ def append_required_partner_variables(final_df, config_df):
         ds = str(dataset).upper()
         vars_in_ds = set(grp["Variable"].astype(str).str.upper())
 
-        for src_suffix, tgt_suffix in pair_rules:
-            matched_vars = [v for v in vars_in_ds if v.endswith(src_suffix)]
-
-            for src_var in matched_vars:
-                base = src_var[:-len(src_suffix)]
-                tgt_var = f"{base}{tgt_suffix}"
-
+        # -------------------------------------------------
+        # Rule A: exact VISITNUM -> VISIT, VISITDY
+        # -------------------------------------------------
+        if "VISITNUM" in vars_in_ds:
+            for tgt_var in ["VISIT", "VISITDY"]:
                 if (ds, tgt_var) not in existing_pairs:
-                    row = build_variable_row_from_config(
-                        dataset=ds,
-                        variable=tgt_var,
-                        cfg_lookup=cfg_lookup,
-                        comment=f"Auto-added because {src_var} exists"
-                    )
-                    new_rows.append(row)
-                    existing_pairs.add((ds, tgt_var))
-                    vars_in_ds.add(tgt_var)
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+                        vars_in_ds.add(tgt_var)
+
+        # -------------------------------------------------
+        # Rule B: suffix-based
+        # -------------------------------------------------
+        for src_var in list(vars_in_ds):
+            # --STDTC -> --STDY
+            if src_var.endswith("STDTC"):
+                tgt_var = src_var[:-5] + "STDY"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --ENDTC -> --ENDY
+            if src_var.endswith("ENDTC"):
+                tgt_var = src_var[:-5] + "ENDY"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --DTC -> --DY
+            # 注意避免 STDTC / ENDTC 重複處理
+            if src_var.endswith("DTC") and not src_var.endswith("STDTC") and not src_var.endswith("ENDTC"):
+                tgt_var = src_var[:-3] + "DY"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --STRTPT -> --STTPT
+            if src_var.endswith("STRTPT"):
+                tgt_var = src_var[:-6] + "STTPT"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --ENRTPT -> --ENTPT
+            if src_var.endswith("ENRTPT"):
+                tgt_var = src_var[:-6] + "ENTPT"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --TPT -> --TPTNUM
+            # 避免 STTPT / ENTPT 也被補成 STTPTNUM / ENTPTNUM
+            if (
+                src_var.endswith("TPT")
+                and not src_var.endswith("STTPT")
+                and not src_var.endswith("ENTPT")
+            ):
+                tgt_var = src_var + "NUM"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --ORRES -> --STRESC, --STRESN, --STAT
+            if src_var.endswith("ORRES"):
+                base = src_var[:-5]
+                for tgt_var in [base + "STRESC", base + "STRESN", base + "STAT"]:
+                    if (ds, tgt_var) not in existing_pairs:
+                        row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                        if row is not None:
+                            new_rows.append(row)
+                            existing_pairs.add((ds, tgt_var))
+
+            # --ORRESU -> --STRESU
+            if src_var.endswith("ORRESU"):
+                base = src_var[:-6]
+                tgt_var = base + "STRESU"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
 
     if new_rows:
         out = pd.concat([out, pd.DataFrame(new_rows)], ignore_index=True)
 
     return out
+
 
     
     # ---------------------------
@@ -1176,27 +1244,58 @@ def build_trial_design_datasets_spec(version):
     return pd.DataFrame(rows)
 
 
-def build_trial_design_variables_spec():
+
+def build_trial_design_variables_spec(config_df):
+    """
+    TA / TE / TI / TS / TV 變數也跟 config 比對，
+    以便帶入 Core / VarNum / Codelist / Label / Data Type
+    且 Comment 保持空白
+    """
     defs = get_trial_design_definitions()
+    cfg_lookup = build_config_variable_lookup(config_df)
 
     rows = []
+
     for domain in ["TA", "TE", "TI", "TS", "TV"]:
-        for var, label, dtype in defs[domain]["variables"]:
-            rows.append({
-                "Dataset": domain,
-                "Variable": var,
-                "Label": label,
-                "Data Type": dtype,
-                "Codelist": "",
-                "Origin": "Protocol",
-                "Source": "",
-                "Pages": "",
-                "Method": "",
-                "Comment": "Trial Design template",
-                "Core": ""
-            })
+        for var, fallback_label, fallback_dtype in defs[domain]["variables"]:
+            key = (domain, var)
+
+            if key in cfg_lookup:
+                meta = cfg_lookup[key]
+                row = {
+                    "Dataset": domain,
+                    "Variable": var,
+                    "Label": meta.get("Variable Label", fallback_label),
+                    "Data Type": normalize_data_type_by_config(meta.get("Data Type", fallback_dtype), var),
+                    "Codelist": meta.get("Codelist", ""),
+                    "Origin": "Protocol",
+                    "Source": "",
+                    "Pages": "",
+                    "Method": "",
+                    "Comment": "",
+                    "Core": meta.get("Core", ""),
+                    "VarNum": meta.get("VarNum", "")
+                }
+            else:
+                row = {
+                    "Dataset": domain,
+                    "Variable": var,
+                    "Label": fallback_label,
+                    "Data Type": normalize_data_type_by_config(fallback_dtype, var),
+                    "Codelist": "",
+                    "Origin": "Protocol",
+                    "Source": "",
+                    "Pages": "",
+                    "Method": "",
+                    "Comment": "",
+                    "Core": "",
+                    "VarNum": ""
+                }
+
+            rows.append(row)
 
     return pd.DataFrame(rows)
+
 
 
 
