@@ -553,10 +553,10 @@ def enrich_crf_variables_with_config(detail_df, config_df):
         if col not in merged.columns:
             merged[col] = ""
 
+    # 只保留你指定的欄位
     return merged[[
         "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment",
-        "Mandatory", "Role", "Core", "Class", "VarNum"
+        "Origin", "Source", "Pages", "Method", "Comment", "VarNum"
     ]].drop_duplicates().reset_index(drop=True)
 
 
@@ -566,6 +566,12 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
 
     crf_part = enrich_crf_variables_with_config(detail_df, expanded_cfg)
     non_crf_part = get_non_crf_from_config(detail_df, expanded_cfg)
+
+    # non-CRF 也只保留你指定欄位
+    non_crf_part = non_crf_part[[
+        "Dataset", "Variable", "Label", "Data Type", "Codelist",
+        "Origin", "Source", "Pages", "Method", "Comment", "VarNum"
+    ]].copy()
 
     final_df = pd.concat([crf_part, non_crf_part], ignore_index=True)
     final_df = final_df.drop_duplicates()
@@ -580,21 +586,26 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
     final_df = final_df.reset_index(drop=True)
     final_df.insert(0, "Order", range(1, len(final_df) + 1))
 
+    # 最終欄位順序
+    final_df = final_df[[
+        "Order", "Dataset", "Variable", "Label", "Data Type", "Codelist",
+        "Origin", "Source", "Pages", "Method", "Comment"
+    ]]
+
     return final_df
 
 
-def build_datasets_spec_from_domains_config(mapping_df, config_df):
+def build_datasets_spec_from_domains_config(mapping_df, config_df, version):
     if mapping_df.empty:
         return pd.DataFrame(columns=[
-            "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard",
-            "Repeat", "RefData"
+            "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard"
         ])
 
     detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().astype(str).str.upper().unique())
     expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
 
     ds_cols = [c for c in [
-        "Dataset", "Dataset Label", "Class", "Structure", "Key Variables", "Repeat", "RefData"
+        "Dataset", "Dataset Label", "Class", "Structure", "Key Variables"
     ] if c in expanded_cfg.columns]
 
     ds_df = expanded_cfg[ds_cols].drop_duplicates(subset=["Dataset"]).copy()
@@ -612,16 +623,12 @@ def build_datasets_spec_from_domains_config(mapping_df, config_df):
         ds_df["Structure"] = ""
     if "Key Variables" not in ds_df.columns:
         ds_df["Key Variables"] = ""
-    if "Repeat" not in ds_df.columns:
-        ds_df["Repeat"] = ""
-    if "RefData" not in ds_df.columns:
-        ds_df["RefData"] = ""
 
-    ds_df["Standard"] = "SDTM"
+    std_ver = version.replace("Version", "").strip()
+    ds_df["Standard"] = f"SDTMIG {std_ver}"
 
     return ds_df[[
-        "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard",
-        "Repeat", "RefData"
+        "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard"
     ]].reset_index(drop=True)
 
 
@@ -690,14 +697,50 @@ def build_empty_codelists_sheet():
     ])
 
 
-def build_empty_dictionaries_sheet():
-    return pd.DataFrame(columns=[
-        "ID", "Name", "Data Type", "Dictionary", "Version"
+def build_default_dictionaries_sheet():
+    return pd.DataFrame([
+        {
+            "ID": "AEDICT_F",
+            "Name": "Adverse Event Dictionary",
+            "Data Type": "text",
+            "Dictionary": "MEDDRA",
+            "Version": "28.1"
+        },
+        {
+            "ID": "CMDICT_F",
+            "Name": "Concomitant Meds Dictionary",
+            "Data Type": "text",
+            "Dictionary": "WHO ATC/DDD",
+            "Version": "2025"
+        },
+        {
+            "ID": "ISO3166",
+            "Name": "Country Codes (ISO 3166)",
+            "Data Type": "text",
+            "Dictionary": "ISO 3166",
+            "Version": ""
+        }
     ])
 
 
-def build_empty_trial_design_sheet(sheet_name):
-    return pd.DataFrame()
+def build_trial_design_templates():
+    ta_df = pd.DataFrame(columns=[
+        "STUDYID", "ARMCD", "ARM", "TAETORD", "ETCD", "ELEMENT", "TABRANCH", "TATRANS"
+    ])
+    te_df = pd.DataFrame(columns=[
+        "STUDYID", "ETCD", "ELEMENT", "TESTRL", "TEDUR"
+    ])
+    ti_df = pd.DataFrame(columns=[
+        "STUDYID", "IETESTCD", "IETEST", "IECAT"
+    ])
+    ts_df = pd.DataFrame(columns=[
+        "STUDYID", "TSSEQ", "TSGRPID", "TSPARMCD", "TSPARM", "TSVAL", "TSVALCD", "TSVCDREF", "TSVALNF"
+    ])
+    tv_df = pd.DataFrame(columns=[
+        "STUDYID", "VISITNUM", "VISIT", "VISITDY", "ARMCD"
+    ])
+
+    return ta_df, te_df, ti_df, ts_df, tv_df
 
 
 def to_excel_bytes(sheet_dict):
@@ -901,29 +944,40 @@ if uploaded_file is not None:
                 # -------------------------------
                 # 2.1 所有使用者輸入集中
                 # -------------------------------
-                st.markdown("### 2.1 Basic Information")
-
-                version = st.selectbox(
-                    "SDTM Version",
-                    ["Version 3.3", "Version 3.4"],
-                    key="sdtm_version_selector"
-                )
+                st.markdown("### Basic Information")
 
                 default_protocol_no = extract_protocol_no_from_filename(uploaded_file.name)
 
-                col_a, col_b = st.columns(2)
+                col_a, col_b, col_c = st.columns([1, 2, 1])
+
                 with col_a:
                     protocol_no = st.text_input(
                         "Protocol No",
                         value=default_protocol_no,
                         key="protocol_no"
                     )
+
                 with col_b:
                     protocol_title = st.text_input(
-                        "Protocol Title",
+                        "Protocol Title (請填寫)",
                         value="",
                         key="protocol_title"
                     )
+
+                with col_c:
+                    version = st.selectbox(
+                        "SDTM Version",
+                        ["Version 3.3", "Version 3.4"],
+                        key="sdtm_version_selector"
+                    )
+
+                define_df = build_define_sheet(
+                    version=version,
+                    protocol_no=protocol_no,
+                    protocol_title=protocol_title
+                )
+
+                st.dataframe(define_df, use_container_width=True)
 
                 try:
                     raw_cfg_df, cfg_path = load_domains_config(version)
@@ -931,39 +985,56 @@ if uploaded_file is not None:
 
                     st.success(f"✅ 已成功載入 config：{cfg_path}")
 
-                    # 先 Datasets 再 Variables
-                    st.markdown("### 2.2 Datasets SPEC")
+                    # 2.2 Datasets
+                    st.markdown("### 2.2 Datasets")
                     datasets_spec_df = build_datasets_spec_from_domains_config(
                         mapping_df=mapping_df,
-                        config_df=cfg_df
+                        config_df=cfg_df,
+                        version=version
                     )
                     st.dataframe(datasets_spec_df, use_container_width=True)
 
-                    st.markdown("### 2.3 Variables SPEC")
+                    # 2.3 Variables
+                    st.markdown("### 2.3 Variables")
                     variables_spec_df = build_variables_spec_from_domains_config(
                         detail_df=detail_df,
                         config_df=cfg_df
                     )
                     st.dataframe(variables_spec_df, use_container_width=True)
 
-                    st.markdown("### 2.4 Define / Codelists / Dictionaries / Trial Design")
-                    define_df = build_define_sheet(
-                        version=version,
-                        protocol_no=protocol_no,
-                        protocol_title=protocol_title
-                    )
+                    # 2.4 Codelists
+                    st.markdown("### 2.4 Codelists")
                     codelists_df = build_empty_codelists_sheet()
-                    dictionaries_df = build_empty_dictionaries_sheet()
-
-                    ta_df = build_empty_trial_design_sheet("TA")
-                    te_df = build_empty_trial_design_sheet("TE")
-                    ti_df = build_empty_trial_design_sheet("TI")
-                    ts_df = build_empty_trial_design_sheet("TS")
-                    tv_df = build_empty_trial_design_sheet("TV")
-
-                    st.dataframe(define_df, use_container_width=True)
                     st.dataframe(codelists_df, use_container_width=True)
-                    st.dataframe(dictionaries_df, use_container_width=True)
+
+                    # 2.5 Dictionaries
+                    st.markdown("### 2.5 Dictionaries")
+                    dictionaries_df = st.data_editor(
+                        build_default_dictionaries_sheet(),
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        key="dictionaries_editor"
+                    )
+
+                    # 2.6 Trial Design
+                    st.markdown("### 2.6 Trial Design")
+                    ta_df, te_df, ti_df, ts_df, tv_df = build_trial_design_templates()
+
+                    with st.expander("TA / TE / TI / TS / TV 基本欄位骨架", expanded=False):
+                        st.markdown("#### TA")
+                        st.dataframe(ta_df, use_container_width=True)
+
+                        st.markdown("#### TE")
+                        st.dataframe(te_df, use_container_width=True)
+
+                        st.markdown("#### TI")
+                        st.dataframe(ti_df, use_container_width=True)
+
+                        st.markdown("#### TS")
+                        st.dataframe(ts_df, use_container_width=True)
+
+                        st.markdown("#### TV")
+                        st.dataframe(tv_df, use_container_width=True)
 
                     # 指定輸出順序
                     export_sheets = {
