@@ -487,7 +487,8 @@ def get_non_crf_from_config(detail_df, config_df):
 
     out = non_crf[[
         "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum"
+        "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum",
+        "IsCRFVariable"
     ]].drop_duplicates(subset=["Dataset", "Variable"])
 
     return out.reset_index(drop=True)
