@@ -1,7 +1,15 @@
 import streamlit as st
 import pandas as pd
 import re
+import os
 from io import BytesIO
+
+# Step 2 用到 sas7bdat
+try:
+    import pyreadstat
+    HAS_PYREADSTAT = True
+except Exception:
+    HAS_PYREADSTAT = False
 
 st.set_page_config(page_title="Auto SDTM SPEC", layout="wide")
 st.title("Auto SDTM SPEC")
@@ -321,36 +329,82 @@ def summarize_sdtm_mapping(mapping_df):
 
 
 # =========================================================
-# Reference SPEC 讀取 / 比對
+# Step 2：domains.sas7bdat (單一 config 檔)
 # =========================================================
-def load_reference_sheet(reference_file, sheet_name):
-    try:
-        xls = pd.ExcelFile(reference_file)
-        if sheet_name not in xls.sheet_names:
-            return pd.DataFrame()
-        df = pd.read_excel(reference_file, sheet_name=sheet_name)
-        df = normalize_columns(df)
-        return df
-    except Exception:
-        return pd.DataFrame()
+def load_domains_config(version):
+    """
+    只讀 repo 中的單一 domains.sas7bdat
+    預設路徑：
+      config/v33/domains.sas7bdat
+      config/v34/domains.sas7bdat
+    """
+    if version == "Version 3.3":
+        path = "config/v33/domains.sas7bdat"
+    else:
+        path = "config/v34/domains.sas7bdat"
+
+    if not HAS_PYREADSTAT:
+        raise ImportError("目前環境尚未安裝 pyreadstat，請先在 requirements.txt 加入 pyreadstat")
+
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"找不到 config 檔：{path}")
+
+    cfg_df, _ = pyreadstat.read_sas7bdat(path)
+    cfg_df = normalize_columns(cfg_df)
+
+    return cfg_df, path
 
 
-def get_non_crf_from_reference(detail_df, ref_variables_df):
+def standardize_domains_config(cfg_df):
     """
-    從 reference Variables sheet 補 non-CRF variables：
-    - 只保留目前 mapping 有出現的 datasets
-    - 排除已經在 CRF mapping detail 裡出現的 (Dataset, Variable)
+    把 domains.sas7bdat 標準化成 app 內部用欄位
+    原始欄位預期：
+      domain, dlabel, repeat, refdata, structure, keyvars, keyseq,
+      varnum, name, label, type, mandatory, role, core, ctcode, class
     """
-    if detail_df.empty or ref_variables_df.empty:
+    df = cfg_df.copy()
+    df.columns = [str(c).strip().lower() for c in df.columns]
+
+    rename_map = {
+        "domain": "Dataset",
+        "dlabel": "Dataset Label",
+        "repeat": "Repeat",
+        "refdata": "RefData",
+        "structure": "Structure",
+        "keyvars": "Key Variables",
+        "keyseq": "KeySeq",
+        "varnum": "VarNum",
+        "name": "Variable",
+        "label": "Variable Label",
+        "type": "Data Type",
+        "mandatory": "Mandatory",
+        "role": "Role",
+        "core": "Core",
+        "ctcode": "Codelist",
+        "class": "Class"
+    }
+
+    df = df.rename(columns=rename_map)
+
+    if "Dataset" in df.columns:
+        df["Dataset"] = df["Dataset"].astype(str).str.upper().str.strip()
+
+    if "Variable" in df.columns:
+        df["Variable"] = df["Variable"].astype(str).str.upper().str.strip()
+
+    return df
+
+
+def get_non_crf_from_config(detail_df, config_df):
+    """
+    non-CRF = config 裡所有 variables - Step 1 mapping 已有的 variables
+    只保留目前 mapping 有出現的 datasets
+    """
+    if detail_df.empty or config_df.empty:
         return pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type", "Codelist",
-            "Origin", "Source", "Pages", "Method", "Comment"
-        ])
-
-    if "Dataset" not in ref_variables_df.columns or "Variable" not in ref_variables_df.columns:
-        return pd.DataFrame(columns=[
-            "Dataset", "Variable", "Label", "Data Type", "Codelist",
-            "Origin", "Source", "Pages", "Method", "Comment"
+            "Origin", "Source", "Pages", "Method", "Comment",
+            "Mandatory", "Role", "Core", "Class", "VarNum"
         ])
 
     crf_pairs = set(
@@ -362,44 +416,53 @@ def get_non_crf_from_reference(detail_df, ref_variables_df):
 
     detected_datasets = set(detail_df["SDTM Domain"].astype(str).str.upper())
 
-    ref = ref_variables_df.copy()
-    ref["Dataset"] = ref["Dataset"].astype(str).str.upper()
-    ref["Variable"] = ref["Variable"].astype(str).str.upper()
+    cfg = config_df.copy()
+    cfg = cfg[
+        (cfg["Dataset"].astype(str).str.strip() != "") &
+        (cfg["Variable"].astype(str).str.strip() != "")
+    ].copy()
 
-    ref = ref[ref["Dataset"].isin(detected_datasets)]
+    cfg = cfg[cfg["Dataset"].isin(detected_datasets)]
 
-    ref["pair"] = list(zip(ref["Dataset"], ref["Variable"]))
-    non_crf = ref[~ref["pair"].isin(crf_pairs)].copy()
+    cfg["pair"] = list(zip(cfg["Dataset"], cfg["Variable"]))
+    non_crf = cfg[~cfg["pair"].isin(crf_pairs)].copy()
 
     if "pair" in non_crf.columns:
         non_crf = non_crf.drop(columns=["pair"])
 
-    for col in ["Label", "Data Type", "Codelist", "Origin", "Source", "Pages", "Method", "Comment"]:
+    non_crf["Label"] = non_crf.get("Variable Label", "")
+    non_crf["Origin"] = non_crf.get("Origin", "")
+    non_crf["Source"] = non_crf.get("Source", "")
+    non_crf["Pages"] = ""
+    non_crf["Method"] = non_crf.get("Method", "")
+    non_crf["Comment"] = non_crf.get("Comment", "")
+
+    for col in ["Label", "Data Type", "Codelist", "Origin", "Source", "Pages", "Method", "Comment",
+                "Mandatory", "Role", "Core", "Class", "VarNum"]:
         if col not in non_crf.columns:
             non_crf[col] = ""
 
     return non_crf[[
         "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment"
+        "Origin", "Source", "Pages", "Method", "Comment",
+        "Mandatory", "Role", "Core", "Class", "VarNum"
     ]].drop_duplicates().reset_index(drop=True)
 
 
-def enrich_crf_variables_with_reference(detail_df, ref_variables_df):
+def enrich_crf_variables_with_config(detail_df, config_df):
     """
-    若 reference Variables sheet 有同 Dataset / Variable，帶回 metadata
+    用 domains.sas7bdat 補 Step 1 抓到的 CRF variables metadata
     """
     if detail_df.empty:
         return pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type", "Codelist",
-            "Origin", "Source", "Pages", "Method", "Comment"
+            "Origin", "Source", "Pages", "Method", "Comment",
+            "Mandatory", "Role", "Core", "Class", "VarNum"
         ])
 
     crf_df = detail_df.copy()
     crf_df["Dataset"] = crf_df["SDTM Domain"].astype(str).str.upper()
     crf_df["Variable"] = crf_df["SDTM Variable"].astype(str).str.upper()
-    crf_df["Label"] = ""
-    crf_df["Data Type"] = ""
-    crf_df["Codelist"] = ""
 
     def derive_origin(row):
         if str(row.get("Assign Value", "")).strip() != "":
@@ -418,110 +481,112 @@ def enrich_crf_variables_with_reference(detail_df, ref_variables_df):
         axis=1
     )
 
-    base_crf_df = crf_df[[
-        "Dataset", "Variable", "Label", "Data Type", "Codelist",
-        "Origin", "Source", "Pages", "Method", "Comment"
-    ]].copy()
-
-    if ref_variables_df.empty:
-        return base_crf_df.drop_duplicates().reset_index(drop=True)
-
-    if "Dataset" not in ref_variables_df.columns or "Variable" not in ref_variables_df.columns:
-        return base_crf_df.drop_duplicates().reset_index(drop=True)
-
-    ref = ref_variables_df.copy()
-    ref["Dataset"] = ref["Dataset"].astype(str).str.upper()
-    ref["Variable"] = ref["Variable"].astype(str).str.upper()
-
     merge_cols = ["Dataset", "Variable"]
-    ref_meta_cols = []
-    for c in ["Label", "Data Type", "Codelist", "Origin", "Source", "Pages", "Method", "Comment"]:
-        if c in ref.columns:
-            ref_meta_cols.append(c)
+    cfg_keep_cols = [
+        c for c in [
+            "Dataset", "Variable", "Variable Label", "Data Type", "Codelist",
+            "Mandatory", "Role", "Core", "Class", "VarNum"
+        ] if c in config_df.columns
+    ]
 
-    if not ref_meta_cols:
-        return base_crf_df.drop_duplicates().reset_index(drop=True)
+    cfg = config_df[cfg_keep_cols].drop_duplicates() if cfg_keep_cols else pd.DataFrame(columns=merge_cols)
 
-    ref_for_merge = ref[merge_cols + ref_meta_cols].drop_duplicates()
-
-    merged = base_crf_df.merge(
-        ref_for_merge,
+    merged = crf_df.merge(
+        cfg,
         on=["Dataset", "Variable"],
-        how="left",
-        suffixes=("", "_REF")
+        how="left"
     )
 
-    for c in ref_meta_cols:
-        ref_col = f"{c}_REF"
-        if ref_col in merged.columns:
-            merged[c] = merged.apply(
-                lambda r: r[c] if str(r[c]).strip() != "" else (r[ref_col] if pd.notna(r[ref_col]) else ""),
-                axis=1
-            )
-            merged = merged.drop(columns=[ref_col])
+    merged["Label"] = merged.get("Variable Label", "")
 
-    return merged.drop_duplicates().reset_index(drop=True)
+    for col in ["Label", "Data Type", "Codelist", "Mandatory", "Role", "Core", "Class", "VarNum"]:
+        if col not in merged.columns:
+            merged[col] = ""
+
+    return merged[[
+        "Dataset", "Variable", "Label", "Data Type", "Codelist",
+        "Origin", "Source", "Pages", "Method", "Comment",
+        "Mandatory", "Role", "Core", "Class", "VarNum"
+    ]].drop_duplicates().reset_index(drop=True)
 
 
-def build_datasets_spec(variables_spec_df, ref_datasets_df=None):
-    if variables_spec_df.empty:
+def build_variables_spec_from_domains_config(detail_df, config_df):
+    crf_part = enrich_crf_variables_with_config(detail_df, config_df)
+    non_crf_part = get_non_crf_from_config(detail_df, config_df)
+
+    final_df = pd.concat([crf_part, non_crf_part], ignore_index=True)
+    final_df = final_df.drop_duplicates()
+
+    if "VarNum" in final_df.columns:
+        final_df["VarNum_num"] = pd.to_numeric(final_df["VarNum"], errors="coerce")
+        final_df = final_df.sort_values(by=["Dataset", "VarNum_num", "Variable"], na_position="last")
+        final_df = final_df.drop(columns=["VarNum_num"])
+    else:
+        final_df = final_df.sort_values(by=["Dataset", "Variable"])
+
+    final_df = final_df.reset_index(drop=True)
+    final_df.insert(0, "Order", range(1, len(final_df) + 1))
+
+    return final_df
+
+
+def build_datasets_spec_from_domains_config(mapping_df, config_df):
+    if mapping_df.empty:
         return pd.DataFrame(columns=[
-            "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard"
+            "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard",
+            "Repeat", "RefData"
         ])
 
-    datasets = sorted(variables_spec_df["Dataset"].dropna().astype(str).unique())
+    detected_datasets = sorted(mapping_df["SDTM Domain"].dropna().astype(str).str.upper().unique())
 
-    rows = []
-    for ds in datasets:
-        ds_vars = variables_spec_df.loc[variables_spec_df["Dataset"] == ds, "Variable"].tolist()
-
-        key_vars = []
-        for candidate in ["STUDYID", "USUBJID", f"{ds}SEQ"]:
-            if candidate in ds_vars:
-                key_vars.append(candidate)
-
-        rows.append({
-            "Dataset": ds,
+    if config_df.empty:
+        return pd.DataFrame({
+            "Dataset": detected_datasets,
             "Label": "",
             "Class": "",
             "Structure": "",
-            "Key Variables": " ".join(key_vars),
-            "Standard": "SDTM"
+            "Key Variables": "",
+            "Standard": "SDTM",
+            "Repeat": "",
+            "RefData": ""
         })
 
-    ds_df = pd.DataFrame(rows)
+    # dataset-level one row per domain
+    ds_cols = [c for c in [
+        "Dataset", "Dataset Label", "Class", "Structure", "Key Variables", "Repeat", "RefData"
+    ] if c in config_df.columns]
 
-    if ref_datasets_df is not None and not ref_datasets_df.empty and "Dataset" in ref_datasets_df.columns:
-        ref = ref_datasets_df.copy()
-        ref["Dataset"] = ref["Dataset"].astype(str).str.upper()
+    ds_df = config_df[ds_cols].drop_duplicates(subset=["Dataset"]).copy()
+    ds_df = ds_df[ds_df["Dataset"].isin(detected_datasets)]
 
-        keep_cols = ["Dataset"]
-        for c in ["Label", "Class", "Structure", "Key Variables", "Standard"]:
-            if c in ref.columns:
-                keep_cols.append(c)
+    ds_df = ds_df.rename(columns={
+        "Dataset Label": "Label"
+    })
 
-        ref = ref[keep_cols].drop_duplicates()
+    if "Label" not in ds_df.columns:
+        ds_df["Label"] = ""
+    if "Class" not in ds_df.columns:
+        ds_df["Class"] = ""
+    if "Structure" not in ds_df.columns:
+        ds_df["Structure"] = ""
+    if "Key Variables" not in ds_df.columns:
+        ds_df["Key Variables"] = ""
+    if "Repeat" not in ds_df.columns:
+        ds_df["Repeat"] = ""
+    if "RefData" not in ds_df.columns:
+        ds_df["RefData"] = ""
 
-        merged = ds_df.merge(ref, on="Dataset", how="left", suffixes=("", "_REF"))
+    ds_df["Standard"] = "SDTM"
 
-        for c in ["Label", "Class", "Structure", "Key Variables", "Standard"]:
-            ref_col = f"{c}_REF"
-            if ref_col in merged.columns:
-                merged[c] = merged.apply(
-                    lambda r: r[c] if str(r[c]).strip() != "" else (r[ref_col] if pd.notna(r[ref_col]) else ""),
-                    axis=1
-                )
-                merged = merged.drop(columns=[ref_col])
-
-        ds_df = merged
+    ds_df = ds_df[[
+        "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard",
+        "Repeat", "RefData"
+    ]].reset_index(drop=True)
 
     return ds_df
 
 
-def build_define_sheet(ref_define_df=None):
-    if ref_define_df is not None and not ref_define_df.empty:
-        return ref_define_df.copy()
-
+def build_define_sheet():
     return pd.DataFrame([
         {"Attribute": "Standard", "Value": "SDTM"},
         {"Attribute": "StandardVersion", "Value": ""},
@@ -531,38 +596,17 @@ def build_define_sheet(ref_define_df=None):
     ])
 
 
-def build_empty_codelists_sheet(ref_codelists_df=None):
-    if ref_codelists_df is not None and not ref_codelists_df.empty:
-        return ref_codelists_df.copy()
-
+def build_empty_codelists_sheet():
     return pd.DataFrame(columns=[
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
     ])
 
 
-def build_empty_dictionaries_sheet(ref_dictionaries_df=None):
-    if ref_dictionaries_df is not None and not ref_dictionaries_df.empty:
-        return ref_dictionaries_df.copy()
-
+def build_empty_dictionaries_sheet():
     return pd.DataFrame(columns=[
         "ID", "Name", "Data Type", "Dictionary", "Version"
     ])
-
-
-def build_variables_spec(detail_df, non_crf_df=None, ref_variables_df=None):
-    crf_df = enrich_crf_variables_with_reference(detail_df, ref_variables_df)
-
-    if non_crf_df is not None and not non_crf_df.empty:
-        combined = pd.concat([crf_df, non_crf_df], ignore_index=True)
-    else:
-        combined = crf_df.copy()
-
-    combined = combined.drop_duplicates().reset_index(drop=True)
-    combined = combined.sort_values(by=["Dataset", "Variable"]).reset_index(drop=True)
-    combined.insert(0, "Order", range(1, len(combined) + 1))
-
-    return combined
 
 
 def to_excel_bytes(sheet_dict):
@@ -722,7 +766,6 @@ if uploaded_file is not None:
             on_click=trigger_step2
         )
 
-
         # -------------------------------------------------
         # Step 2：SPEC Generator
         # -------------------------------------------------
@@ -732,60 +775,63 @@ if uploaded_file is not None:
             if mapping_df.empty:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
-                st.success("✅ 已成功進入 Step 2")
+                st.markdown("### 2.1 選擇 SDTM Version")
 
-            # -------------------------------
-            # 2.1 選擇 Version
-            # -------------------------------
-            version = st.selectbox(
-                "請選擇 SDTM Version",
-                ["Version 3.3", "Version 3.4"]
-            )
+                version = st.selectbox(
+                    "請選擇 SDTM Version",
+                    ["Version 3.3", "Version 3.4"],
+                    key="sdtm_version_selector"
+                )
 
-            # -------------------------------
-            # 2.2 config 路徑
-            # -------------------------------
-            if version == "Version 3.3":
-                base_path = "config/v33"
-            else:
-                base_path = "config/v34"
+                try:
+                    raw_cfg_df, cfg_path = load_domains_config(version)
+                    cfg_df = standardize_domains_config(raw_cfg_df)
 
-            var_path = f"{base_path}/variables.sas7bdat"
-            ds_path  = f"{base_path}/domains.sas7bdat"
+                    st.success(f"✅ 已成功載入 config：{cfg_path}")
 
-            st.write("使用 config：", base_path)
+                    st.markdown("### 2.2 Variables SPEC")
+                    variables_spec_df = build_variables_spec_from_domains_config(
+                        detail_df=detail_df,
+                        config_df=cfg_df
+                    )
+                    st.dataframe(variables_spec_df, use_container_width=True)
 
-            # -------------------------------
-            # 2.3 讀 config
-            # -------------------------------
-            import pyreadstat
+                    st.markdown("### 2.3 Datasets SPEC")
+                    datasets_spec_df = build_datasets_spec_from_domains_config(
+                        mapping_df=mapping_df,
+                        config_df=cfg_df
+                    )
+                    st.dataframe(datasets_spec_df, use_container_width=True)
 
-            try:
-                var_cfg_df, _ = pyreadstat.read_sas7bdat(var_path)
-                ds_cfg_df, _ = pyreadstat.read_sas7bdat(ds_path)
+                    st.markdown("### 2.4 Define / Codelists / Dictionaries")
+                    define_df = build_define_sheet()
+                    codelists_df = build_empty_codelists_sheet()
+                    dictionaries_df = build_empty_dictionaries_sheet()
 
-                st.success("✅ Config 載入成功")
+                    st.dataframe(define_df, use_container_width=True)
+                    st.dataframe(codelists_df, use_container_width=True)
+                    st.dataframe(dictionaries_df, use_container_width=True)
 
-                st.write("Variables config preview")
-                st.dataframe(var_cfg_df.head())
+                    export_sheets = {
+                        "Define": define_df,
+                        "Datasets": datasets_spec_df,
+                        "Variables": variables_spec_df,
+                        "Codelists": codelists_df,
+                        "Dictionaries": dictionaries_df
+                    }
 
-                st.write("Datasets config preview")
-                st.dataframe(ds_cfg_df.head())
+                    excel_bytes = to_excel_bytes(export_sheets)
 
-            except Exception as e:
-                st.error(f"❌ Config 讀取失敗：{e}")
+                    st.download_button(
+                        label="下載 SDTM SPEC Excel",
+                        data=excel_bytes,
+                        file_name=f"SDTM_SPEC_{version.replace(' ', '_')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
 
-            # -------------------------------
-            # 2.4 Mapping Preview（保留）
-            # -------------------------------
-            st.markdown("### Mapping Preview")
-
-            summary_df = summarize_sdtm_mapping(mapping_df)
-            st.dataframe(summary_df)
-
-            st.write(f"mapping 總數：{len(mapping_df)}")
-
-
+                except Exception as e:
+                    st.error(f"Step 2 載入 config / 產生 SPEC 失敗：{e}")
 
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
+``
