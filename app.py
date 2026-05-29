@@ -492,6 +492,7 @@ def get_non_crf_from_config(detail_df, config_df):
 
 
 
+
 def enrich_crf_variables_with_config(detail_df, config_df):
     """
     CRF 收集到的都保留
@@ -584,8 +585,546 @@ def enrich_crf_variables_with_config(detail_df, config_df):
 
 
 
+def normalize_data_type_by_config(raw_type, variable_name=""):
+    """
+    規則：
+      - config type=1 -> integer
+      - config type=2 -> text
+      - 若 variable 以 DTC / STDTC / ENDTC 結尾 -> datetime
+    """
+    var = normalize_text(variable_name)
+
+    if var.endswith("STDTC") or var.endswith("ENDTC") or var.endswith("DTC"):
+        return "datetime"
+
+    text = normalize_text(raw_type)
+
+    if text in ["1", "1.0", "INTEGER", "INT", "NUMERIC"]:
+        return "integer"
+    if text in ["2", "2.0", "TEXT", "CHAR", "STRING"]:
+        return "text"
+
+    raw = str(raw_type).strip()
+    if raw.lower() in ["nan", "none"]:
+        return ""
+    return raw
+
+
+def build_config_variable_lookup(config_df):
+    """
+    建立 (Dataset, Variable) -> row dict lookup
+    """
+    lookup = {}
+
+    if config_df.empty:
+        return lookup
+
+    temp = config_df.copy()
+
+    if "Dataset" not in temp.columns or "Variable" not in temp.columns:
+        return lookup
+
+    for _, row in temp.iterrows():
+        ds = str(row.get("Dataset", "")).strip().upper()
+        var = str(row.get("Variable", "")).strip().upper()
+        if ds and var:
+            lookup[(ds, var)] = row.to_dict()
+
+    return lookup
+
+
+def build_variable_row_from_config(dataset, variable, cfg_lookup):
+    """
+    只在 config 找得到時才建立 row；
+    找不到就回傳 None
+    Auto-added variable 不加 comment
+    """
+    key = (str(dataset).upper(), str(variable).upper())
+
+    if key not in cfg_lookup:
+        return None
+
+    meta = cfg_lookup[key]
+
+    row = {
+        "Dataset": str(meta.get("Dataset", dataset)).upper(),
+        "Variable": str(meta.get("Variable", variable)).upper(),
+        "Label": meta.get("Variable Label", ""),
+        "Data Type": normalize_data_type_by_config(meta.get("Data Type", ""), variable),
+        "Codelist": meta.get("Codelist", ""),
+        "Origin": "Derived",
+        "Source": "",
+        "Pages": "",
+        "Method": "",
+        "Comment": "",
+        "Core": meta.get("Core", ""),
+        "VarNum": meta.get("VarNum", "")
+    }
+
+    return row
+
+
+def append_required_partner_variables(final_df, config_df):
+    """
+    規則（僅在 config 有對應 variable 時才補）：
+      1. --DTC    -> --DY
+      2. --STDTC  -> --STDY
+      3. --ENDTC  -> --ENDY
+      4. --STRTPT -> --STTPT
+      5. --ENRTPT -> --ENTPT
+      6. VISITNUM -> VISIT, VISITDY
+      7. --TPT    -> --TPTNUM
+      8. --ORRES  -> --STRESC, --STRESN, --STAT
+      9. --ORRESU -> --STRESU
+
+    注意：
+      - 若 config 沒有該變數，則不加
+      - Auto-added variable 不加 Comment
+    """
+    if final_df.empty:
+        return final_df
+
+    out = final_df.copy()
+    cfg_lookup = build_config_variable_lookup(config_df)
+
+    existing_pairs = set(
+        zip(
+            out["Dataset"].astype(str).str.upper(),
+            out["Variable"].astype(str).str.upper()
+        )
+    )
+
+    new_rows = []
+
+    for dataset, grp in out.groupby("Dataset", dropna=False):
+        ds = str(dataset).upper()
+        vars_in_ds = set(grp["Variable"].astype(str).str.upper())
+
+        # Rule A: exact VISITNUM -> VISIT, VISITDY
+        if "VISITNUM" in vars_in_ds:
+            for tgt_var in ["VISIT", "VISITDY"]:
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+                        vars_in_ds.add(tgt_var)
+
+        # Rule B: suffix-based
+        for src_var in list(vars_in_ds):
+            # --STDTC -> --STDY
+            if src_var.endswith("STDTC"):
+                tgt_var = src_var[:-5] + "STDY"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --ENDTC -> --ENDY
+            if src_var.endswith("ENDTC"):
+                tgt_var = src_var[:-5] + "ENDY"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --DTC -> --DY
+            if src_var.endswith("DTC") and not src_var.endswith("STDTC") and not src_var.endswith("ENDTC"):
+                tgt_var = src_var[:-3] + "DY"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --STRTPT -> --STTPT
+            if src_var.endswith("STRTPT"):
+                tgt_var = src_var[:-6] + "STTPT"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --ENRTPT -> --ENTPT
+            if src_var.endswith("ENRTPT"):
+                tgt_var = src_var[:-6] + "ENTPT"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --TPT -> --TPTNUM
+            if (
+                src_var.endswith("TPT")
+                and not src_var.endswith("STTPT")
+                and not src_var.endswith("ENTPT")
+            ):
+                tgt_var = src_var + "NUM"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+            # --ORRES -> --STRESC, --STRESN, --STAT
+            if src_var.endswith("ORRES"):
+                base = src_var[:-5]
+                for tgt_var in [base + "STRESC", base + "STRESN", base + "STAT"]:
+                    if (ds, tgt_var) not in existing_pairs:
+                        row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                        if row is not None:
+                            new_rows.append(row)
+                            existing_pairs.add((ds, tgt_var))
+
+            # --ORRESU -> --STRESU
+            if src_var.endswith("ORRESU"):
+                base = src_var[:-6]
+                tgt_var = base + "STRESU"
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+    if new_rows:
+        out = pd.concat([out, pd.DataFrame(new_rows)], ignore_index=True)
+
+    return out
+
+
+def build_trial_design_variables_spec(config_df):
+    """
+    TA / TE / TI / TS / TV 變數跟 config 比對，
+    帶入 Core / VarNum / Codelist / Label / Data Type
+    Comment 一律空白
+    """
+    defs = get_trial_design_definitions()
+    cfg_lookup = build_config_variable_lookup(config_df)
+
+    rows = []
+
+    for domain in ["TA", "TE", "TI", "TS", "TV"]:
+        for var, fallback_label, fallback_dtype in defs[domain]["variables"]:
+            key = (domain, var)
+
+            if key in cfg_lookup:
+                meta = cfg_lookup[key]
+                row = {
+                    "Dataset": domain,
+                    "Variable": var,
+                    "Label": meta.get("Variable Label", fallback_label),
+                    "Data Type": normalize_data_type_by_config(meta.get("Data Type", fallback_dtype), var),
+                    "Codelist": meta.get("Codelist", ""),
+                    "Origin": "Protocol",
+                    "Source": "Sponsor",
+                    "Pages": "",
+                    "Method": "",
+                    "Comment": "",
+                    "Core": meta.get("Core", ""),
+                    "VarNum": meta.get("VarNum", "")
+                }
+            else:
+                row = {
+                    "Dataset": domain,
+                    "Variable": var,
+                    "Label": fallback_label,
+                    "Data Type": normalize_data_type_by_config(fallback_dtype, var),
+                    "Codelist": "",
+                    "Origin": "Protocol",
+                    "Source": "Sponsor",
+                    "Pages": "",
+                    "Method": "",
+                    "Comment": "",
+                    "Core": "",
+                    "VarNum": ""
+                }
+
+            rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def apply_variable_level_overrides(df):
+    """
+    套用變數層級規則：
+      1. Data Type 規則化
+      2. DOMAIN -> Codelist=DOMAIN_<DATASET>
+      3. EPOCH -> Codelist=EPOCH
+      4. AE dictionary -> AEDICT_F
+      5. AEREL -> AEREL
+    """
+    if df.empty:
+        return df
+
+    out = df.copy()
+
+    for c in ["Dataset", "Variable", "Codelist", "Data Type"]:
+        if c not in out.columns:
+            out[c] = ""
+
+    ds_upper = out["Dataset"].astype(str).str.upper()
+    var_upper = out["Variable"].astype(str).str.upper()
+
+    # Data Type
+    out["Data Type"] = out.apply(
+        lambda r: normalize_data_type_by_config(r.get("Data Type", ""), r.get("Variable", "")),
+        axis=1
+    )
+
+    # DOMAIN -> DOMAIN_<Dataset>
+    mask = var_upper == "DOMAIN"
+    out.loc[mask, "Codelist"] = ds_upper[mask].apply(lambda x: f"DOMAIN_{x}")
+
+    # EPOCH
+    mask = var_upper == "EPOCH"
+    out.loc[mask, "Codelist"] = "EPOCH"
+
+    # AE dictionary vars
+    ae_dict_vars = {
+        "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
+        "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
+        "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
+    }
+    out.loc[var_upper.isin(ae_dict_vars), "Codelist"] = "AEDICT_F"
+
+    # AEREL
+    out.loc[var_upper == "AEREL", "Codelist"] = "AEREL"
+
+    return out
+
+
+def apply_origin_source_method_overrides(df):
+    """
+    最終修正 Origin / Source / Method / 特定 Codelist
+    依 mock SPEC Variables sheet 的呈現風格做 rule engine
+    """
+    if df.empty:
+        return df
+
+    out = df.copy()
+
+    for c in ["Dataset", "Variable", "Origin", "Source", "Method", "Codelist"]:
+        if c not in out.columns:
+            out[c] = ""
+
+    ds = out["Dataset"].astype(str).str.upper()
+    var = out["Variable"].astype(str).str.upper()
+
+    # ---------------------------
+    # Core identifiers
+    # ---------------------------
+    mask = var == "STUDYID"
+    out.loc[mask, "Origin"] = "Protocol"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = ""
+
+    mask = var == "DOMAIN"
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = ""
+
+    mask = var == "USUBJID"
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = "Concatenation of STUDYID-SITEID-SUBJID"
+
+    # ---------------------------
+    # Sequence
+    # ---------------------------
+    mask = (var.str.endswith("SEQ")) & (var != "TSSEQ")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = (
+        "Equal to sequential number identifying records within each USUBJID "
+        "which sorted by key variables in the domain"
+    )
+
+    mask = var == "TSSEQ"
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = (
+        "Equal to sequential number identifying records within each TSPARMCD in the domain"
+    )
+
+    # ---------------------------
+    # EPOCH
+    # ---------------------------
+    mask = var == "EPOCH"
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = ""
+
+    # TA.EPOCH 例外
+    mask = (ds == "TA") & (var == "EPOCH")
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = "Assigned based on protocol design"
+
+    # ---------------------------
+    # AE dictionary variables
+    # ---------------------------
+    ae_dict_vars = {
+        "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
+        "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
+        "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
+    }
+    mask = var.isin(ae_dict_vars)
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Vendor"
+
+    # ---------------------------
+    # VISIT / VISITNUM / VISITDY
+    # ---------------------------
+    mask = var == "VISITNUM"
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = "Assigned from the TV domain based on the VISIT"
+
+    mask = var == "VISIT"
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = ""
+
+    mask = var == "VISITDY"
+    out.loc[mask, "Origin"] = "Protocol"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = ""
+
+    # ---------------------------
+    # STRES / STAT
+    # ---------------------------
+    mask = var.str.endswith("STRESC")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = var[mask].str.replace("STRESC", "ORRES", regex=False).apply(
+        lambda x: f"Equal to {x}"
+    )
+
+    mask = var.str.endswith("STRESN")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = var[mask].str.replace("STRESN", "STRESC", regex=False).apply(
+        lambda x: f"Equal to numeric value of {x} if {x} contains numeric data"
+    )
+
+    mask = var.str.endswith("STRESU")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = var[mask].str.replace("STRESU", "ORRESU", regex=False).apply(
+        lambda x: f"Equal to {x}"
+    )
+
+    mask = var.str.endswith("STAT")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = var[mask].str.replace("STAT", "ORRES", regex=False).apply(
+        lambda x: f'Equal to "NOT DONE" if {x} is null'
+    )
+
+    # ---------------------------
+    # DY / STDY / ENDY
+    # ---------------------------
+    def build_dy_method(v):
+        if v.endswith("STDY"):
+            src = v[:-4] + "STDTC"
+        elif v.endswith("ENDY"):
+            src = v[:-4] + "ENDTC"
+        elif v.endswith("DY"):
+            src = v[:-2] + "DTC"
+        else:
+            return ""
+        return (
+            f"Equal to {src} - DM.RFSTDTC + 1 if {src} is on or after DM.RFSTDTC;\n"
+            f"Equal to {src} - DM.RFSTDTC if {src} precedes DM.RFSTDTC"
+        )
+
+    mask = var.str.endswith("DY")
+    out.loc[mask, "Origin"] = "Derived"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Method"] = var[mask].apply(build_dy_method)
+
+    # ---------------------------
+    # RDOMAIN 特例
+    # ---------------------------
+    mask = (ds == "CO") & (var == "RDOMAIN")
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Codelist"] = "RDOMAIN_CO"
+
+    mask = (ds == "SUPPAE") & (var == "RDOMAIN")
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Codelist"] = "DOMAIN_AE"
+
+    mask = (ds == "SUPPDS") & (var == "RDOMAIN")
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Codelist"] = "DOMAIN_DS"
+
+    mask = (ds == "SUPPEG") & (var == "RDOMAIN")
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+    out.loc[mask, "Codelist"] = "DOMAIN_EG"
+
+    # ---------------------------
+    # Protocol-driven trial design vars
+    # ---------------------------
+    protocol_vars = {
+        ("TA", "ELEMENT"), ("TA", "TABRANCH"), ("TA", "TATRANS"),
+        ("TE", "ELEMENT"), ("TE", "TESTRL"), ("TE", "TEENRL"), ("TE", "TEDUR"),
+        ("TI", "IETEST"), ("TI", "TIVERS"),
+        ("TV", "VISITDY"), ("TV", "TVSTRL"), ("TV", "TVENRL"),
+    }
+    protocol_mask = [(d, v) in protocol_vars for d, v in zip(ds, var)]
+    out.loc[protocol_mask, "Origin"] = "Protocol"
+    out.loc[protocol_mask, "Source"] = "Sponsor"
+
+    # ---------------------------
+    # Common Assigned/Sponsor helper vars
+    # ---------------------------
+    assigned_vars = {
+        "IDVAR", "IDVARVAL", "QNAM", "QLABEL", "QORIG", "QEVAL", "COEVAL",
+        "ETCD", "TAETORD", "ARMCD", "ARM", "ACTARMCD", "ACTARM",
+        "IETESTCD", "EGTESTCD", "EGTEST", "VSTESTCD", "VSTEST",
+        "TSPARMCD", "TSPARM", "TSVALCD", "TSVCDREF", "TSVCDVER",
+        "AGEU"
+    }
+    mask = var.isin(assigned_vars)
+    out.loc[mask, "Origin"] = "Assigned"
+    out.loc[mask, "Source"] = "Sponsor"
+
+    # ---------------------------
+    # Common Collected/Investigator vars
+    # (保留已被更高優先規則覆蓋者)
+    # ---------------------------
+    collected_vars = {
+        "AESPID", "AETERM", "AESER", "AEACN", "AEREL", "AEOUT", "AESCONG",
+        "AESDISAB", "AESDTH", "AESHOSP", "AESLIFE", "AESMIE", "AECONTRT",
+        "AETOXGR", "DSTERM", "MHTERM", "RFICDTC", "BRTHDTC", "AGE", "SEX",
+        "RACE", "COVAL", "QVAL", "EGORRES", "EGREASND", "EGCLSIG",
+        "VSORRES", "VSNRIND", "VSREASND", "VSCLSIG",
+        "ECSTDTC", "ECENDTC", "EXSTDTC", "EXENDTC",
+        "MHSTDTC", "MHENDTC", "AESTDTC", "AEENDTC",
+        "EGDTC", "VSDTC", "EGTPT", "MHSTRTPT", "MHENRTPT",
+        "AEENRTPT"
+    }
+    mask = var.isin(collected_vars)
+    out.loc[mask, "Origin"] = "Collected"
+    out.loc[mask, "Source"] = "Investigator"
+
+    return out
+
+
+
 def build_variables_spec_from_domains_config(detail_df, config_df):
-    detected_datasets = sorted(detail_df["SDTM Domain"].astype(str).str.upper().unique()) if not detail_df.empty else []
+    detected_datasets = (
+        sorted(detail_df["SDTM Domain"].astype(str).str.upper().unique())
+        if not detail_df.empty else []
+    )
     expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
 
     # ---------------------------
@@ -615,12 +1154,17 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
     final_df = append_required_partner_variables(final_df, expanded_cfg)
 
     # ---------------------------
-    # Part 5: type / codelist overrides
+    # Part 5: type / base codelist overrides
     # ---------------------------
     final_df = apply_variable_level_overrides(final_df)
 
     # ---------------------------
-    # Part 6: sort by Dataset + VarNum + Variable
+    # Part 6: final Origin / Source / Method / special codelist overrides
+    # ---------------------------
+    final_df = apply_origin_source_method_overrides(final_df)
+
+    # ---------------------------
+    # Part 7: sort by Dataset + VarNum + Variable
     # Order 每個 Dataset 重新從 1 開始
     # ---------------------------
     if "VarNum" not in final_df.columns:
@@ -647,7 +1191,6 @@ def build_variables_spec_from_domains_config(detail_df, config_df):
     final_df = final_df[keep_cols]
 
     return final_df
-
 
 
 
