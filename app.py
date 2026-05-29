@@ -852,7 +852,7 @@ def build_trial_design_variables_spec(config_df):
                     "Method": "",
                     "Comment": "",
                     "Core": "",
-                    "VarNum": ""
+                    "VarNum": "",
                     "IsCRFVariable": False
                 }
 
