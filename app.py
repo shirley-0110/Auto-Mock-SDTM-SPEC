@@ -1612,7 +1612,7 @@ def build_codelists_sheet_from_variables(variables_df):
         .astype(str)
         .str.strip()
     )
-    ids = ids[ids != "" & (ids.str.upper() != "AEDICT_F")]
+    ids = ids[ (ids != "") & (ids.str.upper() != "AEDICT_F")]
     ids = sorted(ids.drop_duplicates().tolist())
 
     return pd.DataFrame({
