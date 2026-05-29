@@ -1221,53 +1221,35 @@ def apply_origin_source_method_overrides(df):
 
 
 
+
     # =================================================
     # FINAL RULES（一定要放最後）
     # =================================================
 
-    # refresh pointer
     ds = out["Dataset"].astype(str).str.upper()
     var = out["Variable"].astype(str).str.upper()
-    origin = out["Origin"].astype(str).str.upper()
 
-    # -------------------------------------------------
-    # RULE 1 + RULE 2：TEST / TESTCD
-    # -------------------------------------------------
+    # ---------------------------
+    # RULE：TEST / TESTCD（無條件）
+    # ---------------------------
     test_mask = (
         (var.str.endswith("TEST") | var.str.endswith("TESTCD")) &
-        ~((ds == "TI") & (var == "IETEST"))  # 排除 TI.IETEST
+        ~((ds == "TI") & (var == "IETEST"))   # 排除 TI.IETEST
     )
 
-    # original Origin != Collected
-    not_collected_mask = origin != "COLLECTED"
-    
-    final_test_mask = test_mask & not_collected_mask
+    # 強制 Assigned / Sponsor
+    out.loc[test_mask, "Origin"] = "Assigned"
+    out.loc[test_mask, "Source"] = "Sponsor"
 
-    out.loc[final_test_mask, "Origin"] = "Assigned"
-    out.loc[final_test_mask, "Source"] = "Sponsor"
-
-    # RULE 2：Codelist fallback
-    empty_cl_mask = final_test_mask & (
+    # ---------------------------
+    # RULE：Codelist fallback
+    # ---------------------------
+    empty_cl_mask = test_mask & (
         out["Codelist"].fillna("").astype(str).str.strip() == ""
     )
+
     out.loc[empty_cl_mask, "Codelist"] = var[empty_cl_mask]
 
-
-    # -------------------------------------------------
-    # RULE 3：所有 Assigned → Sponsor（排除 AE dictionary）
-    # -------------------------------------------------
-    ae_dict_vars = {
-        "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
-        "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
-        "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
-    }
-
-    assigned_mask = (
-        (out["Origin"].astype(str).str.upper() == "ASSIGNED") &
-        (~var.isin(ae_dict_vars))
-    )
-
-    out.loc[assigned_mask, "Source"] = "Sponsor"
     
     return out
 
