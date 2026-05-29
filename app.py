@@ -976,7 +976,7 @@ def apply_origin_source_method_overrides(df):
 
 
 
-    
+
     # -------------------------------------------------
     # VISIT / VISITNUM / VISITDY
     # -------------------------------------------------
