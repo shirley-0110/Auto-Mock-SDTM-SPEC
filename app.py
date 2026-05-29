@@ -712,6 +712,29 @@ def append_required_partner_variables(final_df, config_df):
         ds = str(dataset).upper()
         vars_in_ds = set(grp["Variable"].astype(str).str.upper())
 
+        # =================================================
+        # 無條件保留變數（domain-specific required variables）
+        # =================================================
+
+        # ---------- CO ----------
+        if ds == "CO":
+            for tgt_var in ["RDOMAIN", "IDVAR", "IDVARVAL", "COREF", "COEVAL"]:
+                if (ds, tgt_var) not in existing_pairs:
+                    row = build_variable_row_from_config(ds, tgt_var, cfg_lookup)
+                    if row is not None:
+                        new_rows.append(row)
+                        existing_pairs.add((ds, tgt_var))
+
+        # ---------- DS ----------
+        if ds == "DS":
+            # DSDTC 必須存在
+            if (ds, "DSDTC") not in existing_pairs:
+                row = build_variable_row_from_config(ds, "DSDTC", cfg_lookup)
+                if row is not None:
+                    new_rows.append(row)
+                    existing_pairs.add((ds, "DSDTC"))
+
+
         # Rule A: exact VISITNUM -> VISIT, VISITDY
         if "VISITNUM" in vars_in_ds:
             for tgt_var in ["VISIT", "VISITDY"]:
