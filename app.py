@@ -1634,7 +1634,7 @@ def get_trial_design_definitions():
                 ("ELEMENT", "Description of Element", "text"),
                 ("TABRANCH", "Branch", "text"),
                 ("TATRANS", "Transition Rule", "text"),
-                ("EPOCH", "Epoch", "text")            
+                ("EPOCH", "Epoch", "text"),            
             ]
         },
         "TE": {
@@ -1648,6 +1648,7 @@ def get_trial_design_definitions():
                 ("ETCD", "Element Code", "text"),
                 ("ELEMENT", "Description of Element", "text"),
                 ("TESTRL", "Rule for Start of Element", "text"),
+                ("TEENRL", "End Rule", "text"),
                 ("TEDUR", "Planned Duration of Element", "text"),
             ]
         },
@@ -1662,6 +1663,7 @@ def get_trial_design_definitions():
                 ("IETESTCD", "Inclusion/Exclusion Criterion Short Name", "text"),
                 ("IETEST", "Inclusion/Exclusion Criterion", "text"),
                 ("IECAT", "Inclusion/Exclusion Category", "text"),
+                ("TIVERS", "Version", "text"), 
             ]
         },
         "TS": {
@@ -1673,12 +1675,12 @@ def get_trial_design_definitions():
                 ("STUDYID", "Study Identifier", "text"),
                 ("DOMAIN", "Domain Abbreviation", "text"),
                 ("TSSEQ", "Sequence Number", "integer"),
-                ("TSGRPID", "Group ID", "text"),
                 ("TSPARMCD", "Trial Summary Parameter Short Name", "text"),
                 ("TSPARM", "Trial Summary Parameter", "text"),
                 ("TSVAL", "Parameter Value", "text"),
                 ("TSVALCD", "Parameter Value (Code)", "text"),
                 ("TSVCDREF", "Code Dictionary Reference", "text"),
+                ("TSVCDVER", "Code Dictionary Version", "text"), 
                 ("TSVALNF", "Null Flavor", "text"),
             ]
         },
@@ -1694,6 +1696,10 @@ def get_trial_design_definitions():
                 ("VISIT", "Visit Name", "text"),
                 ("VISITDY", "Planned Study Day of Visit", "integer"),
                 ("ARMCD", "Planned Arm Code", "text"),
+                ("ARM", "Planned Arm", "text"), 
+                ("TVSTRL", "Start Rule", "text"), 
+                ("TVENRL", "End Rule", "text"),
+
             ]
         }
     }
