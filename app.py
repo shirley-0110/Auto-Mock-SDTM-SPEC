@@ -1059,7 +1059,7 @@ if uploaded_file is not None:
                     raw_cfg_df, cfg_path = load_domains_config(version)
                     cfg_df = standardize_domains_config(raw_cfg_df)
 
-                    st.success(f"✅ 已成功載入 config：{cfg_path}")
+                    # st.success(f"✅ 已成功載入 config：{cfg_path}")
 
                     # 2.1 Define
                     st.markdown("### 2.1 Define")
