@@ -981,33 +981,79 @@ if uploaded_file is not None:
 
                 st.markdown("#### Version Control")
 
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
+                # ---------------------------
+                # Row 1：SDTM IG + SDTM CT
+                # ---------------------------
+                r1_c1, r1_c2 = st.columns(2)
+
+                with r1_c1:
                     version = st.selectbox(
                         "SDTM IG",
                         ["Version 3.3", "Version 3.4"],
                         key="sdtm_version_selector"
                     )
-                with c2:
-                    sdtm_ct = st.text_input("SDTM CT", value="", key="sdtm_ct")
-                with c3:
-                    meddra_version = st.text_input("MedDRA", value="28.1", key="meddra_version")
-                with c4:
+
+                with r1_c2:
+                    sdtm_ct = st.text_input(
+                        "SDTM CT",
+                        value="",
+                        key="sdtm_ct"
+                    )
+
+                # ---------------------------
+                # Row 2：MedDRA（單獨一列）
+                # ---------------------------
+                meddra_version = st.text_input(
+                    "MedDRA",
+                    value="28.1",
+                    key="meddra_version"
+                )
+
+                # ---------------------------
+                # Row 3：CM 字典 + CM 版本
+                # ---------------------------
+                r3_c1, r3_c2 = st.columns(2)
+
+                with r3_c1:
                     cm_dictionary = st.selectbox(
                         "CM 字典",
                         ["WHO ATC/DDD", "WHODrug Global B3"],
                         key="cm_dictionary"
                     )
 
-                c5, c6, c7, c8 = st.columns(4)
-                with c5:
-                    cm_version = st.text_input("CM 版本", value="2025", key="cm_version")
-                with c6:
-                    snomed_version = st.text_input("SNOMED", value="", key="snomed_version")
-                with c7:
-                    unii_version = st.text_input("UNII", value="", key="unii_version")
-                with c8:
-                    medrt_version = st.text_input("MED-RT", value="", key="medrt_version")
+                with r3_c2:
+                    cm_version = st.text_input(
+                        "CM 版本",
+                        value="2025",
+                        key="cm_version"
+                    )
+
+                # ---------------------------
+                # Row 4：其他（SNOMED / UNII / MED-RT）
+                # ---------------------------
+                r4_c1, r4_c2, r4_c3 = st.columns(3)
+
+                with r4_c1:
+                    snomed_version = st.text_input(
+                        "SNOMED",
+                        value="",
+                        key="snomed_version"
+                    )
+
+                with r4_c2:
+                    unii_version = st.text_input(
+                        "UNII",
+                        value="",
+                        key="unii_version"
+                    )
+
+                with r4_c3:
+                    medrt_version = st.text_input(
+                        "MED-RT",
+                        value="",
+                        key="medrt_version"
+                    )
+
 
                 try:
                     raw_cfg_df, cfg_path = load_domains_config(version)
