@@ -628,9 +628,9 @@ def build_datasets_spec_from_domains_config(mapping_df, config_df):
 # =========================================================
 # Define sheet：Study info
 # =========================================================
-def extract_study_info_from_filename(file_name):
+def extract_protocol_no_from_filename(file_name):
     """
-    從檔名抓 StudyName / ProtocolName
+    從檔名抓 Protocol No
 
     規則：
       1. sponsor_protocol no_eCRF schema XXX
@@ -640,30 +640,25 @@ def extract_study_info_from_filename(file_name):
       - 先取 eCRF schema 前面的字串
       - 用 "_" 切開
       - 最後一段視為 protocol no
-      - StudyName = ProtocolName = protocol no
     """
     if not file_name:
-        return "", ""
+        return ""
 
     name = os.path.splitext(file_name)[0].strip()
 
-    # 取 eCRF schema 前面的字串
     parts = re.split(r"ecrf\s*schema", name, flags=re.IGNORECASE)
     prefix = parts[0].strip().strip("_") if parts else name
 
     tokens = [t.strip() for t in prefix.split("_") if t.strip()]
 
     if not tokens:
-        return "", ""
+        return ""
 
     protocol = tokens[-1]
-    study_name = protocol
-    protocol_name = protocol
-
-    return study_name, protocol_name
+    return protocol
 
 
-def build_define_sheet(version, study_name="", study_desc="", protocol_name=""):
+def build_define_sheet(version, protocol_no="", protocol_title=""):
     std_ver = version.replace("Version", "").strip()
 
     define_df = pd.DataFrame({
@@ -676,9 +671,9 @@ def build_define_sheet(version, study_name="", study_desc="", protocol_name=""):
             "Language"
         ],
         "Value": [
-            study_name,
-            study_desc,
-            protocol_name,
+            protocol_no,     # StudyName
+            protocol_title,  # StudyDescription
+            protocol_no,     # ProtocolName
             "SDTM-IG",
             std_ver,
             "en"
@@ -903,38 +898,32 @@ if uploaded_file is not None:
             if mapping_df.empty:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
-                st.markdown("### 2.1 選擇 SDTM Version")
+                # -------------------------------
+                # 2.1 所有使用者輸入集中
+                # -------------------------------
+                st.markdown("### 2.1 Basic Information")
 
                 version = st.selectbox(
-                    "請選擇 SDTM Version",
+                    "SDTM Version",
                     ["Version 3.3", "Version 3.4"],
                     key="sdtm_version_selector"
                 )
 
-                # Define：自動帶 study info + user fill description
-                default_study_name, default_protocol_name = extract_study_info_from_filename(uploaded_file.name)
-
-                st.markdown("### 2.2 Define Information")
+                default_protocol_no = extract_protocol_no_from_filename(uploaded_file.name)
 
                 col_a, col_b = st.columns(2)
                 with col_a:
-                    study_name = st.text_input(
-                        "StudyName",
-                        value=default_study_name,
-                        key="define_study_name"
+                    protocol_no = st.text_input(
+                        "Protocol No",
+                        value=default_protocol_no,
+                        key="protocol_no"
                     )
                 with col_b:
-                    protocol_name = st.text_input(
-                        "ProtocolName",
-                        value=default_protocol_name,
-                        key="define_protocol_name"
+                    protocol_title = st.text_input(
+                        "Protocol Title",
+                        value="",
+                        key="protocol_title"
                     )
-
-                study_desc = st.text_area(
-                    "StudyDescription（請手動填寫）",
-                    value="",
-                    key="define_study_desc"
-                )
 
                 try:
                     raw_cfg_df, cfg_path = load_domains_config(version)
@@ -943,26 +932,25 @@ if uploaded_file is not None:
                     st.success(f"✅ 已成功載入 config：{cfg_path}")
 
                     # 先 Datasets 再 Variables
-                    st.markdown("### 2.3 Datasets SPEC")
+                    st.markdown("### 2.2 Datasets SPEC")
                     datasets_spec_df = build_datasets_spec_from_domains_config(
                         mapping_df=mapping_df,
                         config_df=cfg_df
                     )
                     st.dataframe(datasets_spec_df, use_container_width=True)
 
-                    st.markdown("### 2.4 Variables SPEC")
+                    st.markdown("### 2.3 Variables SPEC")
                     variables_spec_df = build_variables_spec_from_domains_config(
                         detail_df=detail_df,
                         config_df=cfg_df
                     )
                     st.dataframe(variables_spec_df, use_container_width=True)
 
-                    st.markdown("### 2.5 Define / Codelists / Dictionaries / Trial Design")
+                    st.markdown("### 2.4 Define / Codelists / Dictionaries / Trial Design")
                     define_df = build_define_sheet(
                         version=version,
-                        study_name=study_name,
-                        study_desc=study_desc,
-                        protocol_name=protocol_name
+                        protocol_no=protocol_no,
+                        protocol_title=protocol_title
                     )
                     codelists_df = build_empty_codelists_sheet()
                     dictionaries_df = build_empty_dictionaries_sheet()
