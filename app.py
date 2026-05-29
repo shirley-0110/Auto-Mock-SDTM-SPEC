@@ -836,7 +836,7 @@ def build_trial_design_variables_spec(config_df):
                     "Method": "",
                     "Comment": "",
                     "Core": meta.get("Core", ""),
-                    "VarNum": meta.get("VarNum", "")
+                    "VarNum": meta.get("VarNum", ""),
                     "IsCRFVariable": False
                 }
             else:
