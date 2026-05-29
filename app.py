@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 import os
+import hashlib
 from io import BytesIO
 
 # Step 2 用到 sas7bdat
@@ -334,7 +335,7 @@ def summarize_sdtm_mapping(mapping_df):
 def load_domains_config(version):
     """
     只讀 repo 中的單一 domains.sas7bdat
-    預設路徑：
+    路徑：
       config/v33/domains.sas7bdat
       config/v34/domains.sas7bdat
     """
@@ -551,7 +552,6 @@ def build_datasets_spec_from_domains_config(mapping_df, config_df):
             "RefData": ""
         })
 
-    # dataset-level one row per domain
     ds_cols = [c for c in [
         "Dataset", "Dataset Label", "Class", "Structure", "Key Variables", "Repeat", "RefData"
     ] if c in config_df.columns]
@@ -666,18 +666,29 @@ def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, commo
 
 
 # =========================================================
+# Step 1 cache key
+# =========================================================
+def make_step1_cache_key(file_bytes, manual_soa_header, common_domain_header):
+    md5 = hashlib.md5(file_bytes).hexdigest()
+    return f"{md5}|soa={manual_soa_header}|domain={common_domain_header}"
+
+
+# =========================================================
 # 主流程 UI
 # =========================================================
 uploaded_file = st.file_uploader("請上傳 CRF Mapping Excel", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
+    file_bytes = uploaded_file.getvalue()
+
     current_upload_key = f"{uploaded_file.name}_{uploaded_file.size}"
     if st.session_state.get("current_upload_key") != current_upload_key:
         st.session_state["current_upload_key"] = current_upload_key
         st.session_state["run_step2"] = False
+        st.session_state["step1_cache_key"] = None
+        st.session_state["step1_result"] = None
 
     try:
-        file_bytes = uploaded_file.read()
         xls = pd.ExcelFile(BytesIO(file_bytes))
         all_sheets = xls.sheet_names
 
@@ -715,12 +726,27 @@ if uploaded_file is not None:
         # -------------------------------------------------
         st.markdown("## Step 1｜CRF → SDTM Mapping")
 
-        result = process_uploaded_excel(
+        # 只要檔案與 header override 沒變，就不重算 Step 1
+        step1_cache_key = make_step1_cache_key(
             file_bytes=file_bytes,
-            all_sheets=all_sheets,
             manual_soa_header=manual_soa_header,
             common_domain_header=common_domain_header
         )
+
+        if (
+            st.session_state.get("step1_cache_key") == step1_cache_key
+            and st.session_state.get("step1_result") is not None
+        ):
+            result = st.session_state["step1_result"]
+        else:
+            result = process_uploaded_excel(
+                file_bytes=file_bytes,
+                all_sheets=all_sheets,
+                manual_soa_header=manual_soa_header,
+                common_domain_header=common_domain_header
+            )
+            st.session_state["step1_cache_key"] = step1_cache_key
+            st.session_state["step1_result"] = result
 
         available_sheets = result["available_sheets"]
         missing_sheets = result["missing_sheets"]
@@ -728,6 +754,10 @@ if uploaded_file is not None:
         detail_df = result["detail_df"]
         sheet_errors = result["sheet_errors"]
         unparsed_records = result["unparsed_records"]
+
+        # 給 Step 2 用
+        st.session_state["mapping_df"] = mapping_df
+        st.session_state["detail_df"] = detail_df
 
         if missing_sheets:
             st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
@@ -755,13 +785,13 @@ if uploaded_file is not None:
             st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
 
         # -------------------------------------------------
-        # Step 2 開關：使用者決定是否執行
+        # Step 2 開關：執行 / 重新整理
         # -------------------------------------------------
         def trigger_step2():
             st.session_state["run_step2"] = True
 
         st.button(
-            "▶ 執行 Step 2：SPEC Generator",
+            "▶ 執行 / 重新整理 Step 2：SPEC Generator",
             type="primary",
             on_click=trigger_step2
         )
@@ -771,6 +801,9 @@ if uploaded_file is not None:
         # -------------------------------------------------
         if st.session_state.get("run_step2", False):
             st.markdown("## Step 2｜SPEC Generator")
+
+            mapping_df = st.session_state.get("mapping_df", pd.DataFrame())
+            detail_df = st.session_state.get("detail_df", pd.DataFrame())
 
             if mapping_df.empty:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
@@ -789,19 +822,20 @@ if uploaded_file is not None:
 
                     st.success(f"✅ 已成功載入 config：{cfg_path}")
 
-                    st.markdown("### 2.2 Variables SPEC")
-                    variables_spec_df = build_variables_spec_from_domains_config(
-                        detail_df=detail_df,
-                        config_df=cfg_df
-                    )
-                    st.dataframe(variables_spec_df, use_container_width=True)
-
-                    st.markdown("### 2.3 Datasets SPEC")
+                    # 先 Datasets 再 Variables
+                    st.markdown("### 2.2 Datasets SPEC")
                     datasets_spec_df = build_datasets_spec_from_domains_config(
                         mapping_df=mapping_df,
                         config_df=cfg_df
                     )
                     st.dataframe(datasets_spec_df, use_container_width=True)
+
+                    st.markdown("### 2.3 Variables SPEC")
+                    variables_spec_df = build_variables_spec_from_domains_config(
+                        detail_df=detail_df,
+                        config_df=cfg_df
+                    )
+                    st.dataframe(variables_spec_df, use_container_width=True)
 
                     st.markdown("### 2.4 Define / Codelists / Dictionaries")
                     define_df = build_define_sheet()
