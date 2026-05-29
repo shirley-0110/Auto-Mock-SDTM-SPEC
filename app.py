@@ -333,12 +333,6 @@ def summarize_sdtm_mapping(mapping_df):
 # Step 2：domains.sas7bdat (單一 config 檔)
 # =========================================================
 def load_domains_config(version):
-    """
-    只讀 repo 中的單一 domains.sas7bdat
-    路徑：
-      config/v33/domains.sas7bdat
-      config/v34/domains.sas7bdat
-    """
     if version == "Version 3.3":
         path = "config/v33/domains.sas7bdat"
     else:
@@ -357,12 +351,6 @@ def load_domains_config(version):
 
 
 def standardize_domains_config(cfg_df):
-    """
-    把 domains.sas7bdat 標準化成 app 內部用欄位
-    原始欄位預期：
-      domain, dlabel, repeat, refdata, structure, keyvars, keyseq,
-      varnum, name, label, type, mandatory, role, core, ctcode, class
-    """
     df = cfg_df.copy()
     df.columns = [str(c).strip().lower() for c in df.columns]
 
@@ -397,14 +385,6 @@ def standardize_domains_config(cfg_df):
 
 
 def expand_suppqual_to_supp_datasets(config_df, detected_datasets):
-    """
-    將 config 中的 SUPPQUAL 展開到所有偵測到的 SUPP-- datasets
-    例如：
-      SUPPQUAL -> SUPPAE, SUPPDM, SUPPVS ...
-    Dataset Label 改成：
-      Supplemental Qualifiers for AE
-      Supplemental Qualifiers for DM
-    """
     if config_df.empty:
         return config_df.copy()
 
@@ -447,10 +427,18 @@ def is_send_only(core_value):
     return "SEND" in text and "ONLY" in text
 
 
+def should_keep_non_crf(row):
+    variable = normalize_text(row.get("Variable", ""))
+    core = normalize_text(row.get("Core", ""))
+    return (core in ["REQUIRED", "EXPECTED"]) or (variable == "EPOCH")
+
+
 def get_non_crf_from_config(detail_df, config_df):
     """
     non-CRF = config 裡所有 variables - Step 1 mapping 已有的 variables
-    只保留目前 mapping 有出現的 datasets
+    保留條件：
+      - Core = Required 或 Expected
+      - 或 Variable = EPOCH
     並排除 SEND Only
     """
     if detail_df.empty or config_df.empty:
@@ -485,6 +473,8 @@ def get_non_crf_from_config(detail_df, config_df):
     if "pair" in non_crf.columns:
         non_crf = non_crf.drop(columns=["pair"])
 
+    non_crf = non_crf[non_crf.apply(should_keep_non_crf, axis=1)].copy()
+
     non_crf["Label"] = non_crf.get("Variable Label", "")
     non_crf["Origin"] = non_crf.get("Origin", "")
     non_crf["Source"] = non_crf.get("Source", "")
@@ -496,15 +486,14 @@ def get_non_crf_from_config(detail_df, config_df):
     out = non_crf[[
         "Dataset", "Variable", "Label", "Data Type", "Codelist",
         "Origin", "Source", "Pages", "Method", "Comment", "Core", "VarNum"
-    ]].drop_duplicates()
+    ]].drop_duplicates(subset=["Dataset", "Variable"])
 
     return out.reset_index(drop=True)
 
 
 def enrich_crf_variables_with_config(detail_df, config_df):
     """
-    用 domains.sas7bdat 補 Step 1 抓到的 CRF variables metadata
-    SUPP-- 會自動連到 SUPPQUAL 的展開結果
+    CRF 收集到的都保留
     並排除 SEND Only
     同一個 Dataset+Variable 只保留一筆
     """
@@ -562,7 +551,6 @@ def enrich_crf_variables_with_config(detail_df, config_df):
     if "VarNum" not in merged.columns:
         merged["VarNum"] = ""
 
-    # 同 Dataset + Variable 聚合
     def join_unique(series):
         vals = [str(x).strip() for x in series if str(x).strip() not in ["", "nan", "None"]]
         vals = list(dict.fromkeys(vals))
@@ -653,21 +641,9 @@ def build_datasets_spec_from_domains_config(mapping_df, config_df, version):
 
 
 # =========================================================
-# Define / Dictionaries / Trial Design
+# Define / Codelists / Dictionaries / Trial Design
 # =========================================================
 def extract_protocol_no_from_filename(file_name):
-    """
-    從檔名抓 Protocol No
-
-    規則：
-      1. sponsor_protocol no_eCRF schema XXX
-      2. protocol no_eCRF schema XXX
-
-    做法：
-      - 先取 eCRF schema 前面的字串
-      - 用 "_" 切開
-      - 最後一段視為 protocol no
-    """
     if not file_name:
         return ""
 
@@ -710,11 +686,36 @@ def build_define_sheet(version, protocol_no="", protocol_title=""):
     return define_df
 
 
-def build_empty_codelists_sheet():
-    return pd.DataFrame(columns=[
+def build_codelists_sheet_from_variables(variables_df):
+    cols = [
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
-    ])
+    ]
+
+    if variables_df.empty or "Codelist" not in variables_df.columns:
+        return pd.DataFrame(columns=cols)
+
+    ids = (
+        variables_df["Codelist"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
+    ids = ids[ids != ""]
+    ids = sorted(ids.drop_duplicates().tolist())
+
+    return pd.DataFrame({
+        "ID": ids,
+        "Name": ["" for _ in ids],
+        "NCI Codelist Code": ["" for _ in ids],
+        "Data Type": ["" for _ in ids],
+        "Terminology": ["" for _ in ids],
+        "Comment": ["" for _ in ids],
+        "Order": ["" for _ in ids],
+        "Term": ["" for _ in ids],
+        "NCI Term Code": ["" for _ in ids],
+        "Decoded Value": ["" for _ in ids]
+    })
 
 
 def build_default_dictionaries_sheet(meddra_version="", cm_dictionary="WHO ATC/DDD", cm_version=""):
@@ -960,9 +961,6 @@ if uploaded_file is not None:
             if mapping_df.empty:
                 st.warning("目前沒有可用的 CRF → SDTM mapping，無法建立 SPEC")
             else:
-                # -------------------------------
-                # Basic Information
-                # -------------------------------
                 st.markdown("### Basic Information")
 
                 default_protocol_no = extract_protocol_no_from_filename(uploaded_file.name)
@@ -981,39 +979,35 @@ if uploaded_file is not None:
                         key="protocol_title"
                     )
 
-                col3, col4, col5 = st.columns(3)
-                with col3:
+                st.markdown("#### Version Control")
+
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
                     version = st.selectbox(
-                        "SDTM Version",
+                        "SDTM IG",
                         ["Version 3.3", "Version 3.4"],
                         key="sdtm_version_selector"
                     )
-                with col4:
-                    sdtm_ct = st.text_input(
-                        "SDTM CT",
-                        value="",
-                        key="sdtm_ct"
-                    )
-                with col5:
-                    meddra_version = st.text_input(
-                        "MEDDRA version",
-                        value="28.1",
-                        key="meddra_version"
-                    )
-
-                col6, col7 = st.columns(2)
-                with col6:
+                with c2:
+                    sdtm_ct = st.text_input("SDTM CT", value="", key="sdtm_ct")
+                with c3:
+                    meddra_version = st.text_input("MedDRA", value="28.1", key="meddra_version")
+                with c4:
                     cm_dictionary = st.selectbox(
                         "CM 字典",
                         ["WHO ATC/DDD", "WHODrug Global B3"],
                         key="cm_dictionary"
                     )
-                with col7:
-                    cm_version = st.text_input(
-                        "CM 版本",
-                        value="2025",
-                        key="cm_version"
-                    )
+
+                c5, c6, c7, c8 = st.columns(4)
+                with c5:
+                    cm_version = st.text_input("CM 版本", value="2025", key="cm_version")
+                with c6:
+                    snomed_version = st.text_input("SNOMED", value="", key="snomed_version")
+                with c7:
+                    unii_version = st.text_input("UNII", value="", key="unii_version")
+                with c8:
+                    medrt_version = st.text_input("MED-RT", value="", key="medrt_version")
 
                 try:
                     raw_cfg_df, cfg_path = load_domains_config(version)
@@ -1049,7 +1043,7 @@ if uploaded_file is not None:
 
                     # 2.4 Codelists
                     st.markdown("### 2.4 Codelists")
-                    codelists_df = build_empty_codelists_sheet()
+                    codelists_df = build_codelists_sheet_from_variables(variables_spec_df)
                     st.dataframe(codelists_df, use_container_width=True)
 
                     # 2.5 Dictionaries
@@ -1085,7 +1079,6 @@ if uploaded_file is not None:
                         st.markdown("#### TV")
                         st.dataframe(tv_df, use_container_width=True)
 
-                    # 指定輸出順序
                     export_sheets = {
                         "Define": define_df,
                         "Datasets": datasets_spec_df,
