@@ -2150,10 +2150,13 @@ def load_ct_master_from_web(sdtm_ct_version=""):
     """
 
     version = normalize_ct_version_text(sdtm_ct_version)
+    filename = f"SDTM Terminology {version}.txt"
+    filename_encoded = filename.replace(" ", "%20")
+
 
     # ✅ URL build
     if version:
-        url = f"https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/SDTM Terminology {version}.txt"
+        url = f"https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/{filename_encoded}"
         source_type = "archive"
     else:
         url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM Terminology.txt"
