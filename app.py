@@ -2127,7 +2127,8 @@ def find_sdtm_ct_download_url(sdtm_ct_version=""):
     archive_links = parse_links_from_index(archive_index)
 
     expected_name = f"SDTM Terminology {version}.txt"
-
+    print("Looking for:", expected_name)
+    
     for item in archive_links:
         if item["text"].strip() == expected_name:
             return item["url"], "archive"
