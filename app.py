@@ -2096,10 +2096,9 @@ def parse_links_from_index(index_url):
     return links
 
 
+
 def find_sdtm_ct_download_url(sdtm_ct_version=""):
-    """
-    根據使用者輸入版本找官方 SDTM Terminology.txt
-    """
+
     version = normalize_ct_version_text(sdtm_ct_version)
 
     current_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/"
@@ -2107,27 +2106,31 @@ def find_sdtm_ct_download_url(sdtm_ct_version=""):
 
     current_links = parse_links_from_index(current_index)
 
-    # 沒填版本 -> 抓 current 最新版
-    if version == "":
+    # ✅ Case 1: 沒填版本 → current
+    if not version:
         for item in current_links:
             if item["text"].strip() == "SDTM Terminology.txt":
                 return item["url"], "current"
-        raise FileNotFoundError("Could not find current SDTM Terminology")
 
-    # 有填版本 -> 先找 archive
+        raise ValueError("Cannot find latest SDTM Terminology.txt")
+
+    # ✅ Case 2: 找 archive
     archive_links = parse_links_from_index(archive_index)
+
     expected_name = f"SDTM Terminology {version}.txt"
 
     for item in archive_links:
         if item["text"].strip() == expected_name:
             return item["url"], "archive"
 
-    # fallback 最新 current
+    # ✅ Case 3: fallback current（版本找不到）
     for item in current_links:
         if item["text"].strip() == "SDTM Terminology.txt":
-            return item["url"], "current-fallback"
+            return item["url"], "fallback-current"
 
-    raise FileNotFoundError(f"Could not find SDTM terminology for version: {version}")
+    # ✅ ✅ ❗最重要：強制 error
+    raise ValueError(f"Cannot find SDTM Terminology for version: {version}")
+
 
 
 def load_ct_master_from_web(sdtm_ct_version=""):
