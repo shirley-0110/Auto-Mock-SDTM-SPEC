@@ -2187,25 +2187,30 @@ def load_ct_master_from_web(sdtm_ct_version=""):
 
     # ✅ 標準化欄位
     rename_map = {}
-    df = df.loc[:, ~df.columns.duplicated()]
 
     for col in df.columns:
         ncol = normalize_text(col)
 
-        if "CODELIST" in ncol and "CODE" in ncol:
+        if ncol in ["CODELIST CODE", "CODE LIST CODE", "NCI CODELIST CODE"]:
             rename_map[col] = "Codelist Code"
-        elif "SUBMISSION" in ncol or "TERM" in ncol:
+
+        elif ncol in ["CDISC SUBMISSION VALUE", "SUBMISSION VALUE"]:
             rename_map[col] = "Submission Value"
-        elif "CODE" == ncol or "NCI" in ncol:
+
+        elif ncol in ["NCI CODE", "NCI TERM CODE", "CODE"]:
             rename_map[col] = "NCI Term Code"
 
-    df = df.rename(columns=rename_map)
 
+    df = df.rename(columns=rename_map)
+    df = df.loc[:, ~df.columns.duplicated()]
+    
     # ✅ 防呆補欄位
     for c in ["Codelist Code", "Submission Value", "NCI Term Code"]:
         if c not in df.columns:
             df[c] = ""
 
+    print("CT columns:", df.columns.tolist())
+    
     return df.reset_index(drop=True), {
         "download_url": url,
         "source_type": source_type,
