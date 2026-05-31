@@ -3,6 +3,7 @@ import pandas as pd
 import re
 import os
 import hashlib
+import io
 
 from io import BytesIO
 
