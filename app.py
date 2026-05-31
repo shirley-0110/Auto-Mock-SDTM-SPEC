@@ -3,10 +3,10 @@ import pandas as pd
 import re
 import os
 import hashlib
-import requests
-
 
 from io import BytesIO
+
+import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from difflib import get_close_matches
