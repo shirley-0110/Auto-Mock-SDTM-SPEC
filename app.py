@@ -2170,7 +2170,7 @@ if uploaded_file is not None:
 
 
 
-       st.markdown("### CT Term Mapping List (from CRF Options)")
+       st.markdown("### CT Term Mapping List - from CRF Options")
        if ct_mapping_df.empty:
            st.info("目前尚未從 CRF schema 抽到 Option Displayed Value")
        else:
