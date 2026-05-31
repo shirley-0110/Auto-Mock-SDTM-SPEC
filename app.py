@@ -2233,6 +2233,112 @@ def normalize_ct_text(x):
     return x
 
 
+
+
+def prefill_ct_mapping_df(ct_mapping_df, ct_master_df):
+    """
+    根據:
+      - CT Codelist Code
+      - Option Displayed Value
+    自動預填:
+      - Suggested CT Term
+      - Match Status
+
+    Match Status:
+      - EXACT
+      - FUZZY
+      - NO_CT
+      - NO_MATCH
+    """
+    if ct_mapping_df.empty:
+        return ct_mapping_df.copy()
+
+    out = ct_mapping_df.copy()
+
+    # 補欄位
+    if "Suggested CT Term" not in out.columns:
+        out["Suggested CT Term"] = ""
+    if "Match Status" not in out.columns:
+        out["Match Status"] = ""
+
+    if ct_master_df.empty:
+        out["Match Status"] = "NO_CT"
+        return out
+
+    # synonym rule（先做最小可行版本）
+    synonym_map = {
+        "DOSE UNCHANGED": "DOSE NOT CHANGED",
+        "DOSE INTERRUPTED": "DRUG INTERRUPTED",
+        "DOSE DISCONTINUED": "DRUG WITHDRAWN",
+    }
+
+    suggested_terms = []
+    statuses = []
+
+    for _, r in out.iterrows():
+        code = str(r.get("CT Codelist Code", "")).strip().upper()
+        val = str(r.get("Option Displayed Value", "")).strip()
+        norm_val = normalize_ct_text(val)
+
+        if not code:
+            suggested_terms.append("")
+            statuses.append("NO_CT")
+            continue
+
+        ct_sub = ct_master_df[
+            ct_master_df["Codelist Code"].astype(str).str.upper() == code
+        ].copy()
+
+        if ct_sub.empty:
+            suggested_terms.append("")
+            statuses.append("NO_CT")
+            continue
+
+        ct_sub["norm_term"] = ct_sub["Submission Value"].apply(normalize_ct_text)
+
+        # 1) exact match
+        hit = ct_sub[ct_sub["norm_term"] == norm_val]
+        if not hit.empty:
+            suggested_terms.append(hit.iloc[0]["Submission Value"])
+            statuses.append("EXACT")
+            continue
+
+        # 2) synonym rule
+        if norm_val in synonym_map:
+            s_term = synonym_map[norm_val]
+            hit2 = ct_sub[ct_sub["norm_term"] == normalize_ct_text(s_term)]
+            if not hit2.empty:
+                suggested_terms.append(hit2.iloc[0]["Submission Value"])
+                statuses.append("FUZZY")
+                continue
+
+        # 3) fuzzy match
+        matches = get_close_matches(
+            norm_val,
+            ct_sub["norm_term"].tolist(),
+            n=1,
+            cutoff=0.75
+        )
+
+        if matches:
+            match_term = matches[0]
+            hit3 = ct_sub[ct_sub["norm_term"] == match_term]
+            if not hit3.empty:
+                suggested_terms.append(hit3.iloc[0]["Submission Value"])
+                statuses.append("FUZZY")
+                continue
+
+        suggested_terms.append("")
+        statuses.append("NO_MATCH")
+
+    out["Suggested CT Term"] = suggested_terms
+    out["Match Status"] = statuses
+
+    return out
+
+
+
+
 def to_excel_bytes(sheet_dict):
     output = BytesIO()
 
@@ -2575,10 +2681,71 @@ if uploaded_file is not None:
                     )
                     st.dataframe(variables_spec_df, use_container_width=True)
 
+
+                    
+                    st.markdown("### CT Term Mapping Review")
+
+                    ct_mapping_df = st.session_state.get("ct_mapping_df", pd.DataFrame())
+
+                    if ct_mapping_df.empty:
+                        st.info("No CT mapping seed available from Step 1.")
+                    else:
+                        review_cols = [
+                            "Source CRF Sheet",
+                            "Source CRF Variable",
+                            "SDTM Domain",
+                            "SDTM Variable",
+                            "CT Codelist Code",
+                            "Option Displayed Value",
+                            "Suggested CT Term",
+                            "Match Status"
+                        ]
+
+                        for c in review_cols:
+                            if c not in ct_mapping_df.columns:
+                                ct_mapping_df[c] = ""
+
+                        ct_mapping_df = st.data_editor(
+                            ct_mapping_df[review_cols],
+                            num_rows="dynamic",
+                            use_container_width=True,
+                            key="ct_mapping_review_editor"
+                        )
+
+                        st.session_state["ct_mapping_df"] = ct_mapping_df
+
+
                     # 2.4 Codelists
                     st.markdown("### 2.4 Codelists")
                     codelists_df = build_codelists_sheet_from_variables(variables_spec_df)
                     st.dataframe(codelists_df, use_container_width=True)
+
+                    
+                    # =========================================
+                    # CT master from web + CT mapping enrichment
+                    # =========================================
+                    ct_master_df = pd.DataFrame()
+                    ct_master_meta = {}
+
+                    try:
+                        ct_master_df, ct_master_meta = load_ct_master_from_web(sdtm_ct)
+                        st.caption(
+                            f"CT master loaded from web ({ct_master_meta.get('source_type')}) | "
+                            f"{ct_master_meta.get('download_url')}"
+                        )
+                    except Exception as e:
+                        st.warning(f"Failed to load CT master from web: {e}")
+
+                    st.session_state["ct_master_df"] = ct_master_df
+                    st.session_state["ct_master_meta"] = ct_master_meta
+
+                    # Step 1 的 CT seed table（不一定 show 在 Step 1 UI）
+                    ct_mapping_df = st.session_state.get("ct_mapping_df", pd.DataFrame())
+
+                    if not ct_mapping_df.empty and not ct_master_df.empty:
+                        ct_mapping_df = prefill_ct_mapping_df(ct_mapping_df, ct_master_df)
+                        st.session_state["ct_mapping_df"] = ct_mapping_df
+
 
                     # 2.5 Dictionaries
                     st.markdown("### 2.5 Dictionaries")
