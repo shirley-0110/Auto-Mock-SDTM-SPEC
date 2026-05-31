@@ -526,6 +526,66 @@ def build_ct_mapping_seed(file_bytes, selected_crf_sheets, common_domain_header=
 
 
 
+def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df):
+    """
+    用 Step 1 mapping + CT master 生成 Codelists rows
+    """
+
+    rows = []
+
+    if ct_mapping_df.empty or ct_master_df.empty:
+        return pd.DataFrame()
+
+    # 只取有效 mapping
+    sub_map = ct_mapping_df[
+        ct_mapping_df["Suggested CT Term"].astype(str).str.strip() != ""
+    ].copy()
+
+    for (code, var), g in sub_map.groupby(["CT Codelist Code", "SDTM Variable"]):
+
+        if not code:
+            continue
+
+        ct_sub = ct_master_df[
+            ct_master_df["Codelist Code"].astype(str).str.upper() == str(code).upper()
+        ].copy()
+
+        if ct_sub.empty:
+            continue
+
+        # ✅ header row
+        first = ct_sub.iloc[0]
+
+        codelist_name = first.get("Codelist Name", "")
+
+        for i, (_, r) in enumerate(g.iterrows(), start=1):
+
+            term = r["Suggested CT Term"]
+
+            term_row = ct_sub[
+                ct_sub["Submission Value"].astype(str).str.upper() == term.upper()
+            ]
+
+            if term_row.empty:
+                continue
+
+            term_row = term_row.iloc[0]
+
+            rows.append({
+                "ID": var[-3:],  # 例如 AEACN → ACN（先簡單）
+                "Name": codelist_name,
+                "NCI Codelist Code": code,
+                "Data Type": "text",
+                "Terminology": "CDISC SDTM CT",
+                "Comment": "",
+                "Order": i,
+                "Term": term_row.get("Submission Value", ""),
+                "NCI Term Code": term_row.get("NCI Term Code", ""),
+                "Decoded Value": term_row.get("Preferred Term", ""),
+            })
+
+    return pd.DataFrame(rows)
+
 
 
 
@@ -2686,6 +2746,11 @@ if uploaded_file is not None:
                     st.markdown("### CT Term Mapping Review")
 
                     ct_mapping_df = st.session_state.get("ct_mapping_df", pd.DataFrame())
+                    ct_master_df = st.session_state.get("ct_master_df", pd.DataFrame())
+
+                    codelists_df = build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df)
+
+                    st.dataframe(codelists_df, use_container_width=True)
 
                     if ct_mapping_df.empty:
                         st.info("No CT mapping seed available from Step 1.")
