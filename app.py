@@ -2238,6 +2238,10 @@ def prefill_ct_mapping_df(ct_mapping_df, ct_master_df):
       - NO_CT
       - NO_MATCH
     """
+    print(ct_master_df.columns.tolist())
+    print(ct_master_df.columns.duplicated())
+
+    
     if ct_mapping_df.empty:
         return ct_mapping_df.copy()
 
