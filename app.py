@@ -2184,9 +2184,6 @@ if uploaded_file is not None:
                 key="ct_mapping_editor"
             )
 
-st.session_state["ct_mapping_df"] = ct_mapping_df
-
-
         # 存給 Step 2 用
         st.session_state["ct_mapping_df"] = ct_mapping_df
 
