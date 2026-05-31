@@ -44,6 +44,37 @@ def normalize_columns(df):
     return df
 
 
+
+def split_option_displayed_value(value):
+    """
+    將 CRF schema 的 option 拆成多列
+
+    支援：
+      - 換行
+      - 分號 ;
+    """
+    if pd.isna(value):
+        return []
+
+    text = str(value).strip()
+    if not text:
+        return []
+
+    tokens = re.split(r"[\n;]+", text)
+
+    cleaned = []
+    for t in tokens:
+        t = str(t).strip()
+        if t:
+            cleaned.append(t)
+
+    # 去重（保序）
+    cleaned = list(dict.fromkeys(cleaned))
+
+    return cleaned
+
+
+
 def row_contains_keywords(row_values, keyword_groups):
     cells = [normalize_text(v) for v in row_values]
 
@@ -182,6 +213,35 @@ def find_option_displayed_value_column(columns):
             return col
 
     return None
+
+
+
+def find_sdtm_ct_codelist_column(columns):
+    """
+    找 CRF schema 中的 SDTM CT Codelist 欄位
+    """
+    priority_exact = [
+        "SDTM CT CODELIST",
+        "SDTM CT CODE LIST",
+        "SDTM CT",
+        "CT CODELIST",
+        "CT CODE LIST",
+        "CODELIST CODE"
+    ]
+
+    normalized_map = {col: normalize_text(col) for col in columns}
+
+    for target in priority_exact:
+        for col, norm_col in normalized_map.items():
+            if norm_col == target:
+                return col
+
+    for col, norm_col in normalized_map.items():
+        if "SDTM" in norm_col and "CT" in norm_col and "CODELIST" in norm_col:
+            return col
+
+    return None
+
 
 
 # =========================================================
