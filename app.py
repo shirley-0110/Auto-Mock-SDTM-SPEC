@@ -437,21 +437,9 @@ def summarize_sdtm_mapping(mapping_df):
 
 def build_ct_mapping_seed(file_bytes, selected_crf_sheets, common_domain_header=None):
     """
-    從各 domain sheet 抽取 CT mapping seed
-    輸出欄位：
-      - Dataset
-      - Variable
-      - Source CRF Sheet
-      - Source CRF Variable
-      - Assign Value
-      - Option Displayed Value
-      - Normalized Option
-      - Suggested CT Term
-      - Match Status
-
-    說明：
-      - 只要該列有 Option Displayed Value，且可解析出 SDTM target，就納入
-      - 先不做 CT merge，只做 seed list
+    Step 1：
+      - 拆 CRF options（每個 option 一列）
+      - 輸出簡化欄位（只保留必要欄位）
     """
     records = []
     sheet_errors = []
@@ -474,52 +462,61 @@ def build_ct_mapping_seed(file_bytes, selected_crf_sheets, common_domain_header=
 
         source_var_col = find_source_variable_column(df.columns)
         option_display_col = find_option_displayed_value_column(df.columns)
+        codelist_col = find_sdtm_ct_codelist_column(df.columns)
 
-        # 沒有 option 顯示值欄位，這個 sheet 就先略過
         if option_display_col is None:
             continue
 
         for _, row in df.iterrows():
             raw_target = row.get(target_col, "")
-            source_var = row.get(source_var_col, "") if source_var_col is not None else ""
+            source_var = row.get(source_var_col, "") if source_var_col else ""
             option_display = row.get(option_display_col, "")
 
             if pd.isna(option_display) or str(option_display).strip() == "":
                 continue
 
             parsed_records, _ = parse_sdtm_targets(raw_target)
-
             if not parsed_records:
                 continue
 
-            for rec in parsed_records:
-                option_text = str(option_display).strip()
-                norm_option = re.sub(r"\s+", " ", option_text.upper())
+            # ✅ 拆 option
+            option_values = split_option_displayed_value(option_display)
 
-                records.append({
-                    "Dataset": rec["SDTM Domain"],
-                    "Variable": rec["SDTM Variable"],
-                    "Source CRF Sheet": sheet,
-                    "Source CRF Variable": source_var,
-                    "Assign Value": rec["Assign Value"],
-                    "Option Displayed Value": option_text,
-                    "Normalized Option": norm_option,
-                    "Suggested CT Term": "",
-                    "Match Status": "NEW"
-                })
+            for rec in parsed_records:
+                for opt in option_values:
+                    records.append({
+                        "Source CRF Sheet": sheet,
+                        "Source CRF Variable": source_var,
+                        "SDTM Domain": rec["SDTM Domain"],
+                        "SDTM Variable": rec["SDTM Variable"],
+                        "CT Codelist Code": row.get(codelist_col, "") if codelist_col else "",
+                        "Option Displayed Value": opt
+                    })
 
     if records:
-        out_df = pd.DataFrame(records).drop_duplicates().sort_values(
-            by=["Dataset", "Variable", "Source CRF Sheet", "Source CRF Variable", "Option Displayed Value"]
-        ).reset_index(drop=True)
+        out_df = (
+            pd.DataFrame(records)
+            .drop_duplicates()
+            .sort_values([
+                "SDTM Domain",
+                "SDTM Variable",
+                "Source CRF Variable",
+                "Option Displayed Value"
+            ])
+            .reset_index(drop=True)
+        )
     else:
         out_df = pd.DataFrame(columns=[
-            "Dataset", "Variable", "Source CRF Sheet", "Source CRF Variable",
-            "Assign Value", "Option Displayed Value", "Normalized Option",
-            "Suggested CT Term", "Match Status"
+            "Source CRF Sheet",
+            "Source CRF Variable",
+            "SDTM Domain",
+            "SDTM Variable",
+            "CT Codelist Code",
+            "Option Displayed Value"
         ])
 
     return out_df, sorted(set(sheet_errors))
+
 
 
 
