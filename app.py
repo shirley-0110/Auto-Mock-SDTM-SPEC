@@ -2187,6 +2187,7 @@ def load_ct_master_from_web(sdtm_ct_version=""):
 
     # ✅ 標準化欄位
     rename_map = {}
+    df = df.loc[:, ~df.columns.duplicated()]
 
     for col in df.columns:
         ncol = normalize_text(col)
