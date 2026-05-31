@@ -2143,22 +2143,37 @@ def find_sdtm_ct_download_url(sdtm_ct_version=""):
 
 
 
+
 def load_ct_master_from_web(sdtm_ct_version=""):
+    """
+    穩定版 loader（不 parse HTML）
+    """
 
+    version = normalize_ct_version_text(sdtm_ct_version)
+
+    # ✅ URL build
+    if version:
+        url = f"https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/SDTM Terminology {version}.txt"
+        source_type = "archive"
+    else:
+        url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM Terminology.txt"
+        source_type = "current"
+
+    # ✅ TRY download specified version
     try:
-        download_url, source_type = find_sdtm_ct_download_url(sdtm_ct)
-    except Exception as e:
-        st.warning(f"CT URL lookup failed: {e}")
-        raise
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+    except:
+        # ✅ fallback → latest
+        url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM Terminology.txt"
+        source_type = "fallback-current"
 
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
 
-    print("Normalized version:", version)
-    print("Expected filename:", expected_name)
+    # ✅ 讀 txt（關鍵）
+    import io
 
-    resp = requests.get(download_url, timeout=60)
-    resp.raise_for_status()
-
-    # ✅ 用 tab 分隔
     df = pd.read_csv(
         io.StringIO(resp.text),
         sep="\t",
@@ -2166,6 +2181,33 @@ def load_ct_master_from_web(sdtm_ct_version=""):
     )
 
     df = normalize_columns(df)
+
+    # ✅ 標準化欄位
+    rename_map = {}
+
+    for col in df.columns:
+        ncol = normalize_text(col)
+
+        if "CODELIST" in ncol and "CODE" in ncol:
+            rename_map[col] = "Codelist Code"
+        elif "SUBMISSION" in ncol or "TERM" in ncol:
+            rename_map[col] = "Submission Value"
+        elif "CODE" == ncol or "NCI" in ncol:
+            rename_map[col] = "NCI Term Code"
+
+    df = df.rename(columns=rename_map)
+
+    # ✅ 防呆補欄位
+    for c in ["Codelist Code", "Submission Value", "NCI Term Code"]:
+        if c not in df.columns:
+            df[c] = ""
+
+    return df.reset_index(drop=True), {
+        "download_url": url,
+        "source_type": source_type,
+        "status": "success"
+    }
+
 
 
 def normalize_ct_text(x):
