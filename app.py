@@ -2169,17 +2169,23 @@ if uploaded_file is not None:
             st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
 
 
+        # =========================================
+        # CT Term Mapping UI
+        # =========================================
+        st.markdown("### CT Term Mapping List (from CRF Options)")
 
-       st.markdown("### CT Term Mapping List - from CRF Options")
         if ct_mapping_df.empty:
-           st.info("目前尚未從 CRF schema 抽到 Option Displayed Value")
-       else:
-           ct_mapping_df = st.data_editor(
-               ct_mapping_df,
-               num_rows="dynamic",
-               use_container_width=True,
-               key="ct_mapping_editor"
-           )
+            st.info("No CRF option values detected.")
+        else:
+            ct_mapping_df = st.data_editor(
+                ct_mapping_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                key="ct_mapping_editor"
+            )
+
+st.session_state["ct_mapping_df"] = ct_mapping_df
+
 
         # 存給 Step 2 用
         st.session_state["ct_mapping_df"] = ct_mapping_df
