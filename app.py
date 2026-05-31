@@ -2065,10 +2065,19 @@ def normalize_ct_version_text(x):
 
     s = s.replace("/", "-").replace(".", "-")
 
+    parts = s.split("-")
+
+    if len(parts) == 3:
+        y, m, d = parts
+        m = m.zfill(2)
+        d = d.zfill(2)
+        return f"{y}-{m}-{d}"
+
     if re.fullmatch(r"\d{8}", s):
-        s = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
 
     return s
+
 
 
 def fetch_html(url, timeout=30):
@@ -2135,7 +2144,15 @@ def find_sdtm_ct_download_url(sdtm_ct_version=""):
 
 def load_ct_master_from_web(sdtm_ct_version=""):
 
-    download_url, source_type = find_sdtm_ct_download_url(sdtm_ct_version)
+    try:
+        download_url, source_type = find_sdtm_ct_download_url(sdtm_ct)
+    except Exception as e:
+        st.warning(f"CT URL lookup failed: {e}")
+        raise
+
+
+    print("Normalized version:", version)
+    print("Expected filename:", expected_name)
 
     resp = requests.get(download_url, timeout=60)
     resp.raise_for_status()
