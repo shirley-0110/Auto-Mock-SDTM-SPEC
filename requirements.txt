@@ -3,4 +3,4 @@ pyreadstat
 pandas
 streamlit
 openpyxl
-
+beautifulsoup4
