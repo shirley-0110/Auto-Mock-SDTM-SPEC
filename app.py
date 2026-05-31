@@ -2277,6 +2277,8 @@ def prefill_ct_mapping_df(ct_mapping_df, ct_master_df):
             ct_master_df["Codelist Code"].astype(str).str.upper() == code
         ].copy()
 
+        ct_sub["norm_term"] = ct_sub["Submission Value"].astype(str).apply(normalize_ct_text)
+
         if ct_sub.empty:
             suggested_terms.append("")
             statuses.append("NO_CT")
