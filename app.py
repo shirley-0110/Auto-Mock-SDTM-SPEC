@@ -2097,7 +2097,7 @@ def parse_links_from_index(index_url):
 
 def find_sdtm_ct_download_url(sdtm_ct_version=""):
     """
-    根據使用者輸入版本找官方 SDTM Terminology.xls
+    根據使用者輸入版本找官方 SDTM Terminology.txt
     """
     version = normalize_ct_version_text(sdtm_ct_version)
 
@@ -2109,13 +2109,13 @@ def find_sdtm_ct_download_url(sdtm_ct_version=""):
     # 沒填版本 -> 抓 current 最新版
     if version == "":
         for item in current_links:
-            if item["text"].strip() == "SDTM Terminology.xls":
+            if item["text"].strip() == "SDTM Terminology.txt":
                 return item["url"], "current"
-        raise FileNotFoundError("Could not find current SDTM Terminology.xls")
+        raise FileNotFoundError("Could not find current SDTM Terminology")
 
     # 有填版本 -> 先找 archive
     archive_links = parse_links_from_index(archive_index)
-    expected_name = f"SDTM Terminology {version}.xls"
+    expected_name = f"SDTM Terminology {version}.txt"
 
     for item in archive_links:
         if item["text"].strip() == expected_name:
@@ -2123,106 +2123,27 @@ def find_sdtm_ct_download_url(sdtm_ct_version=""):
 
     # fallback 最新 current
     for item in current_links:
-        if item["text"].strip() == "SDTM Terminology.xls":
+        if item["text"].strip() == "SDTM Terminology.txt":
             return item["url"], "current-fallback"
 
-    raise FileNotFoundError(f"Could not find SDTM terminology Excel for version: {version}")
+    raise FileNotFoundError(f"Could not find SDTM terminology for version: {version}")
 
 
 def load_ct_master_from_web(sdtm_ct_version=""):
-    """
-    從官方 NCI EVS 載入 SDTM CT master Excel
-    回傳 standardized df
-    """
-    download_url, source_type = find_sdtm_ct_download_url(sdtm_ct_version=sdtm_ct_version)
+
+    download_url, source_type = find_sdtm_ct_download_url(sdtm_ct_version)
 
     resp = requests.get(download_url, timeout=60)
     resp.raise_for_status()
 
-    xls = pd.ExcelFile(BytesIO(resp.content))
-    sheet_names = xls.sheet_names
+    # ✅ 用 tab 分隔
+    df = pd.read_csv(
+        io.StringIO(resp.text),
+        sep="\t",
+        dtype=str
+    )
 
-    candidate_df = None
-    candidate_sheet = None
-
-    for sn in sheet_names:
-        temp = pd.read_excel(BytesIO(resp.content), sheet_name=sn, dtype=str)
-        temp = normalize_columns(temp)
-
-        norm_cols = [normalize_text(c) for c in temp.columns]
-
-        has_code = any("CODELIST" in c for c in norm_cols)
-        has_term = any(("SUBMISSION VALUE" in c) or ("TERM" in c) for c in norm_cols)
-
-        if has_code and has_term:
-            candidate_df = temp.copy()
-            candidate_sheet = sn
-            break
-
-    if candidate_df is None:
-        raw_df = pd.read_excel(BytesIO(resp.content), sheet_name=sheet_names[0], dtype=str)
-        raw_df = normalize_columns(raw_df)
-        return raw_df, {
-            "download_url": download_url,
-            "source_type": source_type,
-            "sheet_name": sheet_names[0],
-            "status": "unrecognized_sheet"
-        }
-
-    df = candidate_df.copy()
-
-    rename_map = {}
-    for col in df.columns:
-        ncol = normalize_text(col)
-
-        if ncol in ["CODELIST CODE", "CODELIST", "NCI CODELIST CODE", "CODE LIST CODE"]:
-            rename_map[col] = "Codelist Code"
-        elif ncol in ["CODELIST NAME", "PREFERRED NAME", "CODELIST PREFERRED NAME"]:
-            rename_map[col] = "Codelist Name"
-        elif ncol in ["CDISC SUBMISSION VALUE", "SUBMISSION VALUE", "CODELIST ITEM", "TERM"]:
-            rename_map[col] = "Submission Value"
-        elif ncol in ["NCI CODE", "NCI TERM CODE", "CODE"]:
-            rename_map[col] = "NCI Term Code"
-        elif ncol in ["CDISC SYNONYM", "NCI PREFERRED TERM", "PREFERRED TERM", "SYNONYM"]:
-            rename_map[col] = "Synonym"
-        elif ncol in ["NCI DEFINITION", "DEFINITION"]:
-            rename_map[col] = "Definition"
-        elif ncol in ["CODELIST EXTENSIBLE", "EXTENSIBLE", "EXTENSIBLE (YES/NO)"]:
-            rename_map[col] = "Extensible"
-
-    df = df.rename(columns=rename_map)
-
-    required_cols = [
-        "Codelist Code",
-        "Codelist Name",
-        "Submission Value",
-        "NCI Term Code",
-        "Synonym",
-        "Definition",
-        "Extensible"
-    ]
-    for c in required_cols:
-        if c not in df.columns:
-            df[c] = ""
-
-    df["Terminology"] = "CDISC SDTM CT"
-
-    df = df[
-        ~(
-            df["Codelist Code"].fillna("").astype(str).str.strip().eq("") &
-            df["Submission Value"].fillna("").astype(str).str.strip().eq("")
-        )
-    ].copy()
-
-    for c in required_cols + ["Terminology"]:
-        df[c] = df[c].fillna("").astype(str).str.strip()
-
-    return df.reset_index(drop=True), {
-        "download_url": download_url,
-        "source_type": source_type,
-        "sheet_name": candidate_sheet,
-        "status": "success"
-    }
+    df = normalize_columns(df)
 
 
 def normalize_ct_text(x):
