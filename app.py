@@ -2729,6 +2729,10 @@ if uploaded_file is not None:
 
                     try:
                         ct_master_df, ct_master_meta = load_ct_master_from_web(sdtm_ct)
+                        
+                        st.write("CT columns:", ct_master_df.columns.tolist())
+                        st.write("Duplicate columns:", ct_master_df.columns[ct_master_df.columns.duplicated()])
+                        
                         st.caption(
                             f"CT master loaded from web ({ct_master_meta.get('source_type')}) | "
                             f"{ct_master_meta.get('download_url')}"
