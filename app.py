@@ -142,6 +142,48 @@ def find_source_variable_column(columns):
     return None
 
 
+
+def find_option_displayed_value_column(columns):
+    """
+    抓 CRF schema 裡的 option 顯示值欄位
+    常見名稱例如：
+      - Option Displayed Value
+      - Displayed Value
+      - Option Label
+      - Decode
+    """
+    priority_exact = [
+        "OPTION DISPLAYED VALUE",
+        "OPTION DISPLAY VALUE",
+        "DISPLAYED VALUE",
+        "OPTION LABEL",
+        "OPTION TEXT",
+        "DECODE",
+        "CODELIST DISPLAYED VALUE"
+    ]
+
+    normalized_map = {col: normalize_text(col) for col in columns}
+
+    for target in priority_exact:
+        for col, norm_col in normalized_map.items():
+            if norm_col == target:
+                return col
+
+    for col, norm_col in normalized_map.items():
+        if "OPTION" in norm_col and "DISPLAY" in norm_col and "VALUE" in norm_col:
+            return col
+
+    for col, norm_col in normalized_map.items():
+        if "DISPLAYED" in norm_col and "VALUE" in norm_col:
+            return col
+
+    for col, norm_col in normalized_map.items():
+        if "OPTION" in norm_col and "LABEL" in norm_col:
+            return col
+
+    return None
+
+
 # =========================================================
 # SoA：抓 CRF domain / sheet
 # =========================================================
@@ -328,6 +370,100 @@ def summarize_sdtm_mapping(mapping_df):
     summary_df["Variables"] = summary_df["SDTM Variable"].apply(lambda x: "; ".join(x))
 
     return summary_df[["SDTM Domain", "Variable Count", "Variables"]]
+
+
+
+
+
+def build_ct_mapping_seed(file_bytes, selected_crf_sheets, common_domain_header=None):
+    """
+    從各 domain sheet 抽取 CT mapping seed
+    輸出欄位：
+      - Dataset
+      - Variable
+      - Source CRF Sheet
+      - Source CRF Variable
+      - Assign Value
+      - Option Displayed Value
+      - Normalized Option
+      - Suggested CT Term
+      - Match Status
+
+    說明：
+      - 只要該列有 Option Displayed Value，且可解析出 SDTM target，就納入
+      - 先不做 CT merge，只做 seed list
+    """
+    records = []
+    sheet_errors = []
+
+    for sheet in selected_crf_sheets:
+        try:
+            df, _ = read_sheet_with_detected_header(
+                file_bytes=file_bytes,
+                sheet_name=sheet,
+                keyword_groups=[["SDTM", "TARGET"]],
+                manual_header_row_excel=common_domain_header
+            )
+        except Exception:
+            sheet_errors.append(sheet)
+            continue
+
+        target_col = find_column(df.columns, ["SDTM", "TARGET"])
+        if target_col is None:
+            continue
+
+        source_var_col = find_source_variable_column(df.columns)
+        option_display_col = find_option_displayed_value_column(df.columns)
+
+        # 沒有 option 顯示值欄位，這個 sheet 就先略過
+        if option_display_col is None:
+            continue
+
+        for _, row in df.iterrows():
+            raw_target = row.get(target_col, "")
+            source_var = row.get(source_var_col, "") if source_var_col is not None else ""
+            option_display = row.get(option_display_col, "")
+
+            if pd.isna(option_display) or str(option_display).strip() == "":
+                continue
+
+            parsed_records, _ = parse_sdtm_targets(raw_target)
+
+            if not parsed_records:
+                continue
+
+            for rec in parsed_records:
+                option_text = str(option_display).strip()
+                norm_option = re.sub(r"\s+", " ", option_text.upper())
+
+                records.append({
+                    "Dataset": rec["SDTM Domain"],
+                    "Variable": rec["SDTM Variable"],
+                    "Source CRF Sheet": sheet,
+                    "Source CRF Variable": source_var,
+                    "Assign Value": rec["Assign Value"],
+                    "Option Displayed Value": option_text,
+                    "Normalized Option": norm_option,
+                    "Suggested CT Term": "",
+                    "Match Status": "NEW"
+                })
+
+    if records:
+        out_df = pd.DataFrame(records).drop_duplicates().sort_values(
+            by=["Dataset", "Variable", "Source CRF Sheet", "Source CRF Variable", "Option Displayed Value"]
+        ).reset_index(drop=True)
+    else:
+        out_df = pd.DataFrame(columns=[
+            "Dataset", "Variable", "Source CRF Sheet", "Source CRF Variable",
+            "Assign Value", "Option Displayed Value", "Normalized Option",
+            "Suggested CT Term", "Match Status"
+        ])
+
+    return out_df, sorted(set(sheet_errors))
+
+
+
+
 
 
 # =========================================================
@@ -1893,6 +2029,12 @@ def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, commo
         selected_crf_sheets=available_sheets,
         common_domain_header=common_domain_header
     )
+    
+    ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
+        file_bytes=file_bytes,
+        selected_crf_sheets=available_sheets,
+        common_domain_header=common_domain_header
+    )
 
     return {
         "available_sheets": available_sheets,
@@ -1900,7 +2042,9 @@ def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, commo
         "mapping_df": mapping_df,
         "detail_df": detail_df,
         "sheet_errors": sheet_errors,
-        "unparsed_records": unparsed_records
+        "unparsed_records": unparsed_records,
+        "ct_mapping_df": ct_mapping_df,
+        "ct_mapping_sheet_errors": ct_mapping_sheet_errors
     }
 
 
@@ -1991,6 +2135,9 @@ if uploaded_file is not None:
         detail_df = result["detail_df"]
         sheet_errors = result["sheet_errors"]
         unparsed_records = result["unparsed_records"]
+        ct_mapping_df = result.get("ct_mapping_df", pd.DataFrame())
+        ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
+
 
         # 給 Step 2 用
         st.session_state["mapping_df"] = mapping_df
@@ -2020,6 +2167,27 @@ if uploaded_file is not None:
         if unparsed_records:
             st.markdown("### 無法解析的 SDTM IG Target 值")
             st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
+
+
+
+       st.markdown("### CT Term Mapping List（from CRF Options）")
+
+        if ct_mapping_df.empty:
+            st.info("目前尚未從 CRF schema 抽到 Option Displayed Value")
+        else:
+            ct_mapping_df = st.data_editor(
+                ct_mapping_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                key="ct_mapping_editor"
+            )
+
+        # 存給 Step 2 用
+        st.session_state["ct_mapping_df"] = ct_mapping_df
+
+        if ct_mapping_sheet_errors:
+            st.caption(f"以下 sheets 無法抽取 CT option（可能沒有 option 欄位或 header 偵測失敗）：{ct_mapping_sheet_errors}")
+
 
         # -------------------------------------------------
         # Step 2 開關：執行 / 重新整理
