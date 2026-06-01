@@ -2239,7 +2239,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     # -------------------------------------------------
     # 8) 補上沒有 term row 的 header-only IDs
     # -------------------------------------------------
-    existing_ids = set(out["ID"].astype(str).str.upper().tolist())
+    existing_ids = set(out["ID"].astype(str).str.upper().tolist()) if not out.empty else set()
 
     for cid in distinct_ids:
         if cid in existing_ids:
