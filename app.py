@@ -1911,18 +1911,31 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     # -------------------------------------------------
     header_meta = {}
     for cid in distinct_ids:
-        hdr = ct_df[ct_df["norm_submission"] == normalize_ct_text(cid)]
+        norm_cid = normalize_ct_text(cid)
+
+        hdr = ct_df[
+            ct_df["norm_submission"] == norm_cid
+        ]
+
         if not hdr.empty:
             hdr = hdr.iloc[0]
+
             header_meta[cid] = {
                 "Name": hdr.get("Codelist Name", ""),
-                "NCI Codelist Code": hdr.get("NCI Term Code", "")
+                # ✅ 直接從 CT txt 拿 → 正確來源
+                "NCI Codelist Code": hdr.get("NCI Term Code", "").strip()
             }
+
         else:
+            # ✅ fallback（你之後要改 Label 可以用）
             header_meta[cid] = {
                 "Name": "",
                 "NCI Codelist Code": ""
             }
+
+        # ✅ DEBUG（先開，確認 mapping OK）
+        print(f"[HEADER CHECK] {cid} → {header_meta[cid]}")
+
 
     # -------------------------------------------------
     # 5) 用 Step 1 option rows 去 match term rows
