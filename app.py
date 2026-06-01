@@ -2046,9 +2046,17 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     if not rows:
         fallback_rows = []
         for cid in distinct_ids:
+            ct_lookup_id = normalize_codelist_id(cid, valid_ct_ids)
+
+            derived_name = derive_codelist_name(
+                display_id=cid,
+                ct_lookup_id=ct_lookup_id,
+                header_meta=header_meta
+            )
+            
             fallback_rows.append({
                 "ID": cid,
-                "Name": header_meta[cid]["Name"],
+                "Name": derived_name,
                 "NCI Codelist Code": header_meta[cid]["NCI Codelist Code"],
                 "Data Type": "text",
                 "Terminology": terminology_value,
