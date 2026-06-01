@@ -227,11 +227,15 @@ def find_sdtm_ct_codelist_column(columns):
     找 CRF schema 中的 SDTM CT Codelist 欄位
     """
     priority_exact = [
+        "SDTM CT CODELIST CODE",
         "SDTM CT CODELIST",
         "SDTM CT CODE LIST",
+        "SDTM CT CODE",
         "SDTM CT",
+        "CT CODELIST CODE",
         "CT CODELIST",
         "CT CODE LIST",
+        "CT CODE",
         "CODELIST CODE"
     ]
 
@@ -1872,8 +1876,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df):
     ct_df["NCI Term Code"] = ct_df["NCI Term Code"].astype(str).str.strip()
     ct_df["Codelist Name"] = ct_df["Codelist Name"].astype(str).str.strip()
     ct_df["NCI Preferred Term"] = ct_df["NCI Preferred Term"].astype(str).str.strip()
+    ct_df["CDISC Synonym(s)"] = ct_df["CDISC Synonym(s)"].astype(str).str.strip()
 
-    ct_df["norm_term"] = ct_df["Submission Value"].apply(normalize_ct_text)
+    ct_df["norm_submission"] = ct_df["Submission Value"].apply(normalize_ct_text)
+    ct_df["norm_pref"] = ct_df["NCI Preferred Term"].apply(normalize_ct_text)
+
 
     # -------------------------------------------------
     # 3) synonym rules（最小可行版，可再擴充）
@@ -1921,24 +1928,35 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df):
 
         norm_val = normalize_ct_text(opt)
 
-        # 1) exact
-        hit = ct_sub[ct_sub["norm_term"] == norm_val]
+        # 1) 先對 Submission Value / Preferred Term 做 exact
+        hit = ct_sub[
+            (ct_sub["norm_submission"] == norm_val) |
+            (ct_sub["norm_pref"] == norm_val)
+        ]
 
-        # 2) synonym
+        # 2) synonym_map
         if hit.empty and norm_val in synonym_map:
             target = normalize_ct_text(synonym_map[norm_val])
-            hit = ct_sub[ct_sub["norm_term"] == target]
+            hit = ct_sub[
+                (ct_sub["norm_submission"] == target) |
+                (ct_sub["norm_pref"] == target)
+            ]
 
-        # 3) fuzzy
+        # 3) fuzzy（同時比 Submission / Preferred）
         if hit.empty:
-            matches = get_close_matches(
-                norm_val,
-                ct_sub["norm_term"].tolist(),
-                n=1,
-                cutoff=0.6
+            candidate_terms = list(
+                dict.fromkeys(
+                    ct_sub["norm_submission"].tolist() + ct_sub["norm_pref"].tolist()
+                )
             )
+            matches = get_close_matches(norm_val, candidate_terms, n=1, cutoff=0.6)
             if matches:
-                hit = ct_sub[ct_sub["norm_term"] == matches[0]]
+                m = matches[0]
+                hit = ct_sub[
+                    (ct_sub["norm_submission"] == m) |
+                    (ct_sub["norm_pref"] == m)
+                ]
+
 
         if hit.empty:
             continue
@@ -2894,6 +2912,16 @@ if uploaded_file is not None:
                     if not ct_mapping_df.empty and not ct_master_df.empty:
                         ct_mapping_df = prefill_ct_mapping_df(ct_mapping_df, ct_master_df)
                         st.session_state["ct_mapping_df"] = ct_mapping_df
+
+
+                    st.write(
+                        "CT mapping sample:",
+                        st.session_state.get("ct_mapping_df", pd.DataFrame())[
+                            ["SDTM Domain", "SDTM Variable", "CT Codelist Code", "Option Displayed Value"]
+                        ].head(20)
+                    )
+
+
                     
                     # 2.4 Codelists
                     st.markdown("### 2.4 Codelists")
