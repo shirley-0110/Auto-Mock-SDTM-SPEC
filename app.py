@@ -1830,11 +1830,7 @@ def build_codelists_sheet_from_variables(variables_df):
 
 
 
-def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, sdtm_ct_version=""):
-    valid_ct_ids = set(
-        ct_df["Submission Value"].astype(str).str.upper().str.strip()
-    )
-    
+def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, sdtm_ct_version=""):    
     cols = [
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
@@ -1873,7 +1869,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     # 2) 準備 CT master
     # -------------------------------------------------
     ct_df = ct_master_df.copy()
-
+    
+    valid_ct_ids = set(
+        ct_df["Submission Value"].astype(str).str.upper().str.strip()
+    )
+    
     for c in [
         "Codelist Code",
         "Codelist Name",
