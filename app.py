@@ -13,7 +13,7 @@ from urllib.parse import urljoin
 from difflib import get_close_matches
 
 # Step 2 用到 sas7bdat
-tryf
+try:
     import pyreadstat
     HAS_PYREADSTAT = True
 except Exception:
