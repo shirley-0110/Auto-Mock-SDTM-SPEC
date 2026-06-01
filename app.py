@@ -1830,21 +1830,17 @@ def build_codelists_sheet_from_variables(variables_df):
 
 
 
-def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df):
-    """
-    直接用 Step 1 的 Option Displayed Value + CT master 生成 2.4 Codelists
-    """
-
+def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, sdtm_ct_version=""):
     cols = [
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
     ]
 
-    if ct_mapping_df.empty or ct_master_df.empty or variables_df.empty:
+    if variables_df.empty or ct_master_df.empty:
         return pd.DataFrame(columns=cols)
 
     # -------------------------------------------------
-    # 1) 建立 (Dataset, Variable) -> Codelist lookup
+    # 1) 先從 2.3 Variables 抓所有 Codelist IDs
     # -------------------------------------------------
     var_df = variables_df.copy()
 
@@ -1856,34 +1852,49 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df):
     var_df["Variable"] = var_df["Variable"].astype(str).str.upper().str.strip()
     var_df["Codelist"] = var_df["Codelist"].astype(str).str.strip()
 
-    codelist_lookup = {}
-    for _, r in var_df.iterrows():
-        key = (r["Dataset"], r["Variable"])
-        if key not in codelist_lookup and r["Codelist"] != "":
-            codelist_lookup[key] = r["Codelist"]
+    id_df = var_df[
+        (var_df["Codelist"] != "") &
+        (var_df["Codelist"].str.upper() != "AEDICT_F")
+    ][["Dataset", "Variable", "Codelist"]].drop_duplicates()
+
+    # (Dataset, Variable) -> Codelist ID
+    codelist_lookup = {
+        (r["Dataset"], r["Variable"]): r["Codelist"]
+        for _, r in id_df.iterrows()
+    }
+
+    distinct_ids = sorted(id_df["Codelist"].drop_duplicates().tolist())
 
     # -------------------------------------------------
     # 2) 準備 CT master
     # -------------------------------------------------
     ct_df = ct_master_df.copy()
 
-    for c in ["Codelist Code", "Codelist Name", "Submission Value", "NCI Term Code", "NCI Preferred Term"]:
+    for c in [
+        "Codelist Code",
+        "Codelist Name",
+        "Submission Value",
+        "NCI Term Code",
+        "NCI Preferred Term",
+        "CDISC Synonym(s)"
+    ]:
         if c not in ct_df.columns:
             ct_df[c] = ""
 
     ct_df["Codelist Code"] = ct_df["Codelist Code"].astype(str).str.upper().str.strip()
+    ct_df["Codelist Name"] = ct_df["Codelist Name"].astype(str).str.strip()
     ct_df["Submission Value"] = ct_df["Submission Value"].astype(str).str.strip()
     ct_df["NCI Term Code"] = ct_df["NCI Term Code"].astype(str).str.strip()
-    ct_df["Codelist Name"] = ct_df["Codelist Name"].astype(str).str.strip()
     ct_df["NCI Preferred Term"] = ct_df["NCI Preferred Term"].astype(str).str.strip()
     ct_df["CDISC Synonym(s)"] = ct_df["CDISC Synonym(s)"].astype(str).str.strip()
 
     ct_df["norm_submission"] = ct_df["Submission Value"].apply(normalize_ct_text)
     ct_df["norm_pref"] = ct_df["NCI Preferred Term"].apply(normalize_ct_text)
 
+    terminology_value = f"SDTM {normalize_ct_version_text(sdtm_ct_version)}" if sdtm_ct_version else "SDTM"
 
     # -------------------------------------------------
-    # 3) synonym rules（最小可行版，可再擴充）
+    # 3) synonym rules（先最小可行）
     # -------------------------------------------------
     synonym_map = {
         "DOSE UNCHANGED": "DOSE NOT CHANGED",
@@ -1895,104 +1906,140 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df):
     seen = set()
 
     # -------------------------------------------------
-    # 4) 逐列用 Option Displayed Value 做 match
+    # 4) 先逐個 ID 建立 header metadata
+    #    header row 來源：Submission Value == ID
     # -------------------------------------------------
-    work = ct_mapping_df.copy()
+    header_meta = {}
+    for cid in distinct_ids:
+        hdr = ct_df[ct_df["norm_submission"] == normalize_ct_text(cid)]
+        if not hdr.empty:
+            hdr = hdr.iloc[0]
+            header_meta[cid] = {
+                "Name": hdr.get("Codelist Name", ""),
+                "NCI Codelist Code": hdr.get("NCI Term Code", "")
+            }
+        else:
+            header_meta[cid] = {
+                "Name": "",
+                "NCI Codelist Code": ""
+            }
 
-    for c in ["SDTM Domain", "SDTM Variable", "CT Codelist Code", "Option Displayed Value"]:
-        if c not in work.columns:
-            work[c] = ""
+    # -------------------------------------------------
+    # 5) 用 Step 1 option rows 去 match term rows
+    # -------------------------------------------------
+    if not ct_mapping_df.empty:
+        work = ct_mapping_df.copy()
 
-    work["SDTM Domain"] = work["SDTM Domain"].astype(str).str.upper().str.strip()
-    work["SDTM Variable"] = work["SDTM Variable"].astype(str).str.upper().str.strip()
-    work["CT Codelist Code"] = work["CT Codelist Code"].astype(str).str.upper().str.strip()
-    work["Option Displayed Value"] = work["Option Displayed Value"].astype(str).str.strip()
+        for c in ["SDTM Domain", "SDTM Variable", "CT Codelist Code", "Option Displayed Value"]:
+            if c not in work.columns:
+                work[c] = ""
 
-    for _, r in work.iterrows():
-        ds = r["SDTM Domain"]
-        var = r["SDTM Variable"]
-        code = r["CT Codelist Code"]
-        opt = r["Option Displayed Value"]
+        work["SDTM Domain"] = work["SDTM Domain"].astype(str).str.upper().str.strip()
+        work["SDTM Variable"] = work["SDTM Variable"].astype(str).str.upper().str.strip()
+        work["CT Codelist Code"] = work["CT Codelist Code"].astype(str).str.upper().str.strip()
+        work["Option Displayed Value"] = work["Option Displayed Value"].astype(str).str.strip()
 
-        if not ds or not var or not code or not opt:
-            continue
+        for _, r in work.iterrows():
+            ds = r["SDTM Domain"]
+            var = r["SDTM Variable"]
+            code = r["CT Codelist Code"]
+            opt = r["Option Displayed Value"]
 
-        # 真正要輸出的 ID：以 Variables sheet 的 Codelist 為準
-        codelist_id = codelist_lookup.get((ds, var), "")
-        if codelist_id == "":
-            continue
+            if not ds or not var or not code or not opt:
+                continue
 
-        ct_sub = ct_df[ct_df["Codelist Code"] == code].copy()
-        if ct_sub.empty:
-            continue
+            codelist_id = codelist_lookup.get((ds, var), "")
+            if codelist_id == "":
+                continue
 
-        norm_val = normalize_ct_text(opt)
+            ct_sub = ct_df[ct_df["Codelist Code"] == code].copy()
+            if ct_sub.empty:
+                continue
 
-        # 1) 先對 Submission Value / Preferred Term 做 exact
-        hit = ct_sub[
-            (ct_sub["norm_submission"] == norm_val) |
-            (ct_sub["norm_pref"] == norm_val)
-        ]
+            norm_val = normalize_ct_text(opt)
 
-        # 2) synonym_map
-        if hit.empty and norm_val in synonym_map:
-            target = normalize_ct_text(synonym_map[norm_val])
+            # 1) exact on Submission / Preferred
             hit = ct_sub[
-                (ct_sub["norm_submission"] == target) |
-                (ct_sub["norm_pref"] == target)
+                (ct_sub["norm_submission"] == norm_val) |
+                (ct_sub["norm_pref"] == norm_val)
             ]
 
-        # 3) fuzzy（同時比 Submission / Preferred）
-        if hit.empty:
-            candidate_terms = list(
-                dict.fromkeys(
-                    ct_sub["norm_submission"].tolist() + ct_sub["norm_pref"].tolist()
-                )
-            )
-            matches = get_close_matches(norm_val, candidate_terms, n=1, cutoff=0.6)
-            if matches:
-                m = matches[0]
+            # 2) synonym rule
+            if hit.empty and norm_val in synonym_map:
+                target = normalize_ct_text(synonym_map[norm_val])
                 hit = ct_sub[
-                    (ct_sub["norm_submission"] == m) |
-                    (ct_sub["norm_pref"] == m)
+                    (ct_sub["norm_submission"] == target) |
+                    (ct_sub["norm_pref"] == target)
                 ]
 
+            # 3) fuzzy on Submission / Preferred
+            if hit.empty:
+                candidate_terms = list(
+                    dict.fromkeys(
+                        ct_sub["norm_submission"].tolist() + ct_sub["norm_pref"].tolist()
+                    )
+                )
+                matches = get_close_matches(norm_val, candidate_terms, n=1, cutoff=0.6)
+                if matches:
+                    m = matches[0]
+                    hit = ct_sub[
+                        (ct_sub["norm_submission"] == m) |
+                        (ct_sub["norm_pref"] == m)
+                    ]
 
-        if hit.empty:
-            continue
+            if hit.empty:
+                continue
 
-        hit = hit.iloc[0]
+            hit = hit.iloc[0]
 
-        dedup_key = (codelist_id, hit["Submission Value"])
-        if dedup_key in seen:
-            continue
-        seen.add(dedup_key)
+            dedup_key = (codelist_id, hit["Submission Value"])
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
 
-        rows.append({
-            "ID": codelist_id,
-            "Name": hit.get("Codelist Name", ""),
-            "NCI Codelist Code": code,
-            "Data Type": "text",
-            "Terminology": "CDISC SDTM CT",
-            "Comment": "",
-            "Order": None,  # 先佔位，下面再重編
-            "Term": hit.get("Submission Value", ""),
-            "NCI Term Code": hit.get("NCI Term Code", ""),
-            "Decoded Value": hit.get("NCI Preferred Term", "")
-        })
+            rows.append({
+                "ID": codelist_id,
+                "Name": header_meta[codelist_id]["Name"],
+                "NCI Codelist Code": header_meta[codelist_id]["NCI Codelist Code"],
+                "Data Type": "text",
+                "Terminology": terminology_value,
+                "Comment": "",
+                "Order": None,
+                "Term": hit.get("Submission Value", ""),
+                "NCI Term Code": hit.get("NCI Term Code", ""),
+                "Decoded Value": hit.get("NCI Preferred Term", "")
+            })
 
+    # -------------------------------------------------
+    # 6) 如果沒有任何 term match，至少回傳 header rows（避免整張空白）
+    # -------------------------------------------------
     if not rows:
-        return pd.DataFrame(columns=cols)
+        fallback_rows = []
+        for cid in distinct_ids:
+            fallback_rows.append({
+                "ID": cid,
+                "Name": header_meta[cid]["Name"],
+                "NCI Codelist Code": header_meta[cid]["NCI Codelist Code"],
+                "Data Type": "text",
+                "Terminology": terminology_value,
+                "Comment": "",
+                "Order": "",
+                "Term": "",
+                "NCI Term Code": "",
+                "Decoded Value": ""
+            })
+        return pd.DataFrame(fallback_rows, columns=cols)
 
     out = pd.DataFrame(rows)
 
     # -------------------------------------------------
-    # 5) 每個 ID 重編 Order
+    # 7) 每個 ID 內重新編 Order
     # -------------------------------------------------
     out = out.sort_values(by=["ID", "Term"]).reset_index(drop=True)
     out["Order"] = out.groupby("ID").cumcount() + 1
 
     return out[cols]
+
 
 
 
@@ -2363,9 +2410,18 @@ def load_ct_master_from_web(sdtm_ct_version=""):
         if ncol in ["CODELIST CODE", "CODE LIST CODE", "NCI CODELIST CODE"]:
             rename_map[col] = "Codelist Code"
 
+        elif ncol in ["CODELIST NAME"]:
+            rename_map[col] = "Codelist Name"
+
         elif ncol in ["CDISC SUBMISSION VALUE", "SUBMISSION VALUE"]:
             rename_map[col] = "Submission Value"
 
+        elif ncol in ["CDISC SYNONYM(S)", "CDISC SYNONYM", "SYNONYM", "SYNONYMS"]:
+            rename_map[col] = "CDISC Synonym(s)"
+
+        elif ncol in ["NCI PREFERRED TERM", "PREFERRED TERM"]:
+            rename_map[col] = "NCI Preferred Term"
+       
         elif ncol in ["NCI CODE", "NCI TERM CODE", "CODE"]:
             rename_map[col] = "NCI Term Code"
 
@@ -2851,39 +2907,6 @@ if uploaded_file is not None:
                     st.dataframe(variables_spec_df, use_container_width=True)
 
 
-                    
-                    st.markdown("### CT Term Mapping Review")
-
-                    ct_mapping_df = st.session_state.get("ct_mapping_df", pd.DataFrame())
-                    
-                    if ct_mapping_df.empty:
-                        st.info("No CT mapping seed available from Step 1.")
-                    else:
-                        review_cols = [
-                            "Source CRF Sheet",
-                            "Source CRF Variable",
-                            "SDTM Domain",
-                            "SDTM Variable",
-                            "CT Codelist Code",
-                            "Option Displayed Value",
-                            "Suggested CT Term",
-                            "Match Status"
-                        ]
-
-                        for c in review_cols:
-                            if c not in ct_mapping_df.columns:
-                                ct_mapping_df[c] = ""
-
-                        ct_mapping_df = st.data_editor(
-                            ct_mapping_df[review_cols],
-                            num_rows="dynamic",
-                            use_container_width=True,
-                            key="ct_mapping_review_editor"
-                        )
-
-                        st.session_state["ct_mapping_df"] = ct_mapping_df
-
-
                     # =========================================
                     # CT master from web + CT mapping enrichment
                     # =========================================
@@ -2920,7 +2943,37 @@ if uploaded_file is not None:
                             ["SDTM Domain", "SDTM Variable", "CT Codelist Code", "Option Displayed Value"]
                         ].head(20)
                     )
+                  
+                    st.markdown("### CT Term Mapping Review")
 
+                    ct_mapping_df = st.session_state.get("ct_mapping_df", pd.DataFrame())
+                    
+                    if ct_mapping_df.empty:
+                        st.info("No CT mapping seed available from Step 1.")
+                    else:
+                        review_cols = [
+                            "Source CRF Sheet",
+                            "Source CRF Variable",
+                            "SDTM Domain",
+                            "SDTM Variable",
+                            "CT Codelist Code",
+                            "Option Displayed Value",
+                            "Suggested CT Term",
+                            "Match Status"
+                        ]
+
+                        for c in review_cols:
+                            if c not in ct_mapping_df.columns:
+                                ct_mapping_df[c] = ""
+
+                        ct_mapping_df = st.data_editor(
+                            ct_mapping_df[review_cols],
+                            num_rows="dynamic",
+                            use_container_width=True,
+                            key="ct_mapping_review_editor"
+                        )
+
+                        st.session_state["ct_mapping_df"] = ct_mapping_df
 
                     
                     # 2.4 Codelists
@@ -2929,7 +2982,8 @@ if uploaded_file is not None:
                     codelists_df = build_codelists_from_ct_mapping(
                         st.session_state.get("ct_mapping_df", pd.DataFrame()),
                         st.session_state.get("ct_master_df", pd.DataFrame()),
-                        variables_spec_df
+                        variables_spec_df,
+                        sdtm_ct
                     )
                     
                     st.dataframe(codelists_df, use_container_width=True)
