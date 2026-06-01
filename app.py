@@ -1925,7 +1925,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
         if not hdr.empty:
             hdr = hdr.iloc[0]
 
-            header_meta[cid] = {
+            header_meta[ct_lookup_id] = {
                 "Name": hdr.get("Codelist Name", ""),
                 # ✅ 直接從 CT txt 拿 → 正確來源
                 "NCI Codelist Code": hdr.get("NCI Term Code", "").strip()
@@ -1933,7 +1933,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
 
         else:
             # ✅ fallback（你之後要改 Label 可以用）
-            header_meta[cid] = {
+            header_meta[ct_lookup_id] = {
                 "Name": "",
                 "NCI Codelist Code": ""
             }
@@ -2019,7 +2019,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
                 continue
             seen.add(dedup_key)
 
-            meta = header_meta.get(ct_lookup_id, header_meta.get(codelist_id, {}))
+            meta = header_meta.get(ct_lookup_id, {})
 
             derived_name = derive_codelist_name(
                 display_id=codelist_id,
@@ -2057,7 +2057,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
             fallback_rows.append({
                 "ID": cid,
                 "Name": derived_name,
-                "NCI Codelist Code": header_meta[cid]["NCI Codelist Code"],
+                "NCI Codelist Code": header_meta.get(ct_lookup_id, {}).get("NCI Codelist Code", ""),
                 "Data Type": "text",
                 "Terminology": terminology_value,
                 "Comment": "",
@@ -2135,7 +2135,7 @@ def derive_codelist_name(display_id, ct_lookup_id, header_meta):
         base_name = header_meta.get(ct_lookup_id, {}).get("Name", "")
 
         if not base_name:
-            base_name = ct_lookup_id  # fallback
+            return display_id
 
 
         # -------------------------
