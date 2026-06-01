@@ -1964,7 +1964,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
     id_df = var_df[
         (var_df["Codelist"] != "") &
-        (var_df["Codelist"] != "AEDICT_F")
+        (~var_df["Codelist"].isin(["AEDICT_F", "ISO3166"]))
     ][["Dataset", "Variable", "Codelist", "Label"]].drop_duplicates()
 
     # (Dataset, Variable) -> display ID（2.4 顯示用）
@@ -2065,10 +2065,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             "NCI Codelist Code": ""
         }
 
+        special_codelist_code_override = None
 
         # 1) ARM / ARMCD：不要用 CT（避免抓到 LOC C32141）
         if display_id in {"ARM", "ARMCD"}:
-            header_meta[display_id]["NCI Codelist Code"] = ""
+            special_codelist_code_override = ""
             base_ct = ""   # 強制不走 CT lookup
 
         # 2) RDOMAIN_*：用 DOMAIN 的 code
@@ -2081,7 +2082,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
         # 4) EVAL：強制對到 C78735（如果 CT 不穩）
         if display_id == "EVAL":
-            header_meta[display_id]["NCI Codelist Code"] = "C78735"
+            special_codelist_code_override = "C78735"
 
 
         if not base_ct:
@@ -2105,7 +2106,12 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             base_name = display_label
 
         header_meta[display_id]["BaseName"] = base_name
-        header_meta[display_id]["NCI Codelist Code"] = nci_codelist_code
+
+        header_meta[display_id]["NCI Codelist Code"] = (
+            special_codelist_code_override
+            if special_codelist_code_override is not None
+            else nci_codelist_code
+        )
 
         if display_id not in {"ARM", "ARMCD"}:
             header_meta[display_id]["Name"] = build_display_name(display_id, base_name)
