@@ -2018,10 +2018,12 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
                 continue
             seen.add(dedup_key)
 
+            meta = header_meta.get(ct_lookup_id, header_meta.get(codelist_id, {}))
+
             rows.append({
                 "ID": codelist_id,
-                "Name": header_meta.get(ct_lookup_id, {}).get("Name", ""),
-                "NCI Codelist Code": header_meta.get(ct_lookup_id, {}).get("NCI Codelist Code", ""),
+                "Name": meta.get("Name", ""),
+                "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
                 "Data Type": "text",
                 "Terminology": terminology_value,
                 "Comment": "",
@@ -2062,22 +2064,31 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     return out[cols]
 
 
+
 def normalize_codelist_id(cid, valid_ct_ids):
+    # ✅ 先保證是字串
+    if pd.isna(cid):
+        return ""
+
     cid = str(cid).strip().upper()
 
-    # ✅ 已經是合法 CT ID（例如 ACN、AEREL）
+    if not cid:
+        return ""
+
+    # ✅ 如果本來就合法（例如 ACN / STENRF / UNIT）
     if cid in valid_ct_ids:
         return cid
 
-    # ✅ suffix 型（例如 DOMAIN_AE、STENRF_MH_END）
+    # ✅ 拆 suffix（DOMAIN_AE → DOMAIN）
     parts = cid.split("_")
 
     for i in range(len(parts)):
-        candidate = "_".join(parts[:i+1])
+        candidate = parts[i]
 
         if candidate in valid_ct_ids:
             return candidate
 
+    # ✅ fallback（至少回傳原值，不要讓變數不存在）
     return cid
 
 
