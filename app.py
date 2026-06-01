@@ -2135,7 +2135,14 @@ def derive_codelist_name(display_id, ct_lookup_id, header_meta):
         base_name = header_meta.get(ct_lookup_id, {}).get("Name", "")
 
         if not base_name:
-            return display_id
+            BASE_NAME_MAP = {
+                "DOMAIN": "Domain Abbreviation",
+                "STENRF": "Relation to Reference Period",
+                "UNIT": "Unit",
+                "FRM": "Dose Form"
+            }
+        base_name = BASE_NAME_MAP.get(ct_lookup_id, ct_lookup_id)
+
 
 
         # -------------------------
