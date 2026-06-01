@@ -1898,16 +1898,19 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         return str(x).strip() if pd.notna(x) else ""
 
     def split_assign_terms(x):
-        """
-        Assign Value 若有多值，支援用 ; 或換行切開
-        """
         if pd.isna(x):
             return []
+
         s = str(x).strip()
         if not s:
             return []
+
         parts = re.split(r"[;\n]+", s)
-        return [p.strip() for p in parts if str(p).strip()]
+        parts = [p.strip() for p in parts if str(p).strip()]
+
+        # 去重（保序）
+        return list(dict.fromkeys(parts))
+
 
     def build_display_name(display_id, base_name):
         """
@@ -3388,6 +3391,7 @@ if uploaded_file is not None:
                             "Source CRF Variable",
                             "SDTM Domain",
                             "SDTM Variable",
+                            "Assign Value",
                             "CT Codelist Code",
                             "Option Displayed Value",
                             "Suggested CT Term",
