@@ -1962,12 +1962,13 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
             code = r["CT Codelist Code"]
             opt = r["Option Displayed Value"]
 
+            original_id = codelist_lookup.get((ds, var), "")
+            codelist_id = original_id
+    
+            ct_lookup_id = normalize_codelist_id(original_id, valid_ct_ids)
+            
             if not ds or not var or not code or not opt:
                 continue
-
-            original_id = codelist_lookup.get((ds, var), "")
-            codelist_id = original_id  
-            ct_lookup_id = normalize_codelist_id(original_id, valid_ct_ids)
 
             if codelist_id == "":
                 continue
