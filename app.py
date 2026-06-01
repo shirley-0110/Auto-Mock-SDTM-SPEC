@@ -1915,7 +1915,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     # -------------------------------------------------
     header_meta = {}
     for cid in distinct_ids:
-        norm_cid = normalize_ct_text(cid)
+        norm_cid = normalize_ct_text(ct_lookup_id)
 
         hdr = ct_df[
             ct_df["norm_submission"] == norm_cid
@@ -1965,8 +1965,10 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
             if not ds or not var or not code or not opt:
                 continue
 
-            codelist_id = codelist_lookup.get((ds, var), "")
-            codelist_id = normalize_codelist_id(codelist_id, valid_ct_ids)
+            original_id = codelist_lookup.get((ds, var), "")
+            codelist_id = original_id  
+            ct_lookup_id = normalize_codelist_id(original_id, valid_ct_ids)
+
             if codelist_id == "":
                 continue
 
@@ -2017,8 +2019,8 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
 
             rows.append({
                 "ID": codelist_id,
-                "Name": header_meta[codelist_id]["Name"],
-                "NCI Codelist Code": header_meta[codelist_id]["NCI Codelist Code"],
+                "Name": header_meta.get(ct_lookup_id, {}).get("Name", ""),
+                "NCI Codelist Code": header_meta.get(ct_lookup_id, {}).get("NCI Codelist Code", ""),
                 "Data Type": "text",
                 "Terminology": terminology_value,
                 "Comment": "",
