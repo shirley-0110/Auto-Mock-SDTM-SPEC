@@ -1825,6 +1825,63 @@ def build_codelists_sheet_from_variables(variables_df):
     })
 
 
+
+def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df):
+
+    rows = []
+
+    if ct_mapping_df.empty or ct_master_df.empty:
+        return pd.DataFrame()
+
+    # 只取有 mapping 成功的
+    sub_map = ct_mapping_df[
+        ct_mapping_df["Suggested CT Term"].astype(str).str.strip() != ""
+    ].copy()
+
+    for (code, var), g in sub_map.groupby(["CT Codelist Code", "SDTM Variable"]):
+
+        if not code:
+            continue
+
+        ct_sub = ct_master_df[
+            ct_master_df["Codelist Code"].astype(str).str.upper() == str(code).upper()
+        ].copy()
+
+        if ct_sub.empty:
+            continue
+
+        codelist_name = ct_sub.iloc[0].get("Codelist Name", "")
+
+        for i, (_, r) in enumerate(g.iterrows(), start=1):
+
+            term = r["Suggested CT Term"]
+
+            term_row = ct_sub[
+                ct_sub["Submission Value"].astype(str).str.upper() == term.upper()
+            ]
+
+            if term_row.empty:
+                continue
+
+            term_row = term_row.iloc[0]
+
+            rows.append({
+                "ID": var[-3:],  # 例如 AEACN → ACN（先簡單）
+                "Name": codelist_name,
+                "NCI Codelist Code": code,
+                "Data Type": "text",
+                "Terminology": "CDISC SDTM CT",
+                "Comment": "",
+                "Order": i,
+                "Term": term_row.get("Submission Value", ""),
+                "NCI Term Code": term_row.get("NCI Term Code", ""),
+                "Decoded Value": term_row.get("NCI Preferred Term", ""),
+            })
+
+    return pd.DataFrame(rows)
+
+
+
 def build_default_dictionaries_sheet(meddra_version="", cm_dictionary="WHO ATC/DDD", cm_version=""):
     return pd.DataFrame([
         {
