@@ -2091,7 +2091,14 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                 header_meta[display_id]["Name"] = display_label
             continue
 
-        hdr = ct_df[ct_df["norm_submission"] == normalize_ct_text(base_ct)]
+        norm_base = normalize_ct_text(base_ct)
+
+        # 1) 先用 Submission Value 找
+        hdr = ct_df[ct_df["norm_submission"] == norm_base]
+
+        # 2) fallback：用 Codelist Code 找
+        if hdr.empty:
+            hdr = ct_df[ct_df["Codelist Code"] == base_ct]
 
         if not hdr.empty:
             hdr = hdr.iloc[0]
