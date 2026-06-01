@@ -1928,6 +1928,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if display_id == "Y":
             return "No Yes Response - Y subset"
 
+        if display_id.startswith("RDOMAIN_"):
+            parts = display_id.split("_")
+            if len(parts) >= 2:
+                return f"Related Domain Abbreviation ({parts[1]})
+
 
         parts = display_id.split("_")
 
@@ -2051,12 +2056,17 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         base_ct = base_ct_lookup.get((ds, var), "")
         display_label = cfg_label_lookup.get((ds, var), "") or label_lookup.get(display_id, "")
 
+        # -------------------------------------------------
+        # generic fallback for derived / override IDs
+        # DOMAIN_AE -> DOMAIN
+        # STENRF_AE_START -> STENRF
+        # Y -> Y
+        # -------------------------------------------------
         if not base_ct:
             if "_" in display_id:
                 base_ct = display_id.split("_", 1)[0]
             else:
                 base_ct = display_id
-
 
         header_meta[display_id] = {
             "BaseCT": base_ct,
@@ -2067,38 +2077,64 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
         special_codelist_code_override = None
 
+        # ----------------------------------------
+        # special cases
+        # ----------------------------------------
+
         # 1) ARM / ARMCD：不要用 CT（避免抓到 LOC C32141）
         if display_id in {"ARM", "ARMCD"}:
             special_codelist_code_override = ""
-            base_ct = ""   # 強制不走 CT lookup
+            base_ct = ""
 
-        # 2) RDOMAIN_*：用 DOMAIN 的 code
+        # 2) RDOMAIN_*：共用 DOMAIN 的 codelist code
         if display_id.startswith("RDOMAIN_"):
             base_ct = "DOMAIN"
 
-        # 3) Y：共用 NY 的 Codelist Code
+        # 3) Y：共用 NY 的 codelist code
         if display_id == "Y":
             base_ct = "NY"
 
-        # 4) EVAL：強制對到 C78735（如果 CT 不穩）
+        # 4) EVAL：強制帶入 C78735
         if display_id == "EVAL":
             special_codelist_code_override = "C78735"
 
+        # ARM / ARMCD 的顯示名稱固定
+        if display_id == "ARM":
+            header_meta[display_id]["Name"] = "Description of Arm"
+        elif display_id == "ARMCD":
+            header_meta[display_id]["Name"] = "Arm Code"
 
         if not base_ct:
-            # 沒有 base CT，用 2.3 / cfg label fallback
             if not header_meta[display_id]["Name"]:
                 header_meta[display_id]["Name"] = display_label
             continue
 
         norm_base = normalize_ct_text(base_ct)
 
+        # -------------------------------------------------
         # 1) 先用 Submission Value 找
+        # -------------------------------------------------
         hdr = ct_df[ct_df["norm_submission"] == norm_base]
 
-        # 2) fallback：用 Codelist Code 找
+        # -------------------------------------------------
+        # 2) fallback：如果 base_ct 本身就是 codelist code，直接用 code 找
+        # -------------------------------------------------
         if hdr.empty:
-            hdr = ct_df[ct_df["Codelist Code"] == base_ct]
+            hdr = ct_df[ct_df["Codelist Code"] == safe_upper(base_ct)]
+
+        # -------------------------------------------------
+        # 3) fallback：到 CDISC Synonym(s) 裡找
+        #    這一段是為了 STENRF -> C66728
+        # -------------------------------------------------
+        if hdr.empty and base_ct:
+            syn_mask = ct_df["CDISC Synonym(s)"].fillna("").apply(
+                lambda s: safe_upper(base_ct) in [
+                    t.strip().upper()
+                    for t in re.split(r"[;,/]+", str(s))
+                    if str(t).strip()
+                ]
+            )
+            hdr = ct_df[syn_mask]
 
         if not hdr.empty:
             hdr = hdr.iloc[0]
@@ -2112,8 +2148,8 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if not base_name:
             base_name = display_label
 
+        header_meta[display_id]["BaseCT"] = base_ct
         header_meta[display_id]["BaseName"] = base_name
-
         header_meta[display_id]["NCI Codelist Code"] = (
             special_codelist_code_override
             if special_codelist_code_override is not None
@@ -2122,6 +2158,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
         if display_id not in {"ARM", "ARMCD"}:
             header_meta[display_id]["Name"] = build_display_name(display_id, base_name)
+
 
     # -------------------------------------------------
     # 5) term matching 規則
