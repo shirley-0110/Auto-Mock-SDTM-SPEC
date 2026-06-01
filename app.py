@@ -2105,11 +2105,15 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if display_id.startswith("RDOMAIN_"):
             base_ct = "DOMAIN"
 
-        # 3) Y：共用 NY 的 codelist code
+        # 3) STENRF_*：強制共用 STENRF 的 codelist
+        if display_id.startswith("STENRF_"):
+            base_ct = "STENRF"     
+
+        # 4) Y：共用 NY 的 codelist code
         if display_id == "Y":
             base_ct = "NY"
 
-        # 4) EVAL：強制帶入 C78735
+        # 5) EVAL：強制帶入 C78735
         if display_id == "EVAL":
             special_codelist_code_override = "C78735"
 
