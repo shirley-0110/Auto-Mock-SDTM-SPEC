@@ -1915,6 +1915,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     # -------------------------------------------------
     header_meta = {}
     for cid in distinct_ids:
+        ct_lookup_id = normalize_codelist_id(cid, valid_ct_ids)
         norm_cid = normalize_ct_text(ct_lookup_id)
 
         hdr = ct_df[
