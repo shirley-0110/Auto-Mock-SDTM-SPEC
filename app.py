@@ -480,17 +480,25 @@ def build_ct_mapping_seed(file_bytes, selected_crf_sheets, common_domain_header=
         for _, row in df.iterrows():
             raw_target = row.get(target_col, "")
             source_var = row.get(source_var_col, "") if source_var_col else ""
-            option_display = row.get(option_display_col, "")
 
-            if pd.isna(option_display) or str(option_display).strip() == "":
-                continue
+            option_display = row.get(option_display_col, "")
+            assign_value = ""
 
             parsed_records, _ = parse_sdtm_targets(raw_target)
             if not parsed_records:
                 continue
 
-            # ✅ 拆 option
-            option_values = split_option_displayed_value(option_display)
+            # 先取第一個 parsed record 的 assign value
+            # （因為同一列拆出來的 rec 通常會共用 assign value）
+            if parsed_records:
+                assign_value = parsed_records[0].get("Assign Value", "")
+
+            # ✅ 若 option 空白，但 assign value 有值，也要保留
+            if pd.isna(option_display) or str(option_display).strip() == "":
+                option_values = [""]
+            else:
+                option_values = split_option_displayed_value(option_display)
+
 
             for rec in parsed_records:
                 for opt in option_values:
@@ -1878,7 +1886,60 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         return pd.DataFrame(columns=cols)
 
     # -------------------------------------------------
-    # 1) 準備 Variables（display ID 用）
+    # helper
+    # -------------------------------------------------
+    def safe_upper(x):
+        return str(x).strip().upper() if pd.notna(x) else ""
+
+    def safe_text(x):
+        return str(x).strip() if pd.notna(x) else ""
+
+    def split_assign_terms(x):
+        """
+        Assign Value 若有多值，支援用 ; 或換行切開
+        """
+        if pd.isna(x):
+            return []
+        s = str(x).strip()
+        if not s:
+            return []
+        parts = re.split(r"[;\n]+", s)
+        return [p.strip() for p in parts if str(p).strip()]
+
+    def build_display_name(display_id, base_name):
+        """
+        不寫死 DOMAIN_/UNIT_/FRM_ prefix，
+        只根據 display_id 結構去組名稱
+        """
+        display_id = safe_upper(display_id)
+        base_name = safe_text(base_name)
+
+        if not base_name:
+            return display_id
+
+        # 特例
+        if display_id == "ARM":
+            return "Description of Arm"
+        if display_id == "ARMCD":
+            return "Arm Code"
+
+        parts = display_id.split("_")
+
+        # STENRF_AE_START / STENRF_AE_END
+        if len(parts) >= 3 and parts[-1] in {"START", "END"}:
+            domain = parts[-2]
+            suffix = parts[-1].title()  # Start / End
+            return f"{base_name} ({domain} - {suffix})"
+
+        # DOMAIN_AE / UNIT_EC / FRM_EX / RDOMAIN_CO
+        if len(parts) >= 2:
+            domain = parts[1]
+            return f"{base_name} ({domain})"
+
+        return base_name
+
+    # -------------------------------------------------
+    # 1) variables_df：顯示用 ID
     # -------------------------------------------------
     var_df = variables_df.copy()
 
@@ -1886,10 +1947,10 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if c not in var_df.columns:
             var_df[c] = ""
 
-    var_df["Dataset"] = var_df["Dataset"].astype(str).str.upper().str.strip()
-    var_df["Variable"] = var_df["Variable"].astype(str).str.upper().str.strip()
-    var_df["Codelist"] = var_df["Codelist"].astype(str).str.upper().str.strip()
-    var_df["Label"] = var_df["Label"].astype(str).str.strip()
+    var_df["Dataset"] = var_df["Dataset"].apply(safe_upper)
+    var_df["Variable"] = var_df["Variable"].apply(safe_upper)
+    var_df["Codelist"] = var_df["Codelist"].apply(safe_upper)
+    var_df["Label"] = var_df["Label"].apply(safe_text)
 
     id_df = var_df[
         (var_df["Codelist"] != "") &
@@ -1913,27 +1974,34 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     distinct_ids = sorted(id_df["Codelist"].drop_duplicates().tolist())
 
     # -------------------------------------------------
-    # 2) 準備 config（base CT 用）
+    # 2) cfg_df：base CT code（真正 config-driven）
     # -------------------------------------------------
     cfg_tmp = cfg_df.copy()
 
-    for c in ["Dataset", "Variable", "Codelist"]:
+    for c in ["Dataset", "Variable", "Codelist", "Variable Label"]:
         if c not in cfg_tmp.columns:
             cfg_tmp[c] = ""
 
-    cfg_tmp["Dataset"] = cfg_tmp["Dataset"].astype(str).str.upper().str.strip()
-    cfg_tmp["Variable"] = cfg_tmp["Variable"].astype(str).str.upper().str.strip()
-    cfg_tmp["Codelist"] = cfg_tmp["Codelist"].astype(str).str.upper().str.strip()
+    cfg_tmp["Dataset"] = cfg_tmp["Dataset"].apply(safe_upper)
+    cfg_tmp["Variable"] = cfg_tmp["Variable"].apply(safe_upper)
+    cfg_tmp["Codelist"] = cfg_tmp["Codelist"].apply(safe_upper)
+    cfg_tmp["Variable Label"] = cfg_tmp["Variable Label"].apply(safe_text)
 
     # (Dataset, Variable) -> config 原始 base CT codelist
     base_ct_lookup = {}
+    cfg_label_lookup = {}
+
     for _, r in cfg_tmp.iterrows():
         key = (r["Dataset"], r["Variable"])
+
         if key not in base_ct_lookup and r["Codelist"] != "":
             base_ct_lookup[key] = r["Codelist"]
 
+        if key not in cfg_label_lookup and r["Variable Label"] != "":
+            cfg_label_lookup[key] = r["Variable Label"]
+
     # -------------------------------------------------
-    # 3) 準備 CT master
+    # 3) CT master
     # -------------------------------------------------
     ct_df = ct_master_df.copy()
 
@@ -1948,12 +2016,12 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if c not in ct_df.columns:
             ct_df[c] = ""
 
-    ct_df["Codelist Code"] = ct_df["Codelist Code"].astype(str).str.upper().str.strip()
-    ct_df["Codelist Name"] = ct_df["Codelist Name"].astype(str).str.strip()
-    ct_df["Submission Value"] = ct_df["Submission Value"].astype(str).str.strip()
-    ct_df["NCI Term Code"] = ct_df["NCI Term Code"].astype(str).str.strip()
-    ct_df["NCI Preferred Term"] = ct_df["NCI Preferred Term"].astype(str).str.strip()
-    ct_df["CDISC Synonym(s)"] = ct_df["CDISC Synonym(s)"].astype(str).str.strip()
+    ct_df["Codelist Code"] = ct_df["Codelist Code"].apply(safe_upper)
+    ct_df["Codelist Name"] = ct_df["Codelist Name"].apply(safe_text)
+    ct_df["Submission Value"] = ct_df["Submission Value"].apply(safe_text)
+    ct_df["NCI Term Code"] = ct_df["NCI Term Code"].apply(safe_text)
+    ct_df["NCI Preferred Term"] = ct_df["NCI Preferred Term"].apply(safe_text)
+    ct_df["CDISC Synonym(s)"] = ct_df["CDISC Synonym(s)"].apply(safe_text)
 
     ct_df["norm_submission"] = ct_df["Submission Value"].apply(normalize_ct_text)
     ct_df["norm_pref"] = ct_df["NCI Preferred Term"].apply(normalize_ct_text)
@@ -1961,36 +2029,8 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     terminology_value = f"SDTM {normalize_ct_version_text(sdtm_ct_version)}" if sdtm_ct_version else "SDTM"
 
     # -------------------------------------------------
-    # 4) 建立 header metadata（display ID -> base CT -> CT header）
+    # 4) display ID -> base CT -> header metadata
     # -------------------------------------------------
-    def build_display_name(display_id, base_name):
-        display_id = str(display_id).upper().strip()
-        base_name = str(base_name).strip()
-
-        if not base_name:
-            return display_id
-
-        # 特例
-        if display_id == "ARM":
-            return "Description of Arm"
-        if display_id == "ARMCD":
-            return "Arm Code"
-
-        parts = display_id.split("_")
-
-        # STENRF_AE_START / STENRF_AE_END
-        if len(parts) >= 3 and parts[-1] in {"START", "END"}:
-            domain = parts[-2]
-            suffix = parts[-1].title()   # Start / End
-            return f"{base_name} ({domain} - {suffix})"
-
-        # DOMAIN_AE / UNIT_EC / FRM_EX / RDOMAIN_CO
-        if len(parts) >= 2:
-            domain = parts[1]
-            return f"{base_name} ({domain})"
-
-        return base_name
-
     header_meta = {}
 
     for _, r in id_df.iterrows():
@@ -1999,8 +2039,8 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         var = r["Variable"]
 
         base_ct = base_ct_lookup.get((ds, var), "")
+        display_label = cfg_label_lookup.get((ds, var), "") or label_lookup.get(display_id, "")
 
-        # 預設值
         header_meta[display_id] = {
             "BaseCT": base_ct,
             "BaseName": "",
@@ -2008,16 +2048,16 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             "NCI Codelist Code": ""
         }
 
-        # ARM / ARMCD 特例（即使 CT header 沒有，也要固定名稱）
+        # ARM / ARMCD 特例（不靠 CT header）
         if display_id == "ARM":
             header_meta[display_id]["Name"] = "Description of Arm"
         elif display_id == "ARMCD":
             header_meta[display_id]["Name"] = "Arm Code"
 
         if not base_ct:
-            # 沒有 base CT，用 2.3 Label fallback
+            # 沒有 base CT，用 2.3 / cfg label fallback
             if not header_meta[display_id]["Name"]:
-                header_meta[display_id]["Name"] = label_lookup.get(display_id, "")
+                header_meta[display_id]["Name"] = display_label
             continue
 
         hdr = ct_df[ct_df["norm_submission"] == normalize_ct_text(base_ct)]
@@ -2030,19 +2070,18 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             base_name = ""
             nci_codelist_code = ""
 
-        # CT header 沒找到 -> fallback 到 2.3 Label
+        # CT header 沒找到 -> fallback 到 config / variables label
         if not base_name:
-            base_name = label_lookup.get(display_id, "")
+            base_name = display_label
 
         header_meta[display_id]["BaseName"] = base_name
         header_meta[display_id]["NCI Codelist Code"] = nci_codelist_code
 
-        # 若不是 ARM / ARMCD，就正常組 display name
         if display_id not in {"ARM", "ARMCD"}:
             header_meta[display_id]["Name"] = build_display_name(display_id, base_name)
 
     # -------------------------------------------------
-    # 5) synonym rules（term matching）
+    # 5) term matching 規則
     # -------------------------------------------------
     synonym_map = {
         "DOSE UNCHANGED": "DOSE NOT CHANGED",
@@ -2054,7 +2093,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     seen = set()
 
     # -------------------------------------------------
-    # 6) 用 Step 1 option rows / assign value 去生 term rows
+    # 6) ct_mapping_df -> term rows
     # -------------------------------------------------
     if not ct_mapping_df.empty:
         work = ct_mapping_df.copy()
@@ -2063,11 +2102,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             if c not in work.columns:
                 work[c] = ""
 
-        work["SDTM Domain"] = work["SDTM Domain"].astype(str).str.upper().str.strip()
-        work["SDTM Variable"] = work["SDTM Variable"].astype(str).str.upper().str.strip()
-        work["CT Codelist Code"] = work["CT Codelist Code"].astype(str).str.upper().str.strip()
-        work["Option Displayed Value"] = work["Option Displayed Value"].astype(str).str.strip()
-        work["Assign Value"] = work["Assign Value"].astype(str).str.strip()
+        work["SDTM Domain"] = work["SDTM Domain"].apply(safe_upper)
+        work["SDTM Variable"] = work["SDTM Variable"].apply(safe_upper)
+        work["CT Codelist Code"] = work["CT Codelist Code"].apply(safe_text)
+        work["Option Displayed Value"] = work["Option Displayed Value"].apply(safe_text)
+        work["Assign Value"] = work["Assign Value"].apply(safe_text)
 
         for _, r in work.iterrows():
             ds = r["SDTM Domain"]
@@ -2086,95 +2125,142 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             nci_codelist_code = meta.get("NCI Codelist Code", "")
             base_ct = meta.get("BaseCT", "")
 
-            # TEST / TESTCD / ORRESU：如果 Assign Value 有值，就用 Assign Value 當 term
-            forced_term = ""
+            # -------------------------
+            # 強制 term 規則
+            # -------------------------
+            forced_terms = []
+
+            # TEST / TESTCD / ORRESU -> 用 Assign Value
             if var.endswith("TEST") or var.endswith("TESTCD") or var.endswith("ORRESU"):
-                if assign_val:
-                    forced_term = assign_val
+                forced_terms = split_assign_terms(assign_val)
 
-            # term candidate 優先順序
-            term_candidate = forced_term if forced_term else opt
+            # DOMAIN_XX -> term = XX
+            elif display_id.startswith("DOMAIN_") and "_" in display_id:
+                forced_terms = [display_id.split("_", 1)[1]]
 
-            if not term_candidate:
-                # DOMAIN_XX 特例：若沒有 option，term 用底線後面的 domain
-                if display_id.startswith("DOMAIN_") and "_" in display_id:
-                    term_candidate = display_id.split("_", 1)[1]
-                else:
-                    continue
+            # ND -> NOT DONE
+            elif display_id == "ND":
+                forced_terms = ["NOT DONE"]
+
+            # NY -> 只保留 N / Y
+            elif display_id == "NY":
+                forced_terms = ["N", "Y"]
+
+            # 其他 -> 用 option
+            else:
+                if opt:
+                    forced_terms = [opt]
+
+            if not forced_terms:
+                continue
 
             # -------------------------------------------------
-            # A) 沒有 NCI Codelist Code：直接把 option / assign value 當 term
+            # A) 沒有 NCI Codelist Code：term 直接保留
             # -------------------------------------------------
             if not nci_codelist_code:
-                dedup_key = (display_id, term_candidate)
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
+                for term_candidate in forced_terms:
+                    dedup_key = (display_id, term_candidate)
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
 
-                rows.append({
-                    "ID": display_id,
-                    "Name": meta.get("Name", ""),
-                    "NCI Codelist Code": "",
-                    "Data Type": "text",
-                    "Terminology": terminology_value,
-                    "Comment": "",
-                    "Order": None,
-                    "Term": term_candidate,
-                    "NCI Term Code": "",
-                    "Decoded Value": ""
-                })
+                    rows.append({
+                        "ID": display_id,
+                        "Name": meta.get("Name", ""),
+                        "NCI Codelist Code": "",
+                        "Data Type": "text",
+                        "Terminology": terminology_value,
+                        "Comment": "",
+                        "Order": None,
+                        "Term": term_candidate,
+                        "NCI Term Code": "",
+                        "Decoded Value": ""
+                    })
                 continue
 
             # -------------------------------------------------
-            # B) 有 NCI Codelist Code：去 CT master 找 term / NCI Term Code
+            # B) 有 NCI Codelist Code：去 CT term rows 找對應
             # -------------------------------------------------
-            ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code].copy()
+            ct_sub = ct_df[ct_df["Codelist Code"] == safe_upper(nci_codelist_code)].copy()
+
             if ct_sub.empty:
+                # 有 main codelist code，但沒抓到 term rows -> 至少保留 term
+                for term_candidate in forced_terms:
+                    dedup_key = (display_id, term_candidate)
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+
+                    rows.append({
+                        "ID": display_id,
+                        "Name": meta.get("Name", ""),
+                        "NCI Codelist Code": nci_codelist_code,
+                        "Data Type": "text",
+                        "Terminology": terminology_value,
+                        "Comment": "",
+                        "Order": None,
+                        "Term": term_candidate,
+                        "NCI Term Code": "",
+                        "Decoded Value": ""
+                    })
                 continue
 
-            norm_val = normalize_ct_text(term_candidate)
+            for term_candidate in forced_terms:
+                norm_val = normalize_ct_text(term_candidate)
 
-            # 1) exact on Submission / Preferred
-            hit = ct_sub[
-                (ct_sub["norm_submission"] == norm_val) |
-                (ct_sub["norm_pref"] == norm_val)
-            ]
-
-            # 2) synonym rule
-            if hit.empty and norm_val in synonym_map:
-                target = normalize_ct_text(synonym_map[norm_val])
+                # 1) exact on Submission / Preferred
                 hit = ct_sub[
-                    (ct_sub["norm_submission"] == target) |
-                    (ct_sub["norm_pref"] == target)
+                    (ct_sub["norm_submission"] == norm_val) |
+                    (ct_sub["norm_pref"] == norm_val)
                 ]
 
-            # 3) fuzzy on Submission / Preferred
-            if hit.empty:
-                candidate_terms = list(
-                    dict.fromkeys(
-                        ct_sub["norm_submission"].tolist() + ct_sub["norm_pref"].tolist()
-                    )
-                )
-                matches = get_close_matches(norm_val, candidate_terms, n=1, cutoff=0.6)
-                if matches:
-                    m = matches[0]
+                # 2) synonym
+                if hit.empty and norm_val in synonym_map:
+                    target = normalize_ct_text(synonym_map[norm_val])
                     hit = ct_sub[
-                        (ct_sub["norm_submission"] == m) |
-                        (ct_sub["norm_pref"] == m)
+                        (ct_sub["norm_submission"] == target) |
+                        (ct_sub["norm_pref"] == target)
                     ]
 
-            # DOMAIN_XX 特例：如果還是沒找到，直接用底線後的值再找一次
-            if hit.empty and display_id.startswith("DOMAIN_") and "_" in display_id:
-                domain_val = display_id.split("_", 1)[1]
-                norm_domain_val = normalize_ct_text(domain_val)
-                hit = ct_sub[
-                    (ct_sub["norm_submission"] == norm_domain_val) |
-                    (ct_sub["norm_pref"] == norm_domain_val)
-                ]
+                # 3) fuzzy
+                if hit.empty:
+                    candidate_terms = list(
+                        dict.fromkeys(
+                            ct_sub["norm_submission"].tolist() + ct_sub["norm_pref"].tolist()
+                        )
+                    )
+                    matches = get_close_matches(norm_val, candidate_terms, n=1, cutoff=0.6)
+                    if matches:
+                        m = matches[0]
+                        hit = ct_sub[
+                            (ct_sub["norm_submission"] == m) |
+                            (ct_sub["norm_pref"] == m)
+                        ]
 
-            if hit.empty:
-                # 找不到 term row，就至少保留 term
-                dedup_key = (display_id, term_candidate)
+                if hit.empty:
+                    # 沒 match 到 term row，至少保留原 term
+                    dedup_key = (display_id, term_candidate)
+                    if dedup_key in seen:
+                        continue
+                    seen.add(dedup_key)
+
+                    rows.append({
+                        "ID": display_id,
+                        "Name": meta.get("Name", ""),
+                        "NCI Codelist Code": nci_codelist_code,
+                        "Data Type": "text",
+                        "Terminology": terminology_value,
+                        "Comment": "",
+                        "Order": None,
+                        "Term": term_candidate,
+                        "NCI Term Code": "",
+                        "Decoded Value": ""
+                    })
+                    continue
+
+                hit = hit.iloc[0]
+
+                dedup_key = (display_id, hit["Submission Value"])
                 if dedup_key in seen:
                     continue
                 seen.add(dedup_key)
@@ -2187,44 +2273,21 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                     "Terminology": terminology_value,
                     "Comment": "",
                     "Order": None,
-                    "Term": term_candidate,
-                    "NCI Term Code": "",
-                    "Decoded Value": ""
+                    "Term": hit.get("Submission Value", ""),
+                    "NCI Term Code": hit.get("NCI Term Code", ""),
+                    "Decoded Value": hit.get("NCI Preferred Term", "")
                 })
-                continue
-
-            hit = hit.iloc[0]
-
-            dedup_key = (display_id, hit["Submission Value"])
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
-
-            rows.append({
-                "ID": display_id,
-                "Name": meta.get("Name", ""),
-                "NCI Codelist Code": nci_codelist_code,
-                "Data Type": "text",
-                "Terminology": terminology_value,
-                "Comment": "",
-                "Order": None,
-                "Term": hit.get("Submission Value", ""),
-                "NCI Term Code": hit.get("NCI Term Code", ""),
-                "Decoded Value": hit.get("NCI Preferred Term", "")
-            })
 
     # -------------------------------------------------
-    # 7) 先把目前 rows 轉成 DataFrame（保證欄位存在）
+    # 7) 先轉 DataFrame，保證欄位存在
     # -------------------------------------------------
     out = pd.DataFrame(rows, columns=cols)
 
-    # -------------------------------------------------
-    # 8) 補上沒有 term row 的 header-only IDs
-    # -------------------------------------------------
     existing_ids = set()
     if not out.empty and "ID" in out.columns:
         existing_ids = set(out["ID"].astype(str).str.upper().tolist())
 
+    # 沒有 term row 的 ID 也補 header-only
     missing_rows = []
     for cid in distinct_ids:
         if cid in existing_ids:
@@ -2247,16 +2310,13 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     if missing_rows:
         out = pd.concat([out, pd.DataFrame(missing_rows, columns=cols)], ignore_index=True)
 
-    # 如果到這裡還是空，至少回一張空但欄位完整的表
     if out.empty:
         return pd.DataFrame(columns=cols)
 
     # -------------------------------------------------
-    # 9) 每個 ID 內重新編 Order（只對有 Term 的列編號）
+    # 8) 排序與流水號
     # -------------------------------------------------
     out = out.copy()
-
-    # 保證欄位都存在
     for c in cols:
         if c not in out.columns:
             out[c] = ""
@@ -2285,6 +2345,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     out["Order"] = order_values
 
     return out[cols]
+
 
 
 
