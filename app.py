@@ -2041,6 +2041,13 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         base_ct = base_ct_lookup.get((ds, var), "")
         display_label = cfg_label_lookup.get((ds, var), "") or label_lookup.get(display_id, "")
 
+        if not base_ct:
+            if "_" in display_id:
+                base_ct = display_id.split("_", 1)[0]
+            else:
+                base_ct = display_id
+
+
         header_meta[display_id] = {
             "BaseCT": base_ct,
             "BaseName": "",
