@@ -2234,7 +2234,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             })
         return pd.DataFrame(fallback_rows, columns=cols)
 
-    out = pd.DataFrame(rows)
+    out = pd.DataFrame(rows, columns=cols)
 
     # -------------------------------------------------
     # 8) 補上沒有 term row 的 header-only IDs
