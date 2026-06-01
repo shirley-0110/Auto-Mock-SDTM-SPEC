@@ -13,7 +13,7 @@ from urllib.parse import urljoin
 from difflib import get_close_matches
 
 # Step 2 用到 sas7bdat
-try:
+tryf
     import pyreadstat
     HAS_PYREADSTAT = True
 except Exception:
@@ -2214,68 +2214,78 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             })
 
     # -------------------------------------------------
-    # 7) 沒有任何 term row時，至少回 header rows
+    # 7) 先把目前 rows 轉成 DataFrame（保證欄位存在）
     # -------------------------------------------------
-    if not rows:
-        fallback_rows = []
-        for cid in distinct_ids:
-            meta = header_meta.get(cid, {})
-            fallback_rows.append({
-                "ID": cid,
-                "Name": meta.get("Name", ""),
-                "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
-                "Data Type": "text",
-                "Terminology": terminology_value,
-                "Comment": "",
-                "Order": "",
-                "Term": "",
-                "NCI Term Code": "",
-                "Decoded Value": ""
-            })
-        return pd.DataFrame(fallback_rows, columns=cols)
-
     out = pd.DataFrame(rows, columns=cols)
 
     # -------------------------------------------------
     # 8) 補上沒有 term row 的 header-only IDs
     # -------------------------------------------------
-    existing_ids = set(out["ID"].astype(str).str.upper().tolist()) if not out.empty else set()
+    existing_ids = set()
+    if not out.empty and "ID" in out.columns:
+        existing_ids = set(out["ID"].astype(str).str.upper().tolist())
 
+    missing_rows = []
     for cid in distinct_ids:
         if cid in existing_ids:
             continue
 
         meta = header_meta.get(cid, {})
-        out = pd.concat([
-            out,
-            pd.DataFrame([{
-                "ID": cid,
-                "Name": meta.get("Name", ""),
-                "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
-                "Data Type": "text",
-                "Terminology": terminology_value,
-                "Comment": "",
-                "Order": "",
-                "Term": "",
-                "NCI Term Code": "",
-                "Decoded Value": ""
-            }])
-        ], ignore_index=True)
+        missing_rows.append({
+            "ID": cid,
+            "Name": meta.get("Name", ""),
+            "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
+            "Data Type": "text",
+            "Terminology": terminology_value,
+            "Comment": "",
+            "Order": "",
+            "Term": "",
+            "NCI Term Code": "",
+            "Decoded Value": ""
+        })
+
+    if missing_rows:
+        out = pd.concat([out, pd.DataFrame(missing_rows, columns=cols)], ignore_index=True)
+
+    # 如果到這裡還是空，至少回一張空但欄位完整的表
+    if out.empty:
+        return pd.DataFrame(columns=cols)
 
     # -------------------------------------------------
-    # 9) 每個 ID 內重新編 Order
+    # 9) 每個 ID 內重新編 Order（只對有 Term 的列編號）
     # -------------------------------------------------
+    out = out.copy()
+
+    # 保證欄位都存在
+    for c in cols:
+        if c not in out.columns:
+            out[c] = ""
+
+    out = out[cols]
     out = out.sort_values(by=["ID", "Term"], na_position="last").reset_index(drop=True)
 
-    def assign_order(grp):
-        grp = grp.copy()
-        non_blank = grp["Term"].astype(str).str.strip() != ""
-        grp.loc[non_blank, "Order"] = range(1, non_blank.sum() + 1)
-        return grp
+    order_values = []
+    current_id = None
+    seq = 0
 
-    out = out.groupby("ID", group_keys=False).apply(assign_order)
+    for _, row in out.iterrows():
+        row_id = str(row["ID"]).strip()
+        row_term = str(row["Term"]).strip()
+
+        if row_id != current_id:
+            current_id = row_id
+            seq = 0
+
+        if row_term != "":
+            seq += 1
+            order_values.append(seq)
+        else:
+            order_values.append("")
+
+    out["Order"] = order_values
 
     return out[cols]
+
 
 
 
@@ -2762,7 +2772,7 @@ def prefill_ct_mapping_df(ct_mapping_df, ct_master_df):
     statuses = []
 
     for _, r in out.iterrows():
-        code = str(r.get("CT Codelist Code", "")).strip().upper()
+        code = extract_ct_code(r.get("CT Codelist Code", ""))
         val = str(r.get("Option Displayed Value", "")).strip()
         norm_val = normalize_ct_text(val)
 
@@ -3178,10 +3188,7 @@ if uploaded_file is not None:
 
                     try:
                         ct_master_df, ct_master_meta = load_ct_master_from_web(sdtm_ct)
-                        
-                        #st.write("CT columns:", ct_master_df.columns.tolist())
-                        #st.write("Duplicate columns:", ct_master_df.columns[ct_master_df.columns.duplicated()])
-                        
+                                                
                         st.caption(
                             f"CT master loaded from web ({ct_master_meta.get('source_type')}) | "
                             f"{ct_master_meta.get('download_url')}"
