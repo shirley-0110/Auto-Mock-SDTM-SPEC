@@ -1821,7 +1821,10 @@ def build_codelists_sheet_from_variables(variables_df):
         .astype(str)
         .str.strip()
     )
-    ids = ids[ (ids != "") & (ids.str.upper() != "AEDICT_F")]
+    ids = ids[
+        (ids != "") &
+        (~ids.str.upper().isin(["AEDICT_F", "ISO3166"]))
+    ]
     ids = sorted(ids.drop_duplicates().tolist())
 
     return pd.DataFrame({
@@ -1922,6 +1925,9 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             return "Description of Arm"
         if display_id == "ARMCD":
             return "Arm Code"
+        if display_id == "Y":
+            return "No Yes Response - Y subset"
+
 
         parts = display_id.split("_")
 
@@ -1929,7 +1935,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if len(parts) >= 3 and parts[-1] in {"START", "END"}:
             domain = parts[-2]
             suffix = parts[-1].title()  # Start / End
-            return f"{base_name} ({domain} - {suffix})"
+
+            clean_base = re.sub(r"^(START|END)\s+", "", base_name, flags=re.IGNORECASE)
+            
+            return f"{clean_base} ({domain} - {suffix})"
+
 
         # DOMAIN_AE / UNIT_EC / FRM_EX / RDOMAIN_CO
         if len(parts) >= 2:
@@ -2055,11 +2065,24 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             "NCI Codelist Code": ""
         }
 
-        # ARM / ARMCD 特例（不靠 CT header）
-        if display_id == "ARM":
-            header_meta[display_id]["Name"] = "Description of Arm"
-        elif display_id == "ARMCD":
-            header_meta[display_id]["Name"] = "Arm Code"
+
+        # 1) ARM / ARMCD：不要用 CT（避免抓到 LOC C32141）
+        if display_id in {"ARM", "ARMCD"}:
+            header_meta[display_id]["NCI Codelist Code"] = ""
+            base_ct = ""   # 強制不走 CT lookup
+
+        # 2) RDOMAIN_*：用 DOMAIN 的 code
+        if display_id.startswith("RDOMAIN_"):
+            base_ct = "DOMAIN"
+
+        # 3) Y：共用 NY 的 Codelist Code
+        if display_id == "Y":
+            base_ct = "NY"
+
+        # 4) EVAL：強制對到 C78735（如果 CT 不穩）
+        if display_id == "EVAL":
+            header_meta[display_id]["NCI Codelist Code"] = "C78735"
+
 
         if not base_ct:
             # 沒有 base CT，用 2.3 / cfg label fallback
@@ -2152,6 +2175,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             # NY -> 只保留 N / Y
             elif display_id == "NY":
                 forced_terms = ["N", "Y"]
+                    
+            # Y → 只保留 Y
+            elif display_id == "Y":
+                forced_terms = ["Y"]
+
 
             # 其他 -> 用 option
             else:
