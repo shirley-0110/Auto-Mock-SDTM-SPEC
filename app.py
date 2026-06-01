@@ -2115,28 +2115,34 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     # -------------------------------------------------
     # 7) 如果沒有任何 term match，至少回傳 header rows
     # -------------------------------------------------
-    if not rows:
-        fallback_rows = []
-        for cid in distinct_ids:
-            meta = header_meta.get(cid, {})
-            derived_name = derive_codelist_name(
-                display_id=cid,
-                base_name=meta.get("Name", "")
-            )
+    # 建立已出現 ID（有 term 的）
+    existing_ids = set([r["ID"] for r in rows])
 
-            fallback_rows.append({
-                "ID": cid,
-                "Name": derived_name,
-                "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
-                "Data Type": "text",
-                "Terminology": terminology_value,
-                "Comment": "",
-                "Order": "",
-                "Term": "",
-                "NCI Term Code": "",
-                "Decoded Value": ""
-            })
-        return pd.DataFrame(fallback_rows, columns=cols)
+    # 補沒有 term 的 header rows
+    for cid in distinct_ids:
+        if cid in existing_ids:
+            continue
+
+        meta = header_meta.get(cid, {})
+    
+        derived_name = derive_codelist_name(
+            display_id=cid,
+            base_name=meta.get("Name", "")
+        )
+
+        rows.append({
+            "ID": cid,
+            "Name": derived_name,
+            "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
+            "Data Type": "text",
+            "Terminology": terminology_value,
+            "Comment": "",
+            "Order": "",
+            "Term": "",
+            "NCI Term Code": "",
+            "Decoded Value": ""
+        })
+
 
     out = pd.DataFrame(rows)
 
@@ -3050,8 +3056,8 @@ if uploaded_file is not None:
                     try:
                         ct_master_df, ct_master_meta = load_ct_master_from_web(sdtm_ct)
                         
-                        st.write("CT columns:", ct_master_df.columns.tolist())
-                        st.write("Duplicate columns:", ct_master_df.columns[ct_master_df.columns.duplicated()])
+                        #st.write("CT columns:", ct_master_df.columns.tolist())
+                        #st.write("Duplicate columns:", ct_master_df.columns[ct_master_df.columns.duplicated()])
                         
                         st.caption(
                             f"CT master loaded from web ({ct_master_meta.get('source_type')}) | "
@@ -3070,14 +3076,7 @@ if uploaded_file is not None:
                         ct_mapping_df = prefill_ct_mapping_df(ct_mapping_df, ct_master_df)
                         st.session_state["ct_mapping_df"] = ct_mapping_df
 
-
-                    st.write(
-                        "CT mapping sample:",
-                        st.session_state.get("ct_mapping_df", pd.DataFrame())[
-                            ["SDTM Domain", "SDTM Variable", "CT Codelist Code", "Option Displayed Value"]
-                        ].head(20)
-                    )
-                  
+                 
                     st.markdown("### CT Term Mapping Review")
 
                     ct_mapping_df = st.session_state.get("ct_mapping_df", pd.DataFrame())
