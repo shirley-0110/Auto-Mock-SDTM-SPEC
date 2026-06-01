@@ -1826,59 +1826,156 @@ def build_codelists_sheet_from_variables(variables_df):
 
 
 
-def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df):
+def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df):
+    """
+    直接用 Step 1 的 Option Displayed Value + CT master 生成 2.4 Codelists
+    """
+
+    cols = [
+        "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
+        "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
+    ]
+
+    if ct_mapping_df.empty or ct_master_df.empty or variables_df.empty:
+        return pd.DataFrame(columns=cols)
+
+    # -------------------------------------------------
+    # 1) 建立 (Dataset, Variable) -> Codelist lookup
+    # -------------------------------------------------
+    var_df = variables_df.copy()
+
+    for c in ["Dataset", "Variable", "Codelist"]:
+        if c not in var_df.columns:
+            var_df[c] = ""
+
+    var_df["Dataset"] = var_df["Dataset"].astype(str).str.upper().str.strip()
+    var_df["Variable"] = var_df["Variable"].astype(str).str.upper().str.strip()
+    var_df["Codelist"] = var_df["Codelist"].astype(str).str.strip()
+
+    codelist_lookup = {}
+    for _, r in var_df.iterrows():
+        key = (r["Dataset"], r["Variable"])
+        if key not in codelist_lookup and r["Codelist"] != "":
+            codelist_lookup[key] = r["Codelist"]
+
+    # -------------------------------------------------
+    # 2) 準備 CT master
+    # -------------------------------------------------
+    ct_df = ct_master_df.copy()
+
+    for c in ["Codelist Code", "Codelist Name", "Submission Value", "NCI Term Code", "NCI Preferred Term"]:
+        if c not in ct_df.columns:
+            ct_df[c] = ""
+
+    ct_df["Codelist Code"] = ct_df["Codelist Code"].astype(str).str.upper().str.strip()
+    ct_df["Submission Value"] = ct_df["Submission Value"].astype(str).str.strip()
+    ct_df["NCI Term Code"] = ct_df["NCI Term Code"].astype(str).str.strip()
+    ct_df["Codelist Name"] = ct_df["Codelist Name"].astype(str).str.strip()
+    ct_df["NCI Preferred Term"] = ct_df["NCI Preferred Term"].astype(str).str.strip()
+
+    ct_df["norm_term"] = ct_df["Submission Value"].apply(normalize_ct_text)
+
+    # -------------------------------------------------
+    # 3) synonym rules（最小可行版，可再擴充）
+    # -------------------------------------------------
+    synonym_map = {
+        "DOSE UNCHANGED": "DOSE NOT CHANGED",
+        "DOSE INTERRUPTED": "DRUG INTERRUPTED",
+        "DOSE DISCONTINUED": "DRUG WITHDRAWN",
+    }
 
     rows = []
+    seen = set()
 
-    if ct_mapping_df.empty or ct_master_df.empty:
-        return pd.DataFrame()
+    # -------------------------------------------------
+    # 4) 逐列用 Option Displayed Value 做 match
+    # -------------------------------------------------
+    work = ct_mapping_df.copy()
 
-    # 只取有 mapping 成功的
-    sub_map = ct_mapping_df[
-        ct_mapping_df["Suggested CT Term"].astype(str).str.strip() != ""
-    ].copy()
+    for c in ["SDTM Domain", "SDTM Variable", "CT Codelist Code", "Option Displayed Value"]:
+        if c not in work.columns:
+            work[c] = ""
 
-    for (code, var), g in sub_map.groupby(["CT Codelist Code", "SDTM Variable"]):
+    work["SDTM Domain"] = work["SDTM Domain"].astype(str).str.upper().str.strip()
+    work["SDTM Variable"] = work["SDTM Variable"].astype(str).str.upper().str.strip()
+    work["CT Codelist Code"] = work["CT Codelist Code"].astype(str).str.upper().str.strip()
+    work["Option Displayed Value"] = work["Option Displayed Value"].astype(str).str.strip()
 
-        if not code:
+    for _, r in work.iterrows():
+        ds = r["SDTM Domain"]
+        var = r["SDTM Variable"]
+        code = r["CT Codelist Code"]
+        opt = r["Option Displayed Value"]
+
+        if not ds or not var or not code or not opt:
             continue
 
-        ct_sub = ct_master_df[
-            ct_master_df["Codelist Code"].astype(str).str.upper() == str(code).upper()
-        ].copy()
+        # 真正要輸出的 ID：以 Variables sheet 的 Codelist 為準
+        codelist_id = codelist_lookup.get((ds, var), "")
+        if codelist_id == "":
+            continue
 
+        ct_sub = ct_df[ct_df["Codelist Code"] == code].copy()
         if ct_sub.empty:
             continue
 
-        codelist_name = ct_sub.iloc[0].get("Codelist Name", "")
+        norm_val = normalize_ct_text(opt)
 
-        for i, (_, r) in enumerate(g.iterrows(), start=1):
+        # 1) exact
+        hit = ct_sub[ct_sub["norm_term"] == norm_val]
 
-            term = r["Suggested CT Term"]
+        # 2) synonym
+        if hit.empty and norm_val in synonym_map:
+            target = normalize_ct_text(synonym_map[norm_val])
+            hit = ct_sub[ct_sub["norm_term"] == target]
 
-            term_row = ct_sub[
-                ct_sub["Submission Value"].astype(str).str.upper() == term.upper()
-            ]
+        # 3) fuzzy
+        if hit.empty:
+            matches = get_close_matches(
+                norm_val,
+                ct_sub["norm_term"].tolist(),
+                n=1,
+                cutoff=0.6
+            )
+            if matches:
+                hit = ct_sub[ct_sub["norm_term"] == matches[0]]
 
-            if term_row.empty:
-                continue
+        if hit.empty:
+            continue
 
-            term_row = term_row.iloc[0]
+        hit = hit.iloc[0]
 
-            rows.append({
-                "ID": var[-3:],  # 例如 AEACN → ACN（先簡單）
-                "Name": codelist_name,
-                "NCI Codelist Code": code,
-                "Data Type": "text",
-                "Terminology": "CDISC SDTM CT",
-                "Comment": "",
-                "Order": i,
-                "Term": term_row.get("Submission Value", ""),
-                "NCI Term Code": term_row.get("NCI Term Code", ""),
-                "Decoded Value": term_row.get("NCI Preferred Term", ""),
-            })
+        dedup_key = (codelist_id, hit["Submission Value"])
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
 
-    return pd.DataFrame(rows)
+        rows.append({
+            "ID": codelist_id,
+            "Name": hit.get("Codelist Name", ""),
+            "NCI Codelist Code": code,
+            "Data Type": "text",
+            "Terminology": "CDISC SDTM CT",
+            "Comment": "",
+            "Order": None,  # 先佔位，下面再重編
+            "Term": hit.get("Submission Value", ""),
+            "NCI Term Code": hit.get("NCI Term Code", ""),
+            "Decoded Value": hit.get("NCI Preferred Term", "")
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=cols)
+
+    out = pd.DataFrame(rows)
+
+    # -------------------------------------------------
+    # 5) 每個 ID 重編 Order
+    # -------------------------------------------------
+    out = out.sort_values(by=["ID", "Term"]).reset_index(drop=True)
+    out["Order"] = out.groupby("ID").cumcount() + 1
+
+    return out[cols]
+
 
 
 
@@ -2802,8 +2899,9 @@ if uploaded_file is not None:
                     st.markdown("### 2.4 Codelists")
 
                     codelists_df = build_codelists_from_ct_mapping(
-                        st.session_state["ct_mapping_df"],
-                        st.session_state["ct_master_df"]
+                        st.session_state.get("ct_mapping_df", pd.DataFrame()),
+                        st.session_state.get("ct_master_df", pd.DataFrame()),
+                        variables_spec_df
                     )
                     
                     st.dataframe(codelists_df, use_container_width=True)
