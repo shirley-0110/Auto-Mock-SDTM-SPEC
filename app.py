@@ -2126,6 +2126,10 @@ def derive_codelist_name(display_id, ct_lookup_id, header_meta):
         # ✅ 從 CT master 取 base name（例如 STENRF → Relative to Reference Time Point）
         base_name = header_meta.get(ct_lookup_id, {}).get("Name", "")
 
+        if not base_name:
+            base_name = ct_lookup_id  # fallback
+
+
         # -------------------------
         # suffix START / END
         # -------------------------
