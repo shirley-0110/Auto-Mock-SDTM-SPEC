@@ -2047,10 +2047,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     # -------------------------------------------------
     # CT header index: Submission Value -> header metadata
     # -------------------------------------------------
-    ct_header_index = (
+    ct_header_lookup = (
         ct_df[
-            ct_df["Submission Value"].astype(str).str.strip() != ""
-        ][["norm_submission", "Codelist Name", "NCI Term Code", "Codelist Code"]]
+            (ct_df["Codelist Name"].astype(str).str.strip() != "") &
+            (ct_df["Submission Value"].astype(str).str.strip() != "")
+        ][["norm_submission", "Codelist Name", "NCI Term Code"]]
         .drop_duplicates(subset=["norm_submission"], keep="first")
         .set_index("norm_submission")
         .to_dict("index")
@@ -2125,23 +2126,23 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
         norm_base = normalize_ct_text(base_ct)
 
-        hdr_meta = ct_header_index.get(norm_base)
+        # -------------------------------------------------
+        # 1) 優先用 CT header lookup（最穩）
+        # -------------------------------------------------
+        hdr_meta = ct_header_lookup.get(norm_base)
 
-        # 1) 先直接用 Submission Value index 找
         if hdr_meta:
             base_name = str(hdr_meta.get("Codelist Name", "")).strip()
-
-            # 你的 CT txt 裡 "Code" 被 rename 到 NCI Term Code
-            # 所以這裡優先拿 NCI Term Code；若空再 fallback Codelist Code
-            nci_codelist_code = (
-                str(hdr_meta.get("NCI Term Code", "")).strip()
-                or str(hdr_meta.get("Codelist Code", "")).strip()
-            )
+            nci_codelist_code = str(hdr_meta.get("NCI Term Code", "")).strip()
         else:
+            # -------------------------------------------------
             # 2) fallback：如果 base_ct 本身就是 codelist code，直接用 code 找
+            # -------------------------------------------------
             hdr = ct_df[ct_df["Codelist Code"] == safe_upper(base_ct)]
 
+            # -------------------------------------------------
             # 3) fallback：到 CDISC Synonym(s) 裡找
+            # -------------------------------------------------
             if hdr.empty and base_ct:
                 syn_mask = ct_df["CDISC Synonym(s)"].fillna("").apply(
                     lambda s: safe_upper(base_ct) in [
@@ -2154,14 +2155,12 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
             if not hdr.empty:
                 hdr = hdr.iloc[0]
-                base_name = hdr.get("Codelist Name", "")
-                nci_codelist_code = (
-                    str(hdr.get("NCI Term Code", "")).strip()
-                    or str(hdr.get("Codelist Code", "")).strip()
-                )
+                base_name = str(hdr.get("Codelist Name", "")).strip()
+                nci_codelist_code = str(hdr.get("NCI Term Code", "")).strip()
             else:
                 base_name = ""
                 nci_codelist_code = ""
+
 
 
         # CT header 沒找到 -> fallback 到 config / variables label
