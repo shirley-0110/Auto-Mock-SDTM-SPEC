@@ -2712,12 +2712,6 @@ if uploaded_file is not None:
                         st.session_state["ct_mapping_df"] = ct_mapping_df
 
 
-                    # 2.4 Codelists
-                    st.markdown("### 2.4 Codelists")
-                    codelists_df = build_codelists_sheet_from_variables(variables_spec_df)
-                    st.dataframe(codelists_df, use_container_width=True)
-
-                    
                     # =========================================
                     # CT master from web + CT mapping enrichment
                     # =========================================
@@ -2746,8 +2740,17 @@ if uploaded_file is not None:
                     if not ct_mapping_df.empty and not ct_master_df.empty:
                         ct_mapping_df = prefill_ct_mapping_df(ct_mapping_df, ct_master_df)
                         st.session_state["ct_mapping_df"] = ct_mapping_df
+                    
+                    # 2.4 Codelists
+                    st.markdown("### 2.4 Codelists")
 
-
+                    codelists_df = build_codelists_from_ct_mapping(
+                        st.session_state["ct_mapping_df"],
+                        st.session_state["ct_master_df"]
+                    )
+                    
+                    st.dataframe(codelists_df, use_container_width=True)
+                    
                     # 2.5 Dictionaries
                     st.markdown("### 2.5 Dictionaries")
                     dictionaries_df = st.data_editor(
