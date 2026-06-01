@@ -2139,7 +2139,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if not hdr.empty:
             hdr = hdr.iloc[0]
             base_name = hdr.get("Codelist Name", "")
-            nci_codelist_code = hdr.get("NCI Term Code", "").strip()
+            nci_codelist_code = hdr.get("Codelist Code", "").strip()
         else:
             base_name = ""
             nci_codelist_code = ""
