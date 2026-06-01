@@ -1830,7 +1830,44 @@ def build_codelists_sheet_from_variables(variables_df):
 
 
 
-def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, sdtm_ct_version=""):    
+def extract_ct_code(x):
+    if pd.isna(x):
+        return ""
+    s = str(x).strip().upper()
+    m = re.search(r"(C\d+)", s)
+    return m.group(1) if m else s
+
+
+def derive_codelist_name(display_id, base_name):
+    """
+    不 hardcode DOMAIN_/UNIT_/FRM_，只根據 display_id 結構組名稱
+    """
+    display_id = str(display_id).upper().strip()
+    base_name = str(base_name).strip()
+
+    if not base_name:
+        return display_id
+
+    parts = display_id.split("_")
+
+    # STENRF_AE_START / STENRF_AE_END
+    if len(parts) >= 3 and parts[-1] in {"START", "END"}:
+        domain = parts[-2]
+        suffix = parts[-1].title()  # Start / End
+        return f"{base_name} ({domain} - {suffix})"
+
+    # DOMAIN_AE / UNIT_EC / FRM_EX / RDOMAIN_CO
+    if len(parts) >= 2:
+        domain = parts[1]
+        return f"{base_name} ({domain})"
+
+    return base_name
+
+
+
+
+
+def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, cfg_df, sdtm_ct_version=""):
     cols = [
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
@@ -1840,40 +1877,65 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
         return pd.DataFrame(columns=cols)
 
     # -------------------------------------------------
-    # 1) 先從 2.3 Variables 抓所有 Codelist IDs
+    # 1) 準備 Variables（display ID 用）
     # -------------------------------------------------
     var_df = variables_df.copy()
 
-    for c in ["Dataset", "Variable", "Codelist"]:
+    for c in ["Dataset", "Variable", "Codelist", "Label"]:
         if c not in var_df.columns:
             var_df[c] = ""
 
     var_df["Dataset"] = var_df["Dataset"].astype(str).str.upper().str.strip()
     var_df["Variable"] = var_df["Variable"].astype(str).str.upper().str.strip()
-    var_df["Codelist"] = var_df["Codelist"].astype(str).str.strip()
+    var_df["Codelist"] = var_df["Codelist"].astype(str).str.upper().str.strip()
+    var_df["Label"] = var_df["Label"].astype(str).str.strip()
 
     id_df = var_df[
         (var_df["Codelist"] != "") &
-        (var_df["Codelist"].str.upper() != "AEDICT_F")
-    ][["Dataset", "Variable", "Codelist"]].drop_duplicates()
+        (var_df["Codelist"] != "AEDICT_F")
+    ][["Dataset", "Variable", "Codelist", "Label"]].drop_duplicates()
 
-    # (Dataset, Variable) -> Codelist ID
+    # (Dataset, Variable) -> display ID
     codelist_lookup = {
         (r["Dataset"], r["Variable"]): r["Codelist"]
         for _, r in id_df.iterrows()
     }
 
+    # display ID -> fallback label（2.3 Variables）
+    label_lookup = {}
+    for _, r in id_df.iterrows():
+        cid = r["Codelist"]
+        lbl = r["Label"]
+        if cid and cid not in label_lookup and lbl:
+            label_lookup[cid] = lbl
+
     distinct_ids = sorted(id_df["Codelist"].drop_duplicates().tolist())
 
     # -------------------------------------------------
-    # 2) 準備 CT master
+    # 2) 準備 config（base CT 用）
+    # -------------------------------------------------
+    cfg_tmp = cfg_df.copy()
+
+    for c in ["Dataset", "Variable", "Codelist"]:
+        if c not in cfg_tmp.columns:
+            cfg_tmp[c] = ""
+
+    cfg_tmp["Dataset"] = cfg_tmp["Dataset"].astype(str).str.upper().str.strip()
+    cfg_tmp["Variable"] = cfg_tmp["Variable"].astype(str).str.upper().str.strip()
+    cfg_tmp["Codelist"] = cfg_tmp["Codelist"].astype(str).str.upper().str.strip()
+
+    # (Dataset, Variable) -> config 原始 base CT codelist
+    base_ct_lookup = {}
+    for _, r in cfg_tmp.iterrows():
+        key = (r["Dataset"], r["Variable"])
+        if key not in base_ct_lookup and r["Codelist"] != "":
+            base_ct_lookup[key] = r["Codelist"]
+
+    # -------------------------------------------------
+    # 3) 準備 CT master
     # -------------------------------------------------
     ct_df = ct_master_df.copy()
-    
-    valid_ct_ids = set(
-        ct_df["Submission Value"].astype(str).str.upper().str.strip()
-    )
-    
+
     for c in [
         "Codelist Code",
         "Codelist Name",
@@ -1898,7 +1960,47 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     terminology_value = f"SDTM {normalize_ct_version_text(sdtm_ct_version)}" if sdtm_ct_version else "SDTM"
 
     # -------------------------------------------------
-    # 3) synonym rules（先最小可行）
+    # 4) 建立 header metadata（display ID -> base CT -> CT header）
+    # -------------------------------------------------
+    header_meta = {}
+
+    for _, r in id_df.iterrows():
+        display_id = r["Codelist"]
+        ds = r["Dataset"]
+        var = r["Variable"]
+
+        base_ct = base_ct_lookup.get((ds, var), "")
+
+        if not base_ct:
+            header_meta[display_id] = {
+                "BaseCT": "",
+                "Name": label_lookup.get(display_id, ""),
+                "NCI Codelist Code": ""
+            }
+            continue
+
+        hdr = ct_df[ct_df["norm_submission"] == normalize_ct_text(base_ct)]
+
+        if not hdr.empty:
+            hdr = hdr.iloc[0]
+            base_name = hdr.get("Codelist Name", "")
+            nci_codelist_code = hdr.get("NCI Term Code", "").strip()
+        else:
+            base_name = ""
+            nci_codelist_code = ""
+
+        # 若 CT header 沒找到，fallback 到 2.3 Label
+        if not base_name:
+            base_name = label_lookup.get(display_id, "")
+
+        header_meta[display_id] = {
+            "BaseCT": base_ct,
+            "Name": base_name,
+            "NCI Codelist Code": nci_codelist_code
+        }
+
+    # -------------------------------------------------
+    # 5) synonym rules（term matching）
     # -------------------------------------------------
     synonym_map = {
         "DOSE UNCHANGED": "DOSE NOT CHANGED",
@@ -1910,40 +2012,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     seen = set()
 
     # -------------------------------------------------
-    # 4) 先逐個 ID 建立 header metadata
-    #    header row 來源：Submission Value == ID
-    # -------------------------------------------------
-    header_meta = {}
-    for cid in distinct_ids:
-        ct_lookup_id = normalize_codelist_id(cid, valid_ct_ids)
-        norm_cid = normalize_ct_text(ct_lookup_id)
-
-        hdr = ct_df[
-            ct_df["norm_submission"] == norm_cid
-        ]
-
-        if not hdr.empty:
-            hdr = hdr.iloc[0]
-
-            header_meta[ct_lookup_id] = {
-                "Name": hdr.get("Codelist Name", ""),
-                # ✅ 直接從 CT txt 拿 → 正確來源
-                "NCI Codelist Code": hdr.get("NCI Term Code", "").strip()
-            }
-
-        else:
-            # ✅ fallback（你之後要改 Label 可以用）
-            header_meta[ct_lookup_id] = {
-                "Name": "",
-                "NCI Codelist Code": ""
-            }
-
-        # ✅ DEBUG（先開，確認 mapping OK）
-        print(f"[HEADER CHECK] {cid} → {header_meta[cid]}")
-
-
-    # -------------------------------------------------
-    # 5) 用 Step 1 option rows 去 match term rows
+    # 6) 用 Step 1 option rows 去 match CT term rows
     # -------------------------------------------------
     if not ct_mapping_df.empty:
         work = ct_mapping_df.copy()
@@ -1960,21 +2029,27 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
         for _, r in work.iterrows():
             ds = r["SDTM Domain"]
             var = r["SDTM Variable"]
-            code = r["CT Codelist Code"]
+            code = extract_ct_code(r["CT Codelist Code"])
             opt = r["Option Displayed Value"]
 
-            original_id = codelist_lookup.get((ds, var), "")
-            codelist_id = original_id
-    
-            ct_lookup_id = normalize_codelist_id(original_id, valid_ct_ids)
-            
-            if not ds or not var or not code or not opt:
+            if not ds or not var or not opt:
                 continue
 
-            if codelist_id == "":
+            display_id = codelist_lookup.get((ds, var), "")
+            if not display_id:
                 continue
 
-            ct_sub = ct_df[ct_df["Codelist Code"] == code].copy()
+            meta = header_meta.get(display_id, {})
+            base_ct = meta.get("BaseCT", "")
+            if not base_ct and not code:
+                continue
+
+            # 優先用 CRF schema 帶的 code；若空，再用 header_meta 的 NCI codelist code
+            codelist_code = code if code else meta.get("NCI Codelist Code", "")
+            if not codelist_code:
+                continue
+
+            ct_sub = ct_df[ct_df["Codelist Code"] == codelist_code].copy()
             if ct_sub.empty:
                 continue
 
@@ -2014,21 +2089,18 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
 
             hit = hit.iloc[0]
 
-            dedup_key = (codelist_id, hit["Submission Value"])
+            dedup_key = (display_id, hit["Submission Value"])
             if dedup_key in seen:
                 continue
             seen.add(dedup_key)
 
-            meta = header_meta.get(ct_lookup_id, {})
-
             derived_name = derive_codelist_name(
-                display_id=codelist_id,
-                ct_lookup_id=ct_lookup_id,
-                header_meta=header_meta
+                display_id=display_id,
+                base_name=meta.get("Name", "")
             )
 
             rows.append({
-                "ID": codelist_id,
+                "ID": display_id,
                 "Name": derived_name,
                 "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
                 "Data Type": "text",
@@ -2041,23 +2113,21 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
             })
 
     # -------------------------------------------------
-    # 6) 如果沒有任何 term match，至少回傳 header rows（避免整張空白）
+    # 7) 如果沒有任何 term match，至少回傳 header rows
     # -------------------------------------------------
     if not rows:
         fallback_rows = []
         for cid in distinct_ids:
-            ct_lookup_id = normalize_codelist_id(cid, valid_ct_ids)
-
+            meta = header_meta.get(cid, {})
             derived_name = derive_codelist_name(
                 display_id=cid,
-                ct_lookup_id=ct_lookup_id,
-                header_meta=header_meta
+                base_name=meta.get("Name", "")
             )
-            
+
             fallback_rows.append({
                 "ID": cid,
                 "Name": derived_name,
-                "NCI Codelist Code": header_meta.get(ct_lookup_id, {}).get("NCI Codelist Code", ""),
+                "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
                 "Data Type": "text",
                 "Terminology": terminology_value,
                 "Comment": "",
@@ -2071,12 +2141,13 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     out = pd.DataFrame(rows)
 
     # -------------------------------------------------
-    # 7) 每個 ID 內重新編 Order
+    # 8) 每個 ID 內重新編 Order
     # -------------------------------------------------
     out = out.sort_values(by=["ID", "Term"]).reset_index(drop=True)
     out["Order"] = out.groupby("ID").cumcount() + 1
 
     return out[cols]
+
 
 
 
@@ -2105,70 +2176,6 @@ def normalize_codelist_id(cid, valid_ct_ids):
 
     # ✅ fallback（至少回傳原值，不要讓變數不存在）
     return cid
-
-
-
-
-def derive_codelist_name(display_id, ct_lookup_id, header_meta):
-    display_id = str(display_id).upper().strip()
-
-    parts = display_id.split("_")
-
-    # -------------------------
-    # CASE 1: 有底線 → cross-domain pattern
-    # -------------------------
-    if len(parts) >= 2:
-
-        # prefix 一定是第一段
-        prefix = parts[0]
-
-        # domain 基本上第二段（例如 AE, MH）
-        domain = parts[1]
-
-        # suffix（可能沒有）
-        suffix = parts[2] if len(parts) >= 3 else ""
-
-        if prefix == "RDOMAIN":
-            return f"Related Domain Abbreviation ({domain})"
-      
-        # ✅ 從 CT master 取 base name（例如 STENRF → Relative to Reference Time Point）
-        base_name = header_meta.get(ct_lookup_id, {}).get("Name", "")
-
-        if not base_name:
-            BASE_NAME_MAP = {
-                "DOMAIN": "Domain Abbreviation",
-                "STENRF": "Relation to Reference Period",
-                "UNIT": "Unit",
-                "FRM": "Dose Form"
-            }
-        base_name = BASE_NAME_MAP.get(ct_lookup_id, ct_lookup_id)
-
-
-
-        # -------------------------
-        # suffix START / END
-        # -------------------------
-        if suffix == "START":
-            return f"{base_name} ({domain} - Start)"
-
-        if suffix == "END":
-            return f"{base_name} ({domain} - End)"
-
-        # -------------------------
-        # 一般 cross-domain（例如 DOMAIN_AE / UNIT_EC）
-        # -------------------------
-        return f"{base_name} ({domain})"
-
-    # -------------------------
-    # CASE 2: no underscore → 一般 CT
-    # -------------------------
-    if display_id == "Y":
-        return "No Yes Response - Y subset"
-
-    # fallback → CT Name
-    return header_meta.get(ct_lookup_id, {}).get("Name", "")
-
-
 
 
 def build_default_dictionaries_sheet(meddra_version="", cm_dictionary="WHO ATC/DDD", cm_version=""):
@@ -3110,6 +3117,7 @@ if uploaded_file is not None:
                         st.session_state.get("ct_mapping_df", pd.DataFrame()),
                         st.session_state.get("ct_master_df", pd.DataFrame()),
                         variables_spec_df,
+                        cfg_df,
                         sdtm_ct
                     )
                     
