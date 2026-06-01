@@ -1931,7 +1931,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if display_id.startswith("RDOMAIN_"):
             parts = display_id.split("_")
             if len(parts) >= 2:
-                return f"Related Domain Abbreviation ({parts[1]})
+                return f"Related Domain Abbreviation ({parts[1]})"
 
 
         parts = display_id.split("_")
