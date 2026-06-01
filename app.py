@@ -2021,9 +2021,15 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
 
             meta = header_meta.get(ct_lookup_id, header_meta.get(codelist_id, {}))
 
+            derived_name = derive_codelist_name(
+                display_id=codelist_id,
+                ct_lookup_id=ct_lookup_id,
+                header_meta=header_meta
+            )
+
             rows.append({
                 "ID": codelist_id,
-                "Name": meta.get("Name", ""),
+                "Name": derived_name,
                 "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
                 "Data Type": "text",
                 "Terminology": terminology_value,
@@ -2091,6 +2097,58 @@ def normalize_codelist_id(cid, valid_ct_ids):
 
     # ✅ fallback（至少回傳原值，不要讓變數不存在）
     return cid
+
+
+
+
+def derive_codelist_name(display_id, ct_lookup_id, header_meta):
+    display_id = str(display_id).upper().strip()
+
+    parts = display_id.split("_")
+
+    # -------------------------
+    # CASE 1: 有底線 → cross-domain pattern
+    # -------------------------
+    if len(parts) >= 2:
+
+        # prefix 一定是第一段
+        prefix = parts[0]
+
+        # domain 基本上第二段（例如 AE, MH）
+        domain = parts[1]
+
+        # suffix（可能沒有）
+        suffix = parts[2] if len(parts) >= 3 else ""
+
+        if prefix == "RDOMAIN":
+            return f"Related Domain Abbreviation ({domain})"
+      
+        # ✅ 從 CT master 取 base name（例如 STENRF → Relative to Reference Time Point）
+        base_name = header_meta.get(ct_lookup_id, {}).get("Name", "")
+
+        # -------------------------
+        # suffix START / END
+        # -------------------------
+        if suffix == "START":
+            return f"{base_name} ({domain} - Start)"
+
+        if suffix == "END":
+            return f"{base_name} ({domain} - End)"
+
+        # -------------------------
+        # 一般 cross-domain（例如 DOMAIN_AE / UNIT_EC）
+        # -------------------------
+        return f"{base_name} ({domain})"
+
+    # -------------------------
+    # CASE 2: no underscore → 一般 CT
+    # -------------------------
+    if display_id == "Y":
+        return "No Yes Response - Y subset"
+
+    # fallback → CT Name
+    return header_meta.get(ct_lookup_id, {}).get("Name", "")
+
 
 
 
