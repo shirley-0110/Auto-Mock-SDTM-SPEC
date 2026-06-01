@@ -1831,6 +1831,10 @@ def build_codelists_sheet_from_variables(variables_df):
 
 
 def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, sdtm_ct_version=""):
+    valid_ct_ids = set(
+        ct_df["Submission Value"].astype(str).str.upper().str.strip()
+    )
+    
     cols = [
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
@@ -1962,6 +1966,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
                 continue
 
             codelist_id = codelist_lookup.get((ds, var), "")
+            codelist_id = normalize_codelist_id(codelist_id, valid_ct_ids)
             if codelist_id == "":
                 continue
 
@@ -2054,6 +2059,23 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, s
     return out[cols]
 
 
+def normalize_codelist_id(cid, valid_ct_ids):
+    cid = str(cid).strip().upper()
+
+    # ✅ 已經是合法 CT ID（例如 ACN、AEREL）
+    if cid in valid_ct_ids:
+        return cid
+
+    # ✅ suffix 型（例如 DOMAIN_AE、STENRF_MH_END）
+    parts = cid.split("_")
+
+    for i in range(len(parts)):
+        candidate = "_".join(parts[:i+1])
+
+        if candidate in valid_ct_ids:
+            return candidate
+
+    return cid
 
 
 
