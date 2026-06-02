@@ -2223,6 +2223,26 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         return list(dict.fromkeys(parts))
 
 
+    rows = []
+    seen = set()
+
+    # -------------------------------------------------
+    # ✅ 最終建立 DataFrame（保底）
+    # -------------------------------------------------
+    if rows:
+        out_df = pd.DataFrame(rows, columns=cols)
+    else:
+        out_df = pd.DataFrame(columns=cols)
+
+    # ✅ 防止 None（最重要）
+    if out_df is None or not isinstance(out_df, pd.DataFrame):
+        out_df = pd.DataFrame(columns=cols)
+
+    return out_df
+
+
+
+
 def build_decoded_pair_lookup(work_df):
     """
     建立 coded term -> decoded term 的 lookup
