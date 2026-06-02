@@ -2222,80 +2222,102 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         # 去重（保序）
         return list(dict.fromkeys(parts))
 
-    
 
-    def build_decoded_pair_lookup(work_df):
-        """
-        建立 coded term -> decoded term 的 lookup
-    
-        支援：
-          - --TESTCD  <-> --TEST
-          - TSPARMCD <-> TSPARM
-        key:
-          (SDTM Domain, coded variable, normalized coded value)
-        value:
-          decoded text
-        """
-        lookup = {}
+def build_decoded_pair_lookup(work_df):
+    """
+    建立 coded term -> decoded term 的 lookup
 
-        if work_df.empty:
-            return lookup
+    支援：
+      - --TESTCD  <-> --TEST
+      - TSPARMCD <-> TSPARM
 
-        df = work_df.copy()
+    回傳：
+      coded_to_decoded:
+        key = (SDTM Domain, coded variable, normalized coded value)
+        val = decoded text
 
-        for c in ["SDTM Domain", "SDTM Variable", "Assign Value"]:
-            if c not in df.columns:
-                df[c] = ""
+      decoded_to_coded:
+        key = (SDTM Domain, decoded variable, normalized decoded value)
+        val = coded text
+    """
+    coded_to_decoded = {}
+    decoded_to_coded = {}
 
-        df["SDTM Domain"] = df["SDTM Domain"].apply(safe_upper)
-        df["SDTM Variable"] = df["SDTM Variable"].apply(safe_upper)
-        df["Assign Value"] = df["Assign Value"].apply(safe_text)
+    if work_df.empty:
+        return coded_to_decoded, decoded_to_coded
 
-        # 用同一個 CRF source 做 pairing
-        key_cols = ["Source CRF Sheet", "Source CRF Variable"]
-        if not all(c in df.columns for c in key_cols):
-            return lookup
+    df = work_df.copy()
 
-        for _, grp in df.groupby(key_cols):
-            name_map = {}   # decoded side
-            code_map = {}   # coded side
+    for c in [
+        "Source CRF Sheet",
+        "Source CRF Variable",
+        "SDTM Domain",
+        "SDTM Variable",
+        "Assign Value",
+        "Option Displayed Value"
+    ]:
+        if c not in df.columns:
+            df[c] = ""
 
-            for _, r in grp.iterrows():
-                ds = r["SDTM Domain"]
-                var = r["SDTM Variable"]
-                val = r["Assign Value"]
+    df["SDTM Domain"] = df["SDTM Domain"].apply(safe_upper)
+    df["SDTM Variable"] = df["SDTM Variable"].apply(safe_upper)
+    df["Assign Value"] = df["Assign Value"].apply(safe_text)
+    df["Option Displayed Value"] = df["Option Displayed Value"].apply(safe_text)
 
-                if not val:
-                    continue
+    key_cols = ["Source CRF Sheet", "Source CRF Variable"]
+    if not all(c in df.columns for c in key_cols):
+        return coded_to_decoded, decoded_to_coded
 
-                # ---- decoded side ----
-                if var.endswith("TEST") and not var.endswith("TESTCD"):
-                    stem = var[:-4]
-                    name_map[(ds, stem)] = val
+    for _, grp in df.groupby(key_cols):
+        name_map = {}   # decoded side
+        code_map = {}   # coded side
 
-                elif var == "TSPARM":
-                    name_map[(ds, "TSPARM")] = val
+        for _, r in grp.iterrows():
+            ds = r["SDTM Domain"]
+            var = r["SDTM Variable"]
+            assign_val = r["Assign Value"]
+            opt_val = r["Option Displayed Value"]
 
-                # ---- coded side ----
-                if var.endswith("TESTCD"):
-                    code_map[(ds, var)] = val
+            # ----------------------------
+            # 取 pairing value
+            # 優先 Assign Value，沒有才 fallback Option Displayed Value
+            # ----------------------------
+            val = assign_val if assign_val else opt_val
+            if not val:
+                continue
 
-                elif var == "TSPARMCD":
-                    code_map[(ds, "TSPARMCD")] = val
+            # ---- decoded side ----
+            if var.endswith("TEST") and not var.endswith("TESTCD"):
+                stem = var[:-4]
+                name_map[(ds, stem)] = val
 
-            for (ds, coded_var), coded_val in code_map.items():
-                if coded_var.endswith("TESTCD"):
-                    stem = coded_var[:-6]
-                elif coded_var == "TSPARMCD":
-                    stem = "TSPARM"
-                else:
-                    continue
+            elif var == "TSPARM":
+                name_map[(ds, "TSPARM")] = val
 
-                decoded_val = name_map.get((ds, stem), "")
-                if decoded_val:
-                    lookup[(ds, coded_var, normalize_term(coded_val))] = decoded_val
+            # ---- coded side ----
+            if var.endswith("TESTCD"):
+                code_map[(ds, var)] = val
 
-        return lookup
+            elif var == "TSPARMCD":
+                code_map[(ds, "TSPARMCD")] = val
+
+        for (ds, coded_var), coded_val in code_map.items():
+            if coded_var.endswith("TESTCD"):
+                stem = coded_var[:-6]
+                decoded_var = stem + "TEST"
+            elif coded_var == "TSPARMCD":
+                stem = "TSPARM"
+                decoded_var = "TSPARM"
+            else:
+                continue
+
+            decoded_val = name_map.get((ds, stem), "")
+            if decoded_val:
+                coded_to_decoded[(ds, coded_var, normalize_term(coded_val))] = decoded_val
+                decoded_to_coded[(ds, decoded_var, normalize_term(decoded_val))] = coded_val
+
+    return coded_to_decoded, decoded_to_coded
+
 
 
 
