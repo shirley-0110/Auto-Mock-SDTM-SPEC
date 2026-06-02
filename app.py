@@ -3701,10 +3701,12 @@ def prefill_ct_mapping_df(ct_mapping_df, ct_master_df):
     return out
 
 
+
 def to_excel_bytes(sheet_dict):
     output = BytesIO()
 
-    from openpyxl.styles import Font, Alignment
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         for sheet_name, df in sheet_dict.items():
@@ -3712,23 +3714,31 @@ def to_excel_bytes(sheet_dict):
 
             ws = writer.book[sheet_name]
 
-            # 1) Freeze first row
+            # Freeze first row
             ws.freeze_panes = "A2"
 
-            # 2) Set font (Calibri 10)
+            # Header style（橘色）
+            header_fill = PatternFill(
+                start_color="F4A300",
+                end_color="F4A300",
+                fill_type="solid"
+            )
+
+            # 設定字型 + wrap
             for row in ws.iter_rows():
                 for cell in row:
                     cell.font = Font(name="Calibri", size=10)
-
-            # 3) Wrap text
-            for row in ws.iter_rows():
-                for cell in row:
                     cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-            # 4) Auto column width（簡單版本）
-            for col in ws.columns:
+            # Header
+            for cell in ws[1]:
+                cell.font = Font(name="Calibri", size=10, bold=True)
+                cell.fill = header_fill
+                cell.alignment = Alignment(wrap_text=True, vertical="center")
+
+            # 欄寬自動
+            for col_idx, col in enumerate(ws.columns, start=1):
                 max_length = 0
-                col_letter = col[0].column_letter
 
                 for cell in col:
                     try:
@@ -3737,12 +3747,29 @@ def to_excel_bytes(sheet_dict):
                     except:
                         pass
 
-                # 限制避免過寬
-                adjusted_width = min(max_length + 2, 50)
-                ws.column_dimensions[col_letter].width = adjusted_width
+                col_letter = get_column_letter(col_idx)
+                ws.column_dimensions[col_letter].width = min(max_length + 2, 50)
+
+            # 自動列高
+            for row in ws.iter_rows():
+                max_lines = 1
+
+                for cell in row:
+                    if cell.value:
+                        text = str(cell.value)
+                        line_count = text.count("\n") + 1
+
+                        # wrap後模擬行數（每 40 字一行）
+                        approx_lines = max(line_count, (len(text) // 40) + 1)
+
+                        max_lines = max(max_lines, approx_lines)
+
+                row_height = max_lines * 15  # Calibri 10 約略高度
+                ws.row_dimensions[row[0].row].height = row_height
 
     output.seek(0)
     return output.getvalue()
+
 
 
 # =========================================================
