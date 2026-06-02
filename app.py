@@ -2256,10 +2256,10 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
             rows.append({
                 "ID": display_id,
-                "Name": "",
-                "NCI Codelist Code": "",
+                "Name": meta.get("Name", ""),
+                "NCI Codelist Code": nci_codelist_code,
                 "Data Type": "text",
-                "Terminology": "",
+                "Terminology": terminology_value,
                 "Comment": "",
                 "Order": None,
                 "Term": opt,
