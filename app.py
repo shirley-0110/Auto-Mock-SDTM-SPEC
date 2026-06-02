@@ -2188,24 +2188,19 @@ def derive_codelist_name(display_id, base_name):
 
 
 
-
-
-def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, cfg_df, sdtm_ct_version=""):
-
-    #st.write("DEBUG variables_df rows:", len(variables_df))
-    #st.write("DEBUG ct_mapping_df rows:", len(ct_mapping_df) if ct_mapping_df is not None else "None")
-
+def build_codelists_from_ct_mapping(
+    ct_mapping_df,
+    ct_master_df,
+    variables_df,
+    cfg_df,
+    sdtm_ct_version=""
+):
     cols = [
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
     ]
 
-    debug_display_id_missing = 0
-    debug_forced_terms_empty = 0
-    debug_match_hit = 0
-    debug_match_miss = 0
-
-    if variables_df.empty:
+    if variables_df is None or variables_df.empty:
         return pd.DataFrame(columns=cols)
 
     # -------------------------------------------------
@@ -2217,208 +2212,293 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     def safe_text(x):
         return str(x).strip() if pd.notna(x) else ""
 
-    def split_assign_terms(x):
-        if pd.isna(x):
-            return []
+    def normalize_term(term):
+        if pd.isna(term):
+            return ""
+        x = str(term).strip().upper()
+        x = re.sub(r"\s+", " ", x)
+        return x
 
-        s = str(x).strip()
-        if not s:
-            return []
+    def tokenize(term):
+        term = normalize_term(term)
+        term = re.sub(r"[\(\)\[\]\{\}/,_\-]+", " ", term)
+        term = re.sub(r"\s+", " ", term)
+        return [t for t in term.split() if t]
 
-        parts = re.split(r"[;\n]+", s)
-        parts = [p.strip() for p in parts if str(p).strip()]
+    def reduce_tokens(tokens):
+        GENERIC_TOKENS = {
+            "DRUG", "DOSE", "MEDICATION", "TREATMENT",
+            "TEST", "COUNT", "LEVEL", "VALUE"
+        }
+        return [t for t in tokens if t not in GENERIC_TOKENS]
 
-        # 去重（保序）
-        return list(dict.fromkeys(parts))
+    def to_phrase(tokens):
+        return " ".join(tokens)
 
+    def normalize_test_display(term):
+        """
+        專門處理 TEST display value
+        e.g.
+          Hemoglobin (Hb) -> Hemoglobin
+          Absolute Neutrophil Count -> Neutrophil
+        """
+        if not term:
+            return ""
 
-    rows = []
-    seen = set()
+        s = str(term)
 
-    if not ct_mapping_df.empty:
-        work = ct_mapping_df.copy()
+        # 去括號
+        s = re.sub(r"\s*\(.*?\)", "", s)
 
-        for _, r in work.iterrows():
-            ds = safe_upper(r.get("SDTM Domain", ""))
-            var = safe_upper(r.get("SDTM Variable", ""))
-            opt = safe_text(r.get("Option Displayed Value", ""))
+        # 去掉常見修飾詞（避免 fuzzy 誤配）
+        s = re.sub(r"\bABSOLUTE\b", "", s, flags=re.I)
+        s = re.sub(r"\bCOUNT\b", "", s, flags=re.I)
 
-            if not ds or not var or not opt:
-                continue
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
 
-            display_id = var  # ✅ 先用 var 當 ID（之後再改成正式 mapping）
+    def build_decoded_pair_lookup_local(work_df):
+        """
+        建立 coded -> decoded 的 CRF pairing lookup
+        目前先維持：
+          - --TESTCD <-> --TEST
+          - TSPARMCD <-> TSPARM
 
-            dedup_key = (display_id, normalize_text(opt))
+        key:
+          (SDTM Domain, coded variable, normalized coded value)
+        value:
+          decoded text
+        """
+        lookup = {}
 
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
+        if work_df is None or work_df.empty:
+            return lookup
 
-            rows.append({
-                "ID": display_id,
-                "Name": meta.get("Name", ""),
-                "NCI Codelist Code": nci_codelist_code,
-                "Data Type": "text",
-                "Terminology": terminology_value,
-                "Comment": "",
-                "Order": None,
-                "Term": opt,
-                "NCI Term Code": "",
-                "Decoded Value": ""
-            })
+        df = work_df.copy()
 
-    
-    # -------------------------------------------------
-    # ✅ 最終建立 DataFrame（保底）
-    # -------------------------------------------------
-    if rows:
-        out_df = pd.DataFrame(rows, columns=cols)
-    else:
-        out_df = pd.DataFrame(columns=cols)
+        for c in ["SDTM Domain", "SDTM Variable", "Assign Value"]:
+            if c not in df.columns:
+                df[c] = ""
 
-    # ✅ 防止 None（最重要）
-    if out_df is None or not isinstance(out_df, pd.DataFrame):
-        out_df = pd.DataFrame(columns=cols)
+        df["SDTM Domain"] = df["SDTM Domain"].apply(safe_upper)
+        df["SDTM Variable"] = df["SDTM Variable"].apply(safe_upper)
+        df["Assign Value"] = df["Assign Value"].apply(safe_text)
 
-    st.write("DEBUG display_id missing:", debug_display_id_missing)
-    st.write("DEBUG forced_terms empty:", debug_forced_terms_empty)
-    st.write("DEBUG CT match hit:", debug_match_hit)
-    st.write("DEBUG CT match miss:", debug_match_miss)
-    st.write("DEBUG rows built:", len(rows))
-    st.write("DEBUG codelists out_df rows:", len(out_df))
+        key_cols = ["Source CRF Sheet", "Source CRF Variable"]
+        if not all(c in df.columns for c in key_cols):
+            return lookup
 
-    return out_df
+        for _, grp in df.groupby(key_cols):
+            name_map = {}
+            code_map = {}
 
+            for _, r in grp.iterrows():
+                ds = r["SDTM Domain"]
+                var = r["SDTM Variable"]
+                val = r["Assign Value"]
 
+                if not val:
+                    continue
 
+                # decoded side
+                if var.endswith("TEST") and not var.endswith("TESTCD"):
+                    stem = var[:-4]
+                    name_map[(ds, stem)] = val
+                elif var == "TSPARM":
+                    name_map[(ds, "TSPARM")] = val
 
-def build_decoded_pair_lookup(work_df):
-    """
-    建立 coded term -> decoded term 的 lookup
+                # coded side
+                if var.endswith("TESTCD"):
+                    code_map[(ds, var)] = val
+                elif var == "TSPARMCD":
+                    code_map[(ds, "TSPARMCD")] = val
 
-    支援：
-      - --TESTCD  <-> --TEST
-      - TSPARMCD <-> TSPARM
+            for (ds, coded_var), coded_val in code_map.items():
+                if coded_var.endswith("TESTCD"):
+                    stem = coded_var[:-6]
+                elif coded_var == "TSPARMCD":
+                    stem = "TSPARM"
+                else:
+                    continue
 
-    回傳：
-      coded_to_decoded:
-        key = (SDTM Domain, coded variable, normalized coded value)
-        val = decoded text
+                decoded_val = name_map.get((ds, stem), "")
+                if decoded_val:
+                    lookup[(ds, coded_var, normalize_term(coded_val))] = decoded_val
 
-      decoded_to_coded:
-        key = (SDTM Domain, decoded variable, normalized decoded value)
-        val = coded text
-    """
-    coded_to_decoded = {}
-    decoded_to_coded = {}
-
-    if work_df.empty:
-        return coded_to_decoded, decoded_to_coded
-
-    df = work_df.copy()
-
-    for c in [
-        "Source CRF Sheet",
-        "Source CRF Variable",
-        "SDTM Domain",
-        "SDTM Variable",
-        "Assign Value",
-        "Option Displayed Value"
-    ]:
-        if c not in df.columns:
-            df[c] = ""
-
-    df["SDTM Domain"] = df["SDTM Domain"].apply(safe_upper)
-    df["SDTM Variable"] = df["SDTM Variable"].apply(safe_upper)
-    df["Assign Value"] = df["Assign Value"].apply(safe_text)
-    df["Option Displayed Value"] = df["Option Displayed Value"].apply(safe_text)
-
-    key_cols = ["Source CRF Sheet", "Source CRF Variable"]
-    if not all(c in df.columns for c in key_cols):
-        return coded_to_decoded, decoded_to_coded
-
-    for _, grp in df.groupby(key_cols):
-        name_map = {}   # decoded side
-        code_map = {}   # coded side
-
-        for _, r in grp.iterrows():
-            ds = r["SDTM Domain"]
-            var = r["SDTM Variable"]
-            assign_val = r["Assign Value"]
-            opt_val = r["Option Displayed Value"]
-
-            # ----------------------------
-            # 取 pairing value
-            # 優先 Assign Value，沒有才 fallback Option Displayed Value
-            # ----------------------------
-            val = assign_val if assign_val else opt_val
-            if not val:
-                continue
-
-            # ---- decoded side ----
-            if var.endswith("TEST") and not var.endswith("TESTCD"):
-                stem = var[:-4]
-                name_map[(ds, stem)] = val
-
-            elif var == "TSPARM":
-                name_map[(ds, "TSPARM")] = val
-
-            # ---- coded side ----
-            if var.endswith("TESTCD"):
-                code_map[(ds, var)] = val
-
-            elif var == "TSPARMCD":
-                code_map[(ds, "TSPARMCD")] = val
-
-        for (ds, coded_var), coded_val in code_map.items():
-            if coded_var.endswith("TESTCD"):
-                stem = coded_var[:-6]
-                decoded_var = stem + "TEST"
-            elif coded_var == "TSPARMCD":
-                stem = "TSPARM"
-                decoded_var = "TSPARM"
-            else:
-                continue
-
-            decoded_val = name_map.get((ds, stem), "")
-            if decoded_val:
-                coded_to_decoded[(ds, coded_var, normalize_term(coded_val))] = decoded_val
-                decoded_to_coded[(ds, decoded_var, normalize_term(decoded_val))] = coded_val
-
-    return coded_to_decoded, decoded_to_coded
-
-
-
+        return lookup
 
     def resolve_decoded_value(ds, var, term_value, decoded_pair_lookup):
         """
-        只有 --TESTCD 與 TSPARMCD 保留 Decoded Value
-        其他都回傳空白
+        目前先只讓 coded side 帶 Decoded Value
+          - --TESTCD
+          - TSPARMCD
         """
         ds = safe_upper(ds)
         var = safe_upper(var)
         term_key = normalize_term(term_value)
 
-        # --TESTCD -> 配對 --TEST
         if var.endswith("TESTCD"):
             return decoded_pair_lookup.get((ds, var, term_key), "")
 
-        # TSPARMCD -> 配對 TSPARM
         if var == "TSPARMCD":
             return decoded_pair_lookup.get((ds, var, term_key), "")
 
         return ""
-    
-    
-    def build_display_name(display_id, base_name):
 
+    def parse_synonyms(x):
+        if pd.isna(x):
+            return []
+        parts = re.split(r"[;,/]+", str(x))
+        return [normalize_term(p) for p in parts if str(p).strip()]
+
+    def prepare_ct_sub(ct_sub):
+        if ct_sub is None or ct_sub.empty:
+            return pd.DataFrame()
+
+        df = ct_sub.copy()
+
+        for c in ["Submission Value", "NCI Preferred Term", "CDISC Synonym(s)"]:
+            if c not in df.columns:
+                df[c] = ""
+
+        df["submission_norm"] = df["Submission Value"].apply(normalize_term)
+        df["pref_norm"] = df["NCI Preferred Term"].apply(normalize_term)
+
+        df["submission_tokens"] = df["Submission Value"].apply(tokenize)
+        df["pref_tokens"] = df["NCI Preferred Term"].apply(tokenize)
+
+        df["submission_core"] = df["submission_tokens"].apply(reduce_tokens).apply(to_phrase)
+        df["pref_core"] = df["pref_tokens"].apply(reduce_tokens).apply(to_phrase)
+
+        df["synonyms_norm"] = df["CDISC Synonym(s)"].apply(parse_synonyms)
+
+        return df
+
+    def match_term(ct_sub, term):
+        """
+        穩定版 hybrid matching：
+        1 exact
+        2 synonym
+        3 token/core
+        4 fuzzy（僅限 token overlap）
+        """
+        if ct_sub is None or ct_sub.empty:
+            return None
+
+        term_clean = normalize_test_display(term)
+        norm_val = normalize_term(term_clean)
+
+        # 1. exact
+        hit = ct_sub[
+            (ct_sub["submission_norm"] == norm_val) |
+            (ct_sub["pref_norm"] == norm_val)
+        ]
+        if not hit.empty:
+            return hit.iloc[0]
+
+        # 2. CDISC synonym
+        hit = ct_sub[
+            ct_sub["synonyms_norm"].apply(lambda lst: norm_val in lst)
+        ]
+        if not hit.empty:
+            return hit.iloc[0]
+
+        # 3. token/core
+        tokens = tokenize(term_clean)
+        core = to_phrase(reduce_tokens(tokens))
+
+        if core:
+            hit = ct_sub[
+                (ct_sub["submission_core"] == core) |
+                (ct_sub["pref_core"] == core)
+            ]
+            if not hit.empty:
+                return hit.iloc[0]
+
+        # 4. fuzzy（限制候選）
+        term_tokens = set(tokenize(term_clean))
+
+        def has_overlap(x):
+            x_tokens = set(str(x).split())
+            return len(term_tokens & x_tokens) > 0
+
+        candidates_df = ct_sub.copy()
+        candidates_df = candidates_df[
+            candidates_df["submission_norm"].apply(has_overlap)
+        ]
+
+        candidates = candidates_df["submission_norm"].dropna().tolist()
+        matches = get_close_matches(norm_val, candidates, n=1, cutoff=0.7)
+
+        if matches:
+            m = matches[0]
+            hit = candidates_df[candidates_df["submission_norm"] == m]
+            if not hit.empty:
+                return hit.iloc[0]
+
+        return None
+
+    def resolve_forced_terms(display_id, var, opt, assign_val):
+        """
+        穩定版：
+          - TEST / TESTCD：優先用單列 opt（因 Step1 已 explode）
+          - TSPARM / TSPARMCD：優先用 Assign Value
+          - ND / NY / Y：固定值
+          - 其他：fallback opt
+        """
+        display_id = safe_upper(display_id)
+        var = safe_upper(var)
+        opt = safe_text(opt)
+        assign_val = safe_text(assign_val)
+
+        # DOMAIN_AE -> AE
+        if display_id.startswith("DOMAIN_") and "_" in display_id:
+            return [display_id.split("_", 1)[1]]
+
+        # TEST / TESTCD：這裡 Step1 已經拆成單列，不要再 split opt
+        if var.endswith("TEST") or var.endswith("TESTCD"):
+            if opt:
+                return [opt]
+            if assign_val:
+                return [x.strip() for x in re.split(r"[;\n]+", assign_val) if str(x).strip()]
+            return []
+
+        # TSPARM / TSPARMCD：優先 Assign
+        if var == "TSPARM" or var == "TSPARMCD":
+            if assign_val:
+                return [x.strip() for x in re.split(r"[;\n]+", assign_val) if str(x).strip()]
+            if opt:
+                return [opt]
+            return []
+
+        # ORRESU
+        if var.endswith("ORRESU"):
+            if assign_val:
+                return [x.strip() for x in re.split(r"[;\n]+", assign_val) if str(x).strip()]
+            if opt:
+                return [opt]
+            return []
+
+        # special fixed terms
+        if display_id == "ND":
+            return ["NOT DONE"]
+        if display_id == "NY":
+            return ["N", "Y"]
+        if display_id == "Y":
+            return ["Y"]
+
+        if opt:
+            return [opt]
+
+        return []
+
+    def build_display_name(display_id, base_name):
         display_id = safe_upper(display_id)
         base_name = safe_text(base_name)
 
         if not base_name:
             return display_id
 
-        # 特例
         if display_id == "ARM":
             return "Description of Arm"
         if display_id == "ARMCD":
@@ -2431,359 +2511,22 @@ def build_decoded_pair_lookup(work_df):
             if len(parts) >= 2:
                 return f"Related Domain Abbreviation ({parts[1]})"
 
-
         parts = display_id.split("_")
 
-        # STENRF_AE_START / STENRF_AE_END
         if len(parts) >= 3 and parts[-1] in {"START", "END"}:
             domain = parts[-2]
-            suffix = parts[-1].title()  # Start / End
-
+            suffix = parts[-1].title()
             clean_base = re.sub(r"^(START|END)\s+", "", base_name, flags=re.IGNORECASE)
-            
             return f"{clean_base} ({domain} - {suffix})"
 
-
-        # DOMAIN_AE / UNIT_EC / FRM_EX / RDOMAIN_CO
         if len(parts) >= 2:
             domain = parts[1]
             return f"{base_name} ({domain})"
 
         return base_name
-        
-    TS_TSPARMCD_TERMS = [
-        "ACTSUB",
-        "ADAPT",
-        "ADDON",
-        "AGEMAX",
-        "AGEMIN",
-        "DCUTDESC",
-        "DCUTDTC",
-        "EXTTIND",
-        "FCNTRY",
-        "HLTSUBJI",
-        "INDIC",
-        "INTMODEL",
-        "INTTYPE",
-        "LENGTH",
-        "NARMS",
-        "NCOHORT",
-        "OBJPRIM",
-        "OBJSEC",
-        "ONGOSIND",
-        "OUTMSPRI",
-        "OUTMSSEC",
-        "PCLAS",
-        "PDPSTIND",
-        "PDSTIND",
-        "PIPIND",
-        "PLANSUB",
-        "RANDOM",
-        "RDIND",
-        "REGID",
-        "SDTIGVER",
-        "SDTMVER",
-        "SENDTC",
-        "SEXPOP",
-        "SPONSOR",
-        "SSTDTC",
-        "STOPRULE",
-        "STYPE",
-        "TBLIND",
-        "TCNTRL",
-        "TDIGRP",
-        "THERAREA",
-        "TINDTP",
-        "TITLE",
-        "TPHASE",
-        "TRT",
-        "TTYPE",
-    ]
 
-
-    TERM_NORMALIZATION_MAP = {
-        "START DATE UNKNOWN": "UNKNOWN",
-        "END DATE UNKNOWN": "UNKNOWN",
-        "UNKNOWN DATE": "UNKNOWN",
-        "NOT DONE": "NOT DONE"
-    }
-
-    TERM_SYNONYM_MAP = {
-        "DOSE UNCHANGED": "DOSE NOT CHANGED",
-        "DOSE INTERRUPTED": "DRUG INTERRUPTED",
-        "DOSE DISCONTINUED": "DRUG WITHDRAWN",
-    }
-
-    GENERIC_TOKENS = {
-        "DRUG", "DOSE", "MEDICATION", "TREATMENT",
-        "TEST", "COUNT", "LEVEL", "VALUE"
-    }
-    
-    def normalize_term(term):
-        if pd.isna(term):
-            return ""
-        x = str(term).strip().upper()
-        x = re.sub(r"\s+", " ", x)
-
-        # normalize rule
-        if x in TERM_NORMALIZATION_MAP:
-            x = TERM_NORMALIZATION_MAP[x]
-
-        if "UNKNOWN" in x:
-            x = "UNKNOWN"
-
-        return x
-
-    def tokenize(term):
-        """
-        去符號 + split token
-        Red Blood Cell (RBC) Count
-        -> ["RED","BLOOD","CELL","RBC"]
-        """
-        term = normalize_term(term)
-        term = re.sub(r"[\(\)\[\]\{\}/,_\-]+", " ", term)
-        term = re.sub(r"\s+", " ", term)
-
-        tokens = [t for t in term.split() if t]
-        return tokens
-
-    def reduce_tokens(tokens):
-        """
-        去 generic token
-        RBC COUNT -> RBC
-        """
-        return [t for t in tokens if t not in GENERIC_TOKENS]
-
-    def to_phrase(tokens):
-        return " ".join(tokens)
-
-
-    def resolve_forced_terms(display_id, var, opt, assign_val):
-        display_id = safe_upper(display_id)
-        var = safe_upper(var)
-        opt = safe_text(opt)
-        assign_val = safe_text(assign_val)
-
-        # ✅ DOMAIN_AE → AE
-        if display_id.startswith("DOMAIN_") and "_" in display_id:
-            return [display_id.split("_", 1)[1]]
-
-        # ✅ TEST / TESTCD / ORRESU → 用 Assign Value
-        if var.endswith("TEST") or var.endswith("TESTCD") or var.endswith("ORRESU"):
-            if assign_val:
-                return [
-                    x.strip()
-                    for x in re.split(r"[;\n]+", assign_val)
-                    if str(x).strip()
-                ]
-            if opt:
-                return split_option_displayed_value(opt)
-            
-            return []
-
-        # ✅ ND
-        if display_id == "ND":
-            return ["NOT DONE"]
-
-        # ✅ NY
-        if display_id == "NY":
-            return ["N", "Y"]
-
-        # ✅ Y
-        if display_id == "Y":
-            return ["Y"]
-
-        # ✅ default → option
-        if opt:
-            return [opt]
-
-        return []
-
-    
-    def prepare_ct_sub(ct_sub):
-        """
-        預先做 CT token cache（效能必須）
-        """
-        if ct_sub.empty:
-            return ct_sub.copy()
-
-        df = ct_sub.copy()
-
-        df["submission_norm"] = df["Submission Value"].apply(normalize_term)
-        df["pref_norm"] = df["NCI Preferred Term"].apply(normalize_term)
-
-        df["submission_tokens"] = df["Submission Value"].apply(tokenize)
-        df["pref_tokens"] = df["NCI Preferred Term"].apply(tokenize)
-
-        df["submission_core"] = df["submission_tokens"].apply(reduce_tokens).apply(to_phrase)
-        df["pref_core"] = df["pref_tokens"].apply(reduce_tokens).apply(to_phrase)
-
-        def parse_syn(s):
-            if pd.isna(s):
-                return []
-            parts = re.split(r"[;,/]+", str(s))
-            return [normalize_term(p) for p in parts if p.strip()]
-
-        df["synonyms_norm"] = df["CDISC Synonym(s)"].apply(parse_syn)
-
-        return df
-
-    def match_term(ct_sub, term):
-        """
-        Hybrid matching（核心）
-        """
-        if ct_sub.empty:
-            return None
-
-        term_clean = normalize_test_display(term)
-        norm_val = normalize_term(term_clean)
-
-        # ---------------------------------
-        # 1. exact match
-        # ---------------------------------
-        hit = ct_sub[
-            (ct_sub["submission_norm"] == norm_val) |
-            (ct_sub["pref_norm"] == norm_val)
-        ]
-        if not hit.empty:
-            return hit.iloc[0]
-
-        # ---------------------------------
-        # 2. synonym map
-        # ---------------------------------
-        if norm_val in TERM_SYNONYM_MAP:
-            target = normalize_term(TERM_SYNONYM_MAP[norm_val])
-            hit = ct_sub[
-                (ct_sub["submission_norm"] == target) |
-                (ct_sub["pref_norm"] == target)
-            ]
-            if not hit.empty:
-                return hit.iloc[0]
-
-        # ---------------------------------
-        # 3. CDISC synonym（最重要）
-        # ---------------------------------
-        hit = ct_sub[
-            ct_sub["synonyms_norm"].apply(lambda lst: norm_val in lst)
-        ]
-        if not hit.empty:
-            return hit.iloc[0]
-
-        # ---------------------------------
-        # 4. token match（RBC / Red Blood Cell）
-        # ---------------------------------
-        tokens = tokenize(term)
-        core = to_phrase(reduce_tokens(tokens))
-
-        hit = ct_sub[
-            (ct_sub["submission_core"] == core) |
-            (ct_sub["pref_core"] == core)
-        ]
-        if not hit.empty:
-            return hit.iloc[0]
-
-        # ---------------------------------
-        # 5. fuzzy fallback
-        # ---------------------------------
-        candidates_df = ct_sub.copy()
-
-        # 限制：至少包含一個關鍵字（避免亂配）
-        tokens = set(tokenize(term_clean))
-
-        def has_overlap(x):
-            x_tokens = set(x.split())
-            return len(tokens & x_tokens) > 0
-
-        candidates_df = candidates_df[
-            candidates_df["submission_norm"].apply(has_overlap)
-        ]
-
-        candidates = candidates_df["submission_norm"].tolist()
-
-        matches = get_close_matches(norm_val, candidates, n=1, cutoff=0.7)
-
-        if matches:
-            m = matches[0]
-            hit = ct_sub[
-                (ct_sub["submission_norm"] == m) |
-                (ct_sub["pref_norm"] == m)
-            ]
-            if not hit.empty:
-                return hit.iloc[0]
-
-        return None
-
-
-    def resolve_decoded_term_by_nci_code(ct_df, target_codelist_code, nci_term_code):
-        """
-        Generic helper:
-          已知 coded 端已對到某個 NCI Term Code，
-          再去 decoded 端 codelist 用同一個 NCI Term Code 找對應 term。
-
-        適用：
-          - TSPARMCD -> TSPARM
-          - --TESTCD -> --TEST
-        """
-        if ct_df is None or ct_df.empty:
-            return ""
-
-        target_codelist_code = safe_upper(target_codelist_code)
-        nci_term_code = safe_upper(nci_term_code)
-
-        if not target_codelist_code or not nci_term_code:
-            return ""
-
-        needed_cols = ["Codelist Code", "NCI Term Code", "Submission Value"]
-        for c in needed_cols:
-            if c not in ct_df.columns:
-                return ""
-
-        sub = ct_df[
-            (ct_df["Codelist Code"].apply(safe_upper) == target_codelist_code) &
-            (ct_df["NCI Term Code"].apply(safe_upper) == nci_term_code)
-        ].copy()
-
-        if sub.empty:
-            return ""
-
-        sub["Submission Value"] = sub["Submission Value"].apply(safe_text)
-        sub = sub[sub["Submission Value"] != ""]
-
-        if sub.empty:
-            return ""
-
-        return safe_text(sub.iloc[0]["Submission Value"])
-
-
-    
-    def get_special_default_terms(display_id):
-        display_id = safe_upper(display_id)
-
-        # DOMAIN_AE -> AE
-        if display_id.startswith("DOMAIN_") and "_" in display_id:
-            return [display_id.split("_", 1)[1]]
-
-        # ND -> NOT DONE
-        if display_id == "ND":
-            return ["NOT DONE"]
-
-        # Y -> Y
-        if display_id == "Y":
-            return ["Y"]
-
-        # NY -> N / Y
-        if display_id == "NY":
-            return ["N", "Y"]
-
-        # TS.TSPARMCD 骨架
-        if display_id == "TSPARMCD":
-            return TS_TSPARMCD_TERMS
-
-        return []
-
-    
     # -------------------------------------------------
-    # 1) variables_df：顯示用 ID
+    # 1) variables_df -> display IDs
     # -------------------------------------------------
     var_df = variables_df.copy()
 
@@ -2801,13 +2544,11 @@ def build_decoded_pair_lookup(work_df):
         (~var_df["Codelist"].isin(["AEDICT_F", "ISO3166"]))
     ][["Dataset", "Variable", "Codelist", "Label"]].drop_duplicates()
 
-    # (Dataset, Variable) -> display ID（2.4 顯示用）
     display_id_lookup = {
         (r["Dataset"], r["Variable"]): r["Codelist"]
         for _, r in id_df.iterrows()
     }
 
-    # display ID -> fallback label（2.3 Variables）
     label_lookup = {}
     for _, r in id_df.iterrows():
         cid = r["Codelist"]
@@ -2817,14 +2558,8 @@ def build_decoded_pair_lookup(work_df):
 
     distinct_ids = sorted(id_df["Codelist"].drop_duplicates().tolist())
 
-    st.write("DEBUG id_df rows:", len(id_df))
-    st.write("DEBUG distinct_ids count:", len(distinct_ids))
-    if not id_df.empty:
-        st.write("DEBUG id_df sample:", id_df.head(10))
-
-
     # -------------------------------------------------
-    # 2) cfg_df：base CT code（真正 config-driven）
+    # 2) cfg_df -> base CT metadata
     # -------------------------------------------------
     cfg_tmp = cfg_df.copy()
 
@@ -2837,7 +2572,6 @@ def build_decoded_pair_lookup(work_df):
     cfg_tmp["Codelist"] = cfg_tmp["Codelist"].apply(safe_upper)
     cfg_tmp["Variable Label"] = cfg_tmp["Variable Label"].apply(safe_text)
 
-    # (Dataset, Variable) -> config 原始 base CT codelist
     base_ct_lookup = {}
     cfg_label_lookup = {}
 
@@ -2851,9 +2585,9 @@ def build_decoded_pair_lookup(work_df):
             cfg_label_lookup[key] = r["Variable Label"]
 
     # -------------------------------------------------
-    # 3) CT master
+    # 3) CT master normalize
     # -------------------------------------------------
-    ct_df = ct_master_df.copy()
+    ct_df = ct_master_df.copy() if ct_master_df is not None else pd.DataFrame()
 
     for c in [
         "Codelist Code",
@@ -2873,28 +2607,23 @@ def build_decoded_pair_lookup(work_df):
     ct_df["NCI Preferred Term"] = ct_df["NCI Preferred Term"].apply(safe_text)
     ct_df["CDISC Synonym(s)"] = ct_df["CDISC Synonym(s)"].apply(safe_text)
 
-    ct_df["norm_submission"] = ct_df["Submission Value"].apply(normalize_ct_text)
-    ct_df["norm_pref"] = ct_df["NCI Preferred Term"].apply(normalize_ct_text)
+    terminology_value = f"SDTM {str(sdtm_ct_version).strip()}" if str(sdtm_ct_version).strip() else "SDTM"
 
-    terminology_value = f"SDTM {normalize_ct_version_text(sdtm_ct_version)}" if sdtm_ct_version else "SDTM"
-
-    
-    # -------------------------------------------------
-    # CT header index: Submission Value -> header metadata
-    # -------------------------------------------------
+    # codelist header lookup
     ct_header_lookup = (
         ct_df[
             (ct_df["Codelist Name"].astype(str).str.strip() != "") &
             (ct_df["Submission Value"].astype(str).str.strip() != "")
-        ][["norm_submission", "Codelist Name", "NCI Term Code"]]
-        .drop_duplicates(subset=["norm_submission"], keep="first")
+        ][["Submission Value", "Codelist Name", "NCI Term Code"]]
+        .drop_duplicates(subset=["Submission Value"], keep="first")
+        .assign(norm_submission=lambda d: d["Submission Value"].apply(normalize_ct_text))
         .set_index("norm_submission")
         .to_dict("index")
+        if not ct_df.empty else {}
     )
 
-
     # -------------------------------------------------
-    # 4) display ID -> base CT -> header metadata
+    # 4) build header_meta
     # -------------------------------------------------
     header_meta = {}
 
@@ -2906,12 +2635,6 @@ def build_decoded_pair_lookup(work_df):
         base_ct = base_ct_lookup.get((ds, var), "")
         display_label = cfg_label_lookup.get((ds, var), "") or label_lookup.get(display_id, "")
 
-        # -------------------------------------------------
-        # generic fallback for derived / override IDs
-        # DOMAIN_AE -> DOMAIN
-        # STENRF_AE_START -> STENRF
-        # Y -> Y
-        # -------------------------------------------------
         if not base_ct:
             if "_" in display_id:
                 base_ct = display_id.split("_", 1)[0]
@@ -2927,32 +2650,22 @@ def build_decoded_pair_lookup(work_df):
 
         special_codelist_code_override = None
 
-        # ----------------------------------------
-        # special cases
-        # ----------------------------------------
-
-        # 1) ARM / ARMCD：不要用 CT（避免抓到 LOC C32141）
         if display_id in {"ARM", "ARMCD"}:
             special_codelist_code_override = ""
             base_ct = ""
 
-        # 2) RDOMAIN_*：共用 DOMAIN 的 codelist code
         if display_id.startswith("RDOMAIN_"):
             base_ct = "DOMAIN"
 
-        # 3) STENRF_*：強制共用 STENRF 的 codelist
         if display_id.startswith("STENRF_"):
-            base_ct = "STENRF"     
+            base_ct = "STENRF"
 
-        # 4) Y：共用 NY 的 codelist code
         if display_id == "Y":
             base_ct = "NY"
 
-        # 5) EVAL：強制帶入 C78735
         if display_id == "EVAL":
             special_codelist_code_override = "C78735"
 
-        # ARM / ARMCD 的顯示名稱固定
         if display_id == "ARM":
             header_meta[display_id]["Name"] = "Description of Arm"
         elif display_id == "ARMCD":
@@ -2964,45 +2677,22 @@ def build_decoded_pair_lookup(work_df):
             continue
 
         norm_base = normalize_ct_text(base_ct)
-
-        # -------------------------------------------------
-        # 1) 優先用 CT header lookup（最穩）
-        # -------------------------------------------------
         hdr_meta = ct_header_lookup.get(norm_base)
 
         if hdr_meta:
-            base_name = str(hdr_meta.get("Codelist Name", "")).strip()
-            nci_codelist_code = str(hdr_meta.get("NCI Term Code", "")).strip()
+            base_name = safe_text(hdr_meta.get("Codelist Name", ""))
+            nci_codelist_code = safe_text(hdr_meta.get("NCI Term Code", ""))
         else:
-            # -------------------------------------------------
-            # 2) fallback：如果 base_ct 本身就是 codelist code，直接用 code 找
-            # -------------------------------------------------
             hdr = ct_df[ct_df["Codelist Code"] == safe_upper(base_ct)]
-
-            # -------------------------------------------------
-            # 3) fallback：到 CDISC Synonym(s) 裡找
-            # -------------------------------------------------
-            if hdr.empty and base_ct:
-                syn_mask = ct_df["CDISC Synonym(s)"].fillna("").apply(
-                    lambda s: safe_upper(base_ct) in [
-                        t.strip().upper()
-                        for t in re.split(r"[;,/]+", str(s))
-                        if str(t).strip()
-                    ]
-                )
-                hdr = ct_df[syn_mask]
 
             if not hdr.empty:
                 hdr = hdr.iloc[0]
-                base_name = str(hdr.get("Codelist Name", "")).strip()
-                nci_codelist_code = str(hdr.get("NCI Term Code", "")).strip()
+                base_name = safe_text(hdr.get("Codelist Name", ""))
+                nci_codelist_code = safe_text(hdr.get("NCI Term Code", ""))
             else:
                 base_name = ""
                 nci_codelist_code = ""
 
-
-
-        # CT header 沒找到 -> fallback 到 config / variables label
         if not base_name:
             base_name = display_label
 
@@ -3017,24 +2707,20 @@ def build_decoded_pair_lookup(work_df):
         if display_id not in {"ARM", "ARMCD"}:
             header_meta[display_id]["Name"] = build_display_name(display_id, base_name)
 
-
-
     # -------------------------------------------------
-    # 5) Hybrid term matching
+    # 5) main rows build
     # -------------------------------------------------
     rows = []
     seen = set()
-    decoded_pair_lookup = {}
 
-    # -------------------------------------------------
-    # 6) ct_mapping_df -> term rows
-    # -------------------------------------------------
     debug_display_id_missing = 0
     debug_forced_terms_empty = 0
     debug_match_hit = 0
     debug_match_miss = 0
-    
-    if not ct_mapping_df.empty:
+
+    decoded_pair_lookup = {}
+
+    if ct_mapping_df is not None and not ct_mapping_df.empty:
         work = ct_mapping_df.copy()
 
         for c in ["SDTM Domain", "SDTM Variable", "CT Codelist Code", "Option Displayed Value", "Assign Value"]:
@@ -3046,8 +2732,8 @@ def build_decoded_pair_lookup(work_df):
         work["CT Codelist Code"] = work["CT Codelist Code"].apply(safe_text)
         work["Option Displayed Value"] = work["Option Displayed Value"].apply(safe_text)
         work["Assign Value"] = work["Assign Value"].apply(safe_text)
-        
-        decoded_pair_lookup = build_decoded_pair_lookup(work)
+
+        decoded_pair_lookup = build_decoded_pair_lookup_local(work)
 
         for _, r in work.iterrows():
             ds = r["SDTM Domain"]
@@ -3066,13 +2752,13 @@ def build_decoded_pair_lookup(work_df):
             meta = header_meta.get(display_id, {})
             nci_codelist_code = safe_upper(meta.get("NCI Codelist Code", ""))
 
-            # 規則優先
             forced_terms = resolve_forced_terms(display_id, var, opt, assign_val)
 
             if not forced_terms:
+                debug_forced_terms_empty += 1
                 continue
 
-            # A) 沒有 NCI Codelist Code：term 直接保留
+            # A) 沒有 NCI Codelist Code -> raw 保留
             if not nci_codelist_code:
                 for term_candidate in forced_terms:
                     dedup_key = (display_id, normalize_term(term_candidate))
@@ -3094,7 +2780,7 @@ def build_decoded_pair_lookup(work_df):
                     })
                 continue
 
-            # B) 有 NCI Codelist Code：去 CT term rows 找對應
+            # B) 有 NCI Codelist Code -> CT match
             ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code].copy()
             ct_sub = prepare_ct_sub(ct_sub)
 
@@ -3124,6 +2810,7 @@ def build_decoded_pair_lookup(work_df):
 
                 if hit is None:
                     debug_match_miss += 1
+
                     dedup_key = (display_id, normalize_term(term_candidate))
                     if dedup_key in seen:
                         continue
@@ -3144,7 +2831,10 @@ def build_decoded_pair_lookup(work_df):
                     continue
 
                 debug_match_hit += 1
+
                 submission_val = safe_text(hit.get("Submission Value", ""))
+                nci_term_code = safe_text(hit.get("NCI Term Code", ""))
+
                 dedup_key = (display_id, submission_val)
                 if dedup_key in seen:
                     continue
@@ -3159,188 +2849,23 @@ def build_decoded_pair_lookup(work_df):
                     "Comment": "",
                     "Order": None,
                     "Term": submission_val,
-                    "NCI Term Code": safe_text(hit.get("NCI Term Code", "")),
+                    "NCI Term Code": nci_term_code,
                     "Decoded Value": resolve_decoded_value(ds, var, submission_val, decoded_pair_lookup)
                 })
 
-
     # -------------------------------------------------
-    # 6.5) 補 special IDs（DOMAIN_XX / ND / Y / NY）
-    # 這些 ID 可能不會出現在 ct_mapping_df，但仍需 term rows
+    # 6) header-only rows for missing IDs
     # -------------------------------------------------
-    for cid in distinct_ids:
-        if cid == "TSPARMCD":
-            meta_cd = header_meta.get("TSPARMCD", {})
-            meta_nm = header_meta.get("TSPARM", {})
-
-            nci_codelist_code_cd = safe_upper(meta_cd.get("NCI Codelist Code", ""))
-            nci_codelist_code_nm = safe_upper(meta_nm.get("NCI Codelist Code", ""))
-
-            ct_sub_cd = pd.DataFrame()
-            if nci_codelist_code_cd:
-                ct_sub_cd = ct_df[ct_df["Codelist Code"].apply(safe_upper) == nci_codelist_code_cd].copy()
-                ct_sub_cd = prepare_ct_sub(ct_sub_cd)
-
-            for term_candidate in TS_TSPARMCD_TERMS:
-                hit_cd = None
-                if not ct_sub_cd.empty:
-                    hit_cd = match_term(ct_sub_cd, term_candidate)
-
-                # --------------------------------
-                # 先處理 TSPARMCD 端
-                # --------------------------------
-                term_cd = term_candidate
-                nci_code = ""
-
-                if hit_cd is not None:
-                    term_cd = safe_text(hit_cd.get("Submission Value", term_candidate))
-                    nci_code = safe_text(hit_cd.get("NCI Term Code", ""))
-
-                # --------------------------------
-                # 再用 NCI Term Code 去 TSPARM codelist 找真正的 term
-                # --------------------------------
-                tsparm_term = resolve_decoded_term_by_nci_code(
-                    ct_df=ct_df,
-                    target_codelist_code=nci_codelist_code_nm,
-                    nci_term_code=nci_code
-                )
-
-                # fallback 1: 若 TSPARM codelist 找不到，再看 pairing lookup
-                if not tsparm_term:
-                    tsparm_term = resolve_decoded_value("TS", "TSPARMCD", term_cd, decoded_pair_lookup)
-
-                # fallback 2: 再不行就至少不要空白
-                if not tsparm_term:
-                    tsparm_term = term_cd
-
-                # --------------------------------
-                # TSPARMCD row
-                # --------------------------------
-                dedup_key_cd = ("TSPARMCD", term_cd)
-                if dedup_key_cd not in seen:
-                    seen.add(dedup_key_cd)
-
-                    rows.append({
-                        "ID": "TSPARMCD",
-                        "Name": meta_cd.get("Name", ""),
-                        "NCI Codelist Code": nci_codelist_code_cd,
-                        "Data Type": "text",
-                        "Terminology": terminology_value,
-                        "Comment": "",
-                        "Order": None,
-                        "Term": term_cd,
-                        "NCI Term Code": nci_code,
-                        "Decoded Value": tsparm_term
-                    })
-
-                # --------------------------------
-                # TSPARM row
-                # --------------------------------
-                dedup_key_nm = ("TSPARM", normalize_term(tsparm_term))
-                if dedup_key_nm not in seen:
-                    seen.add(dedup_key_nm)
-    
-                    rows.append({
-                        "ID": "TSPARM",
-                        "Name": meta_nm.get("Name", ""),
-                        "NCI Codelist Code": nci_codelist_code_nm,
-                        "Data Type": "text",
-                        "Terminology": terminology_value,
-                        "Comment": "",
-                        "Order": None,
-                        "Term": tsparm_term,
-                        "NCI Term Code": nci_code,
-                        "Decoded Value": ""
-                    })
-
-            continue
-
-
-
-        
-        forced_terms = get_special_default_terms(cid)
-        if not forced_terms:
-            continue
-
-        meta = header_meta.get(cid, {})
-        nci_codelist_code = safe_upper(meta.get("NCI Codelist Code", ""))
-
-        ct_sub = pd.DataFrame()
-        if nci_codelist_code:
-            ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code].copy()
-            ct_sub = prepare_ct_sub(ct_sub)
-
-        for term_candidate in forced_terms:
-            hit = None
-            if not ct_sub.empty:
-                hit = match_term(ct_sub, term_candidate)
-
-            if hit is not None:
-                submission_val = safe_text(hit.get("Submission Value", ""))
-                dedup_key = (cid, submission_val)
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
-
-                rows.append({
-                    "ID": cid,
-                    "Name": meta.get("Name", ""),
-                    "NCI Codelist Code": nci_codelist_code,
-                    "Data Type": "text",
-                    "Terminology": terminology_value,
-                    "Comment": "",
-                    "Order": None,
-                    "Term": submission_val,
-                    "NCI Term Code": safe_text(hit.get("NCI Term Code", "")),
-                    "Decoded Value": safe_text(hit.get("NCI Preferred Term", ""))
-                })
-            else:
-                dedup_key = (cid, normalize_term(term_candidate))
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
-
-                rows.append({
-                    "ID": cid,
-                    "Name": meta.get("Name", ""),
-                    "NCI Codelist Code": nci_codelist_code,
-                    "Data Type": "text",
-                    "Terminology": terminology_value,
-                    "Comment": "",
-                    "Order": None,
-                    "Term": term_candidate,
-                    "NCI Term Code": "",
-                    "Decoded Value": ""
-                })
-
-    # -------------------------------------------------
-    # 7) 先轉 DataFrame，保證欄位存在
-    # -------------------------------------------------
-    out = pd.DataFrame(rows, columns=cols)
-    
-    if not out.empty:
-        id_upper = out["ID"].astype(str).str.upper()
-
-        keep_mask = (
-            id_upper.str.endswith("TESTCD") |
-            (id_upper == "TSPARMCD")
-        )
-        
-        out.loc[~keep_mask, "Decoded Value"] = ""
-
-    
     existing_ids = set()
-    if not out.empty and "ID" in out.columns:
-        existing_ids = set(out["ID"].astype(str).str.upper().tolist())
+    if rows:
+        existing_ids = set(pd.DataFrame(rows)["ID"].astype(str).str.upper().tolist())
 
-    # 沒有 term row 的 ID 也補 header-only
-    missing_rows = []
     for cid in distinct_ids:
-        if cid in existing_ids:
+        if safe_upper(cid) in existing_ids:
             continue
 
         meta = header_meta.get(cid, {})
-        missing_rows.append({
+        rows.append({
             "ID": cid,
             "Name": meta.get("Name", ""),
             "NCI Codelist Code": meta.get("NCI Codelist Code", ""),
@@ -3353,40 +2878,50 @@ def build_decoded_pair_lookup(work_df):
             "Decoded Value": ""
         })
 
-    if missing_rows:
-        out = pd.concat([out, pd.DataFrame(missing_rows, columns=cols)], ignore_index=True)
-
-    if out.empty:
-        return pd.DataFrame(columns=cols)
-
     # -------------------------------------------------
-    # 8) 排序與流水號
+    # 7) output dataframe
     # -------------------------------------------------
-    out = out.copy()
+    if rows:
+        out_df = pd.DataFrame(rows, columns=cols)
+    else:
+        out_df = pd.DataFrame(columns=cols)
+
+    if out_df is None or not isinstance(out_df, pd.DataFrame):
+        out_df = pd.DataFrame(columns=cols)
+
     for c in cols:
-        if c not in out.columns:
-            out[c] = ""
+        if c not in out_df.columns:
+            out_df[c] = ""
 
-    out = out[cols]
-    out = out.sort_values(by=["ID", "Term"], na_position="last").reset_index(drop=True)
+    out_df = out_df[cols].copy()
 
-    out = out.copy()
-    for c in cols:
-        if c not in out.columns:
-            out[c] = ""
+    # coded rows only keep decoded value
+    if not out_df.empty:
+        id_upper = out_df["ID"].astype(str).str.upper()
+        keep_mask = (
+            id_upper.str.endswith("TESTCD") |
+            (id_upper == "TSPARMCD")
+        )
+        out_df.loc[~keep_mask, "Decoded Value"] = ""
 
-    out = out[cols]
+    # order
+    out_df["_term_sort"] = out_df["Term"].fillna("").astype(str).str.upper().str.strip()
+    out_df = out_df.sort_values(by=["ID", "_term_sort"], na_position="last").reset_index(drop=True)
+    out_df["Order"] = out_df.groupby("ID").cumcount() + 1
+    out_df = out_df.drop(columns=["_term_sort"])
 
-    # 先排 ID，再排 Term（空白也保留）
-    out["_term_sort"] = out["Term"].fillna("").astype(str).str.upper().str.strip()
-    out = out.sort_values(by=["ID", "_term_sort"], na_position="last").reset_index(drop=True)
+    # 可先保留 debug；如果不想顯示，之後再拿掉
+    # st.write("DEBUG display_id missing:", debug_display_id_missing)
+    # st.write("DEBUG forced_terms empty:", debug_forced_terms_empty)
+    # st.write("DEBUG CT match hit:", debug_match_hit)
+    # st.write("DEBUG CT match miss:", debug_match_miss)
+    # st.write("DEBUG rows built:", len(rows))
+    # st.write("DEBUG codelists out_df rows:", len(out_df))
 
-    # 每個 ID 內，不管 Term 是否空白，都給順序
-    out["Order"] = out.groupby("ID").cumcount() + 1
+    return out_df
 
-    out = out.drop(columns=["_term_sort"])
 
-    return out[cols]
+
 
 
 
