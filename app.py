@@ -2315,8 +2315,8 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
         needed_cols = ["Codelist Code", "NCI Term Code", "Submission Value"]
         for c in needed_cols:
-        if c not in ct_df.columns:
-            return ""
+            if c not in ct_df.columns:
+                return ""
 
         sub = ct_df[
             (ct_df["Codelist Code"].apply(safe_upper) == target_codelist_code) &
