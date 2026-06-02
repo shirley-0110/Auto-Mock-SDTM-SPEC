@@ -2010,6 +2010,44 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     def to_phrase(tokens):
         return " ".join(tokens)
 
+
+    def resolve_forced_terms(display_id, var, opt, assign_val):
+        display_id = safe_upper(display_id)
+        var = safe_upper(var)
+        opt = safe_text(opt)
+        assign_val = safe_text(assign_val)
+
+        # ✅ DOMAIN_AE → AE
+        if display_id.startswith("DOMAIN_") and "_" in display_id:
+            return [display_id.split("_", 1)[1]]
+
+        # ✅ TEST / TESTCD / ORRESU → 用 Assign Value
+        if var.endswith("TEST") or var.endswith("TESTCD") or var.endswith("ORRESU"):
+            return [
+                x.strip()
+                for x in re.split(r"[;\n]+", assign_val)
+                if str(x).strip()
+            ]
+
+        # ✅ ND
+        if display_id == "ND":
+            return ["NOT DONE"]
+
+        # ✅ NY
+        if display_id == "NY":
+            return ["N", "Y"]
+
+        # ✅ Y
+        if display_id == "Y":
+            return ["Y"]
+
+        # ✅ default → option
+        if opt:
+            return [opt]
+
+        return []
+
+    
     def prepare_ct_sub(ct_sub):
         """
         預先做 CT token cache（效能必須）
