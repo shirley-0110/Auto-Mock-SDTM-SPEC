@@ -1911,74 +1911,51 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         # 去重（保序）
         return list(dict.fromkeys(parts))
 
-
+    
     def build_decoded_pair_lookup(work_df):
-        """
-        建立 coded variable -> decoded variable 的對照：
-          --TESTCD -> --TEST
-          TSPARMCD -> TSPARM
-        key:
-          (SDTM Domain, coded variable, coded value)
-        value:
-          decoded text
-        """
         lookup = {}
 
         if work_df.empty:
             return lookup
 
-        tmp = work_df.copy()
+        df = work_df.copy()
 
-        for c in ["SDTM Domain", "SDTM Variable", "Assign Value"]:
-            if c not in tmp.columns:
-                tmp[c] = ""
+        df["SDTM Domain"] = df["SDTM Domain"].apply(safe_upper)
+        df["SDTM Variable"] = df["SDTM Variable"].apply(safe_upper)
+        df["Assign Value"] = df["Assign Value"].apply(safe_text)
 
-        tmp["SDTM Domain"] = tmp["SDTM Domain"].apply(safe_upper)
-        tmp["SDTM Variable"] = tmp["SDTM Variable"].apply(safe_upper)
-        tmp["Assign Value"] = tmp["Assign Value"].apply(safe_text)
+        # group by same CRF source (關鍵)
+        key_cols = ["Source CRF Sheet", "Source CRF Variable"]
 
-        # 1) --TESTCD -> --TEST
-        test_rows = tmp[
-            tmp["SDTM Variable"].str.endswith("TEST") &
-            (~tmp["SDTM Variable"].str.endswith("TESTCD"))
-        ].copy()
+        if not all(c in df.columns for c in key_cols):
+            return lookup
 
-        test_lookup = {}
-        for _, r in test_rows.iterrows():
-            ds = r["SDTM Domain"]
-            var = r["SDTM Variable"]   # e.g. VSTEST
-            stem = var[:-4]            # e.g. VS
-            decoded_val = r["Assign Value"]
-            if decoded_val:
-                test_lookup[(ds, stem)] = decoded_val
+        for _, grp in df.groupby(key_cols):
+            test_map = {}
+            testcd_map = {}
 
-        coded_rows = tmp[tmp["SDTM Variable"].str.endswith("TESTCD")].copy()
-        for _, r in coded_rows.iterrows():
-            ds = r["SDTM Domain"]
-            coded_var = r["SDTM Variable"]   # e.g. VSTESTCD
-            stem = coded_var[:-6]            # e.g. VS
-            coded_val = r["Assign Value"]    # e.g. TEMP
-            decoded_val = test_lookup.get((ds, stem), "")
-            if coded_val and decoded_val:
-                lookup[(ds, coded_var, normalize_term(coded_val))] = decoded_val
+            for _, r in grp.iterrows():
+                var = r["SDTM Variable"]
+                val = r["Assign Value"]
+                ds = r["SDTM Domain"]
 
-        # 2) TSPARMCD -> TSPARM
-        tsparm_rows = tmp[tmp["SDTM Variable"] == "TSPARM"].copy()
-        tsparm_val = ""
-        if not tsparm_rows.empty:
-            # 如果有多個，保留原順序後去重，用 ; 串起來（避免資訊丟失）
-            vals = [safe_text(x) for x in tsparm_rows["Assign Value"].tolist() if safe_text(x)]
-            vals = list(dict.fromkeys(vals))
-            tsparm_val = "; ".join(vals)
+                if not val:
+                    continue
 
-        tsparmcd_rows = tmp[tmp["SDTM Variable"] == "TSPARMCD"].copy()
-        for _, r in tsparmcd_rows.iterrows():
-            coded_val = r["Assign Value"]
-            if coded_val and tsparm_val:
-                lookup[("TS", "TSPARMCD", normalize_term(coded_val))] = tsparm_val
+                if var.endswith("TEST") and not var.endswith("TESTCD"):
+                    test_map[var[:-4]] = val
+
+                if var.endswith("TESTCD"):
+                    testcd_map[var] = val
+
+            for coded_var, coded_val in testcd_map.items():
+                stem = coded_var[:-6]
+                decoded_val = test_map.get(stem, "")
+
+                if decoded_val:
+                    lookup[(ds, coded_var, normalize_term(coded_val))] = decoded_val
 
         return lookup
-
 
 
     def resolve_decoded_value(ds, var, term_value, decoded_pair_lookup):
@@ -2744,7 +2721,18 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     # 7) 先轉 DataFrame，保證欄位存在
     # -------------------------------------------------
     out = pd.DataFrame(rows, columns=cols)
+    
+    if not out.empty:
+        id_upper = out["ID"].astype(str).str.upper()
 
+        keep_mask = (
+            id_upper.str.endswith("TESTCD") |
+            (id_upper == "TSPARMCD")
+        )
+        
+        out.loc[~keep_mask, "Decoded Value"] = ""
+
+    
     existing_ids = set()
     if not out.empty and "ID" in out.columns:
         existing_ids = set(out["ID"].astype(str).str.upper().tolist())
