@@ -4215,7 +4215,7 @@ if uploaded_file is not None:
             else:
                 st.markdown("### Basic Information")
 
-                default_protocol_no = extract_protocol_no_from_filename(uploaded_file.name)
+                sponsor, default_protocol_no = extract_protocol_no_from_filename(uploaded_file.name)
 
                 col1, col2 = st.columns(2)
                 with col1:
