@@ -222,6 +222,153 @@ def find_option_displayed_value_column(columns):
 
 
 
+def find_abbreviation_column(columns):
+    """
+    找 Folder sheet 的 Abbreviation 欄
+    """
+    priority_exact = [
+        "ABBREVIATION",
+        "ABBR",
+        "VISIT ABBREVIATION"
+    ]
+
+    normalized_map = {col: normalize_text(col) for col in columns}
+
+    for target in priority_exact:
+        for col, norm_col in normalized_map.items():
+            if norm_col == target:
+                return col
+
+    for col, norm_col in normalized_map.items():
+        if "ABBREVIATION" in norm_col:
+            return col
+
+    return None
+
+
+
+def build_soa_visit_list(
+    file_bytes,
+    manual_soa_header=None,
+    manual_folder_header=None
+):
+    """
+    從 SoA + Folder 建立 SoA List:
+      Source CRF Sheet / Abbreviation / Visit
+
+    規則：
+      - SoA 的 row = Source CRF Sheet (Form OID)
+      - SoA 的 visit 欄位只要 cell = X，就輸出一列
+      - Folder 的 Abbreviation -> Full Term 對出 Visit
+    """
+    # -----------------------------
+    # 1) 讀 SoA
+    # -----------------------------
+    soa_df, _ = read_sheet_with_detected_header(
+        file_bytes=file_bytes,
+        sheet_name="SoA",
+        keyword_groups=[["FORM", "OID"]],
+        manual_header_row_excel=manual_soa_header
+    )
+
+    form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
+    if form_oid_col is None:
+        raise ValueError("SoA 分頁中找不到 Form OID 欄位")
+
+    # SoA 所有欄位
+    soa_columns = [str(c).strip() for c in soa_df.columns if str(c).strip()]
+
+    # 這些欄位不是 visit abbreviation
+    non_visit_headers = {
+        "FORM OID",
+        "FORMOID",
+        "FORM",
+        "CRF NAME",
+        "FORM NAME",
+        "DESCRIPTION",
+        "SEQ",
+        "ORDER"
+    }
+
+    visit_cols = []
+    for col in soa_columns:
+        col_up = normalize_text(col)
+        if col_up not in non_visit_headers:
+            visit_cols.append(col)
+
+    # -----------------------------
+    # 2) 讀 Folder
+    # -----------------------------
+    folder_df, _ = read_sheet_with_detected_header(
+        file_bytes=file_bytes,
+        sheet_name="Folder",
+        keyword_groups=[["ABBREVIATION"], ["FULL", "TERM"]],
+        manual_header_row_excel=manual_folder_header
+    )
+
+    abbr_col = find_abbreviation_column(folder_df.columns)
+    full_term_col = find_full_term_column(folder_df.columns)
+
+    if abbr_col is None:
+        raise ValueError("Folder 分頁中找不到 Abbreviation 欄位")
+
+    if full_term_col is None:
+        raise ValueError("Folder 分頁中找不到 Full Term 欄位")
+
+    folder_work = folder_df[[abbr_col, full_term_col]].copy()
+    folder_work.columns = ["Abbreviation", "Visit"]
+
+    folder_work["Abbreviation"] = (
+        folder_work["Abbreviation"].fillna("").astype(str).str.strip().str.upper()
+    )
+    folder_work["Visit"] = (
+        folder_work["Visit"].fillna("").astype(str).str.strip()
+    )
+
+    folder_work = folder_work[
+        (folder_work["Abbreviation"] != "") &
+        (folder_work["Visit"] != "")
+    ].drop_duplicates(subset=["Abbreviation"], keep="first")
+
+    folder_lookup = dict(zip(folder_work["Abbreviation"], folder_work["Visit"]))
+
+    # -----------------------------
+    # 3) 展開 SoA List
+    # -----------------------------
+    records = []
+
+    for _, row in soa_df.iterrows():
+        source_sheet = str(row.get(form_oid_col, "")).strip().upper()
+
+        if not source_sheet:
+            continue
+
+        for col in visit_cols:
+            abbr = normalize_text(col)
+            cell_val = str(row.get(col, "")).strip().upper()
+
+            # 只抓 ticked X
+            if cell_val == "X":
+                visit_name = folder_lookup.get(abbr, "")
+
+                records.append({
+                    "Source CRF Sheet": source_sheet,
+                    "Abbreviation": abbr,
+                    "Visit": visit_name
+                })
+
+    if records:
+        out_df = pd.DataFrame(records).drop_duplicates().reset_index(drop=True)
+    else:
+        out_df = pd.DataFrame(columns=[
+            "Source CRF Sheet", "Abbreviation", "Visit"
+        ])
+
+    return out_df
+
+
+
+
 def find_folder_oid_column(columns):
     """
     找 Folder sheet 中代表 visit / folder OID 的欄位
@@ -4159,6 +4306,20 @@ if uploaded_file is not None:
         if missing_sheets:
             st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
 
+        st.markdown("### SoA List")
+
+        try:
+            soa_list_df = build_soa_visit_list(
+                file_bytes=file_bytes,
+                manual_soa_header=manual_soa_header,
+                manual_folder_header=None
+            )
+            st.dataframe(soa_list_df, use_container_width=True)
+            st.session_state["soa_list_df"] = soa_list_df
+        except Exception as e:
+            st.warning(f"SoA List 建立失敗：{e}")
+
+        
         st.markdown("### 整份檔案要呈現的 SDTM Domains / Variables")
         if mapping_df.empty:
             st.warning("目前沒有從各 CRF sheet 的 SDTM IG Target 抓到可解析的 SDTM domain / variable")
