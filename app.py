@@ -369,6 +369,75 @@ def build_soa_visit_list(
 
 
 
+def build_tv_from_soa_list(
+    soa_list_df,
+    protocol_no="",
+    ordered_columns=None
+):
+    """
+    由 SoA List 生成 TV
+    規則：
+      1. 只保留 Visit 非空白
+      2. 若 Source CRF Sheet == Abbreviation，排除
+      3. 依 SoA List 首次出現順序，對 Abbreviation + Visit 去重
+    """
+    if ordered_columns is None:
+        ordered_columns = [
+            "STUDYID", "DOMAIN", "VISITNUM", "VISIT", "VISITDY",
+            "ARMCD", "ARM", "TVSTRL", "TVENRL"
+        ]
+
+    def make_empty_row():
+        row = {c: "" for c in ordered_columns}
+        if "STUDYID" in row:
+            row["STUDYID"] = protocol_no
+        if "DOMAIN" in row:
+            row["DOMAIN"] = "TV"
+        return row
+
+    if soa_list_df is None or soa_list_df.empty:
+        return pd.DataFrame([make_empty_row()], columns=ordered_columns)
+
+    work = soa_list_df.copy()
+
+    for c in ["Source CRF Sheet", "Abbreviation", "Visit"]:
+        if c not in work.columns:
+            work[c] = ""
+
+    work["Source CRF Sheet"] = (
+        work["Source CRF Sheet"].fillna("").astype(str).str.strip().str.upper()
+    )
+    work["Abbreviation"] = (
+        work["Abbreviation"].fillna("").astype(str).str.strip().str.upper()
+    )
+    work["Visit"] = (
+        work["Visit"].fillna("").astype(str).str.strip()
+    )
+
+    # 1) Visit 不能空白
+    work = work[work["Visit"] != ""].copy()
+
+    # 2) Source CRF Sheet 等於 Abbreviation 的，不納入 TV
+    work = work[work["Source CRF Sheet"] != work["Abbreviation"]].copy()
+
+    # 3) 依首次出現順序去重
+    # 以 Abbreviation + Visit 為唯一鍵
+    work = work.drop_duplicates(subset=["Abbreviation", "Visit"], keep="first").copy()
+
+    if work.empty:
+        return pd.DataFrame([make_empty_row()], columns=ordered_columns)
+
+    rows = []
+    for _, r in work.iterrows():
+        row = make_empty_row()
+
+        if "VISIT" in row:
+            row["VISIT"] = r["Visit"]
+
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=ordered_columns)
+
 
 def find_folder_oid_column(columns):
     """
