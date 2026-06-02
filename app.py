@@ -2191,6 +2191,11 @@ def derive_codelist_name(display_id, base_name):
 
 
 def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, cfg_df, sdtm_ct_version=""):
+
+    st.write("DEBUG variables_df rows:", len(variables_df))
+    st.write("DEBUG ct_mapping_df rows:", len(ct_mapping_df) if ct_mapping_df is not None else "None")
+
+    
     cols = [
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
@@ -3007,8 +3012,6 @@ def build_decoded_pair_lookup(work_df):
 
             # 規則優先
             forced_terms = resolve_forced_terms(display_id, var, opt, assign_val)
-            
-            st.write("DEBUG", var, opt, assign_val, forced_terms)
 
             if not forced_terms:
                 continue
