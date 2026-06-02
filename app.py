@@ -2061,7 +2061,6 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         "TEST", "COUNT", "LEVEL", "VALUE"
     }
 
-
    TS_TSPARMCD_TERMS = [
        "ACTSUB",
        "ADAPT",
