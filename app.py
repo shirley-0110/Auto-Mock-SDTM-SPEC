@@ -2192,10 +2192,9 @@ def derive_codelist_name(display_id, base_name):
 
 def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, cfg_df, sdtm_ct_version=""):
 
-    st.write("DEBUG variables_df rows:", len(variables_df))
-    st.write("DEBUG ct_mapping_df rows:", len(ct_mapping_df) if ct_mapping_df is not None else "None")
+    #st.write("DEBUG variables_df rows:", len(variables_df))
+    #st.write("DEBUG ct_mapping_df rows:", len(ct_mapping_df) if ct_mapping_df is not None else "None")
 
-    
     cols = [
         "ID", "Name", "NCI Codelist Code", "Data Type", "Terminology",
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
@@ -2236,6 +2235,39 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     rows = []
     seen = set()
 
+    if not ct_mapping_df.empty:
+        work = ct_mapping_df.copy()
+
+        for _, r in work.iterrows():
+            ds = safe_upper(r.get("SDTM Domain", ""))
+            var = safe_upper(r.get("SDTM Variable", ""))
+            opt = safe_text(r.get("Option Displayed Value", ""))
+
+            if not ds or not var or not opt:
+                continue
+
+            display_id = var  # ✅ 先用 var 當 ID（之後再改成正式 mapping）
+
+            dedup_key = (display_id, normalize_text(opt))
+
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+
+            rows.append({
+                "ID": display_id,
+                "Name": "",
+                "NCI Codelist Code": "",
+                "Data Type": "text",
+                "Terminology": "",
+                "Comment": "",
+                "Order": None,
+                "Term": opt,
+                "NCI Term Code": "",
+                "Decoded Value": ""
+            })
+
+    
     # -------------------------------------------------
     # ✅ 最終建立 DataFrame（保底）
     # -------------------------------------------------
