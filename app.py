@@ -1912,7 +1912,19 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         return list(dict.fromkeys(parts))
 
     
+
     def build_decoded_pair_lookup(work_df):
+        """
+        建立 coded term -> decoded term 的 lookup
+    
+        支援：
+          - --TESTCD  <-> --TEST
+          - TSPARMCD <-> TSPARM
+        key:
+          (SDTM Domain, coded variable, normalized coded value)
+        value:
+          decoded text
+        """
         lookup = {}
 
         if work_df.empty:
@@ -1920,42 +1932,60 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
         df = work_df.copy()
 
+        for c in ["SDTM Domain", "SDTM Variable", "Assign Value"]:
+            if c not in df.columns:
+                df[c] = ""
+
         df["SDTM Domain"] = df["SDTM Domain"].apply(safe_upper)
         df["SDTM Variable"] = df["SDTM Variable"].apply(safe_upper)
         df["Assign Value"] = df["Assign Value"].apply(safe_text)
 
-        # group by same CRF source (關鍵)
+        # 用同一個 CRF source 做 pairing
         key_cols = ["Source CRF Sheet", "Source CRF Variable"]
-
         if not all(c in df.columns for c in key_cols):
             return lookup
 
         for _, grp in df.groupby(key_cols):
-            test_map = {}
-            testcd_map = {}
+            name_map = {}   # decoded side
+            code_map = {}   # coded side
 
             for _, r in grp.iterrows():
+                ds = r["SDTM Domain"]
                 var = r["SDTM Variable"]
                 val = r["Assign Value"]
-                ds = r["SDTM Domain"]
 
                 if not val:
                     continue
 
+                # ---- decoded side ----
                 if var.endswith("TEST") and not var.endswith("TESTCD"):
-                    test_map[var[:-4]] = val
+                    stem = var[:-4]
+                    name_map[(ds, stem)] = val
 
+                elif var == "TSPARM":
+                    name_map[(ds, "TSPARM")] = val
+
+                # ---- coded side ----
                 if var.endswith("TESTCD"):
-                    testcd_map[var] = val
+                    code_map[(ds, var)] = val
 
-            for coded_var, coded_val in testcd_map.items():
-                stem = coded_var[:-6]
-                decoded_val = test_map.get(stem, "")
+                elif var == "TSPARMCD":
+                    code_map[(ds, "TSPARMCD")] = val
 
+            for (ds, coded_var), coded_val in code_map.items():
+                if coded_var.endswith("TESTCD"):
+                    stem = coded_var[:-6]
+                elif coded_var == "TSPARMCD":
+                    stem = "TSPARM"
+                else:
+                    continue
+
+                decoded_val = name_map.get((ds, stem), "")
                 if decoded_val:
                     lookup[(ds, coded_var, normalize_term(coded_val))] = decoded_val
 
         return lookup
+
 
 
     def resolve_decoded_value(ds, var, term_value, decoded_pair_lookup):
@@ -2526,6 +2556,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     # -------------------------------------------------
     rows = []
     seen = set()
+    decoded_pair_lookup = {}
 
     # -------------------------------------------------
     # 6) ct_mapping_df -> term rows
@@ -2662,62 +2693,88 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     # 這些 ID 可能不會出現在 ct_mapping_df，但仍需 term rows
     # -------------------------------------------------
     for cid in distinct_ids:
+
         if cid == "TSPARMCD":
-            meta = header_meta.get(cid, {})
-            nci_codelist_code = safe_upper(meta.get("NCI Codelist Code", ""))
+            meta_cd = header_meta.get("TSPARMCD", {})
+            meta_nm = header_meta.get("TSPARM", {})
+
+            nci_codelist_code_cd = safe_upper(meta_cd.get("NCI Codelist Code", ""))
+            nci_codelist_code_nm = safe_upper(meta_nm.get("NCI Codelist Code", ""))
 
             ct_sub = pd.DataFrame()
-            if nci_codelist_code:
-                ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code].copy()
+            if nci_codelist_code_cd:
+                ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code_cd].copy()
                 ct_sub = prepare_ct_sub(ct_sub)
 
             for term_candidate in TS_TSPARMCD_TERMS:
-
                 hit = None
                 if not ct_sub.empty:
                     hit = match_term(ct_sub, term_candidate)
 
-                term_val = term_candidate
+                # coded side
+                term_cd = term_candidate
                 nci_code = ""
+                preferred_term = ""
 
                 if hit is not None:
-                    term_val = safe_text(hit.get("Submission Value", term_candidate))
+                    term_cd = safe_text(hit.get("Submission Value", term_candidate))
                     nci_code = safe_text(hit.get("NCI Term Code", ""))
+                    preferred_term = safe_text(hit.get("NCI Preferred Term", ""))
 
-                dedup_key = (cid, term_val)
-                if dedup_key in seen:
-                    continue
-                seen.add(dedup_key)
+                # fallback：若 CT 沒抓到 preferred term，就嘗試用 pairing lookup
+                if not preferred_term:
+                    preferred_term = resolve_decoded_value("TS", "TSPARMCD", term_cd, decoded_pair_lookup)
 
-                # TSPARMCD
-                rows.append({
-                    "ID": "TSPARMCD",
-                    "Name": meta.get("Name", ""),
-                    "NCI Codelist Code": nci_codelist_code,
-                    "Data Type": "text",
-                    "Terminology": terminology_value,
-                    "Comment": "",
-                    "Order": None,
-                    "Term": term_val,
-                    "NCI Term Code": nci_code,
-                    "Decoded Value": ""
-                })
+                # 如果還是沒有，就至少保留 code，不至於空白
+                if not preferred_term:
+                    preferred_term = term_cd
 
-                # TSPARM（同步展開）
-                rows.append({
-                    "ID": "TSPARM",
-                    "Name": meta.get("Name", ""),
-                    "NCI Codelist Code": "",
-                    "Data Type": "text",
-                    "Terminology": terminology_value,
-                    "Comment": "",
-                    "Order": None,
-                    "Term": term_val,
-                    "NCI Term Code": nci_code,
-                    "Decoded Value": ""
-                })
+                # ---------------------------
+                # TSPARMCD row
+                # Term = ACTSUB
+                # Decoded Value = Actual Number of Subjects
+                # ---------------------------
+                dedup_key_cd = ("TSPARMCD", term_cd)
+                if dedup_key_cd not in seen:
+                    seen.add(dedup_key_cd)
+
+                    rows.append({
+                        "ID": "TSPARMCD",
+                        "Name": meta_cd.get("Name", ""),
+                        "NCI Codelist Code": nci_codelist_code_cd,
+                        "Data Type": "text",
+                        "Terminology": terminology_value,
+                        "Comment": "",
+                        "Order": None,
+                        "Term": term_cd,
+                        "NCI Term Code": nci_code,
+                        "Decoded Value": preferred_term
+                    })
+
+                # ---------------------------
+                # TSPARM row
+                # Term = Actual Number of Subjects
+                # Decoded Value = blank
+                # ---------------------------
+                dedup_key_nm = ("TSPARM", normalize_term(preferred_term))
+                if dedup_key_nm not in seen:
+                    seen.add(dedup_key_nm)
+
+                    rows.append({
+                        "ID": "TSPARM",
+                        "Name": meta_nm.get("Name", ""),
+                        "NCI Codelist Code": nci_codelist_code_nm,
+                        "Data Type": "text",
+                        "Terminology": terminology_value,
+                        "Comment": "",
+                        "Order": None,
+                        "Term": preferred_term,
+                        "NCI Term Code": nci_code,
+                        "Decoded Value": ""
+                    })
 
             continue
+
 
         
         forced_terms = get_special_default_terms(cid)
