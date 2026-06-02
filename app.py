@@ -1954,7 +1954,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         return base_name
 
 
-   TERM_NORMALIZATION_MAP = {
+    TERM_NORMALIZATION_MAP = {
         "START DATE UNKNOWN": "UNKNOWN",
         "END DATE UNKNOWN": "UNKNOWN",
         "UNKNOWN DATE": "UNKNOWN",
