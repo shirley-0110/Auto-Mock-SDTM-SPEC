@@ -222,6 +222,65 @@ def find_option_displayed_value_column(columns):
 
 
 
+def find_folder_oid_column(columns):
+    """
+    找 Folder sheet 中代表 visit / folder OID 的欄位
+    """
+    priority_exact = [
+        "FOLDER OID",
+        "OID",
+        "VISIT OID",
+        "FOLDER NAME",
+        "FOLDER"
+    ]
+
+    normalized_map = {col: normalize_text(col) for col in columns}
+
+    for target in priority_exact:
+        for col, norm_col in normalized_map.items():
+            if norm_col == target:
+                return col
+
+    for col, norm_col in normalized_map.items():
+        if "FOLDER" in norm_col and "OID" in norm_col:
+            return col
+
+    for col, norm_col in normalized_map.items():
+        if norm_col == "OID":
+            return col
+
+    return None
+
+
+def find_full_term_column(columns):
+    """
+    找 Folder sheet 中的 Full Term 欄位
+    """
+    priority_exact = [
+        "FULL TERM",
+        "FOLDER FULL TERM",
+        "VISIT NAME",
+        "FOLDER TERM",
+        "TERM",
+        "NAME"
+    ]
+
+    normalized_map = {col: normalize_text(col) for col in columns}
+
+    for target in priority_exact:
+        for col, norm_col in normalized_map.items():
+            if norm_col == target:
+                return col
+
+    for col, norm_col in normalized_map.items():
+        if "FULL" in norm_col and "TERM" in norm_col:
+            return col
+
+    return None
+
+
+
+
 def find_sdtm_ct_codelist_column(columns):
     """
     找 CRF schema 中的 SDTM CT Codelist 欄位
@@ -3321,6 +3380,60 @@ def build_ts_template_rows(
 
 
 
+def build_tv_template_rows(
+    protocol_no="",
+    file_bytes=None,
+    manual_soa_header=None,
+    manual_folder_header=None,
+    ordered_columns=None
+):
+    """
+    用 SoA + Folder 建立 TV template rows
+    - SoA: 決定出現順序
+    - Folder: 提供 Full Term 當 VISIT 名稱
+    """
+    if ordered_columns is None:
+        ordered_columns = [
+            "STUDYID", "DOMAIN", "VISITNUM", "VISIT", "VISITDY",
+            "ARMCD", "ARM", "TVSTRL", "TVENRL"
+        ]
+
+    def make_empty_row():
+        row = {c: "" for c in ordered_columns}
+        if "STUDYID" in row:
+            row["STUDYID"] = protocol_no
+        if "DOMAIN" in row:
+            row["DOMAIN"] = "TV"
+        return row
+
+    if file_bytes is None:
+        return pd.DataFrame([make_empty_row()], columns=ordered_columns)
+
+    try:
+        visit_df = extract_tv_visits_from_soa_folder(
+            file_bytes=file_bytes,
+            manual_soa_header=manual_soa_header,
+            manual_folder_header=manual_folder_header
+        )
+    except Exception:
+        return pd.DataFrame([make_empty_row()], columns=ordered_columns)
+
+    if visit_df.empty:
+        return pd.DataFrame([make_empty_row()], columns=ordered_columns)
+
+    rows = []
+    for _, r in visit_df.iterrows():
+        row = make_empty_row()
+
+        if "VISIT" in row:
+            row["VISIT"] = r["VISIT"]
+
+        # 如果你之後想保留原始 OID 做 debug，也可以暫時塞 comment 或新增欄位
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=ordered_columns)
+
+
 
 def build_trial_design_templates(
     protocol_no="",
@@ -3330,16 +3443,21 @@ def build_trial_design_templates(
     snomed_version="",
     unii_version="",
     medrt_version="",
+    file_bytes=None,
+    manual_soa_header=None,
+    manual_folder_header=None,
     config_df=None,
     codelists_df=None
 ):
+
+
     """
     Trial Design template:
       - STUDYID 自動帶 protocol_no
       - DOMAIN 自動帶 TA/TE/TI/TS/TV
       - 欄位順序依 config 的 VarNum 排
       - TS 依 TSPARMCD / TSPARM 展開
-      - TSVAL / TSVCDREF / TSVCDVER 預設帶入
+      - TV 依 SoA + Folder 展開 visits
     """
     defs = get_trial_design_definitions()
     outputs = []
@@ -3364,6 +3482,16 @@ def build_trial_design_templates(
                 codelists_df=codelists_df,
                 ordered_columns=ordered_columns
             )
+
+        elif domain == "TV":
+            df = build_tv_template_rows(
+                protocol_no=protocol_no,
+                file_bytes=file_bytes,
+                manual_soa_header=manual_soa_header,
+                manual_folder_header=manual_folder_header,
+                ordered_columns=ordered_columns
+            )
+
         else:
             row = {c: "" for c in ordered_columns}
 
@@ -3377,6 +3505,7 @@ def build_trial_design_templates(
         outputs.append(df)
 
     return tuple(outputs)
+
 
 
 
@@ -3769,6 +3898,105 @@ def to_excel_bytes(sheet_dict):
 
     output.seek(0)
     return output.getvalue()
+
+
+
+def extract_tv_visits_from_soa_folder(
+    file_bytes,
+    manual_soa_header=None,
+    manual_folder_header=None
+):
+    """
+    用 SoA + Folder 產生 TV 的 visit 清單
+
+    規則：
+      - SoA 的 Form OID 決定順序
+      - Folder 的 OID + Full Term 決定 visit 顯示文字
+      - 只有在 Folder 找得到的 OID 才算 visit
+      - DS / CM / AE 這類若不在 Folder，就不會進 TV
+    """
+    # -----------------------------
+    # 1) 讀 SoA
+    # -----------------------------
+    soa_df, _ = read_sheet_with_detected_header(
+        file_bytes=file_bytes,
+        sheet_name="SoA",
+        keyword_groups=[["FORM", "OID"]],
+        manual_header_row_excel=manual_soa_header
+    )
+
+    form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
+    if form_oid_col is None:
+        raise ValueError("SoA 分頁中找不到 Form OID 欄位")
+
+    ordered_oids = []
+    seen_soa = set()
+
+    for value in soa_df[form_oid_col].dropna():
+        text = str(value).strip()
+        if not text:
+            continue
+
+        parts = re.split(r"[,\n;/]+", text)
+
+        for part in parts:
+            oid = str(part).strip().upper()
+            if not oid:
+                continue
+
+            if oid not in seen_soa:
+                ordered_oids.append(oid)
+                seen_soa.add(oid)
+
+    # -----------------------------
+    # 2) 讀 Folder
+    # -----------------------------
+    folder_df, _ = read_sheet_with_detected_header(
+        file_bytes=file_bytes,
+        sheet_name="Folder",
+        keyword_groups=[["OID", "FULL", "TERM"], ["FOLDER", "OID"], ["FULL", "TERM"]],
+        manual_header_row_excel=manual_folder_header
+    )
+
+    folder_oid_col = find_folder_oid_column(folder_df.columns)
+    full_term_col = find_full_term_column(folder_df.columns)
+
+    if folder_oid_col is None:
+        raise ValueError("Folder 分頁中找不到 OID / Folder OID 欄位")
+
+    if full_term_col is None:
+        raise ValueError("Folder 分頁中找不到 Full Term 欄位")
+
+    folder_work = folder_df[[folder_oid_col, full_term_col]].copy()
+    folder_work.columns = ["OID", "Full Term"]
+
+    folder_work["OID"] = folder_work["OID"].fillna("").astype(str).str.strip().str.upper()
+    folder_work["Full Term"] = folder_work["Full Term"].fillna("").astype(str).str.strip()
+
+    folder_work = folder_work[
+        (folder_work["OID"] != "") &
+        (folder_work["Full Term"] != "")
+    ].drop_duplicates(subset=["OID"], keep="first")
+
+    folder_lookup = dict(zip(folder_work["OID"], folder_work["Full Term"]))
+
+    # -----------------------------
+    # 3) 只保留 SoA 中、且存在 Folder 的 visit
+    # -----------------------------
+    visits = []
+    seen_visit = set()
+
+    for oid in ordered_oids:
+        if oid in folder_lookup and oid not in seen_visit:
+            visits.append({
+                "VISIT_OID": oid,
+                "VISIT": folder_lookup[oid]
+            })
+            seen_visit.add(oid)
+
+    return pd.DataFrame(visits, columns=["VISIT_OID", "VISIT"])
+
+
 
 
 
@@ -4167,6 +4395,9 @@ if uploaded_file is not None:
                         snomed_version=snomed_version,
                         unii_version=unii_version,
                         medrt_version=medrt_version,
+                        file_bytes=file_bytes,
+                        manual_soa_header=manual_soa_header,
+                        manual_folder_header=None,
                         config_df=cfg_df,
                         codelists_df=codelists_df
                     )
