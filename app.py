@@ -2473,7 +2473,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                 continue
 
             for term_candidate in forced_terms:
-                hit = match_term_row(ct_sub, term_candidate)
+                hit = match_term(ct_sub, term_candidate)
 
                 if hit is None:
                     dedup_key = (display_id, normalize_term_candidate(term_candidate))
