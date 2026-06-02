@@ -1774,11 +1774,17 @@ def extract_protocol_no_from_filename(file_name):
 
     tokens = [t.strip() for t in prefix.split("_") if t.strip()]
 
-    if not tokens:
-        return ""
+    sponsor = ""
+    protocol = ""
 
-    protocol = tokens[-1]
-    return protocol
+    if len(tokens) >= 2:
+        sponsor = tokens[0]
+        protocol = tokens[1]
+    elif len(tokens) == 1:
+        protocol = tokens[0]
+
+    return sponsor, protocol
+
 
 
 def build_define_sheet(version, protocol_no="", protocol_title=""):
@@ -3695,14 +3701,45 @@ def prefill_ct_mapping_df(ct_mapping_df, ct_master_df):
     return out
 
 
-
-
 def to_excel_bytes(sheet_dict):
     output = BytesIO()
+
+    from openpyxl.styles import Font, Alignment
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         for sheet_name, df in sheet_dict.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            ws = writer.book[sheet_name]
+
+            # 1) Freeze first row
+            ws.freeze_panes = "A2"
+
+            # 2) Set font (Calibri 10)
+            for row in ws.iter_rows():
+                for cell in row:
+                    cell.font = Font(name="Calibri", size=10)
+
+            # 3) Wrap text
+            for row in ws.iter_rows():
+                for cell in row:
+                    cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+            # 4) Auto column width（簡單版本）
+            for col in ws.columns:
+                max_length = 0
+                col_letter = col[0].column_letter
+
+                for cell in col:
+                    try:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    except:
+                        pass
+
+                # 限制避免過寬
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[col_letter].width = adjusted_width
 
     output.seek(0)
     return output.getvalue()
@@ -4138,10 +4175,20 @@ if uploaded_file is not None:
 
                     excel_bytes = to_excel_bytes(export_sheets)
 
+
+                    from datetime import datetime
+
+                    sponsor, protocol_from_name = extract_sponsor_protocol_from_filename(uploaded_file.name)
+
+                    protocol_for_filename = protocol_no if protocol_no else protocol_from_name
+                    today_str = datetime.now().strftime("%Y%m%d")
+
+                    file_name = f"{sponsor}_{protocol_for_filename}_Mock SDTM SPEC_{today_str}.xlsx"
+                    
                     st.download_button(
-                        label="下載 SDTM SPEC Excel",
+                        label="下載 Mock SDTM SPEC Excel",
                         data=excel_bytes,
-                        file_name=f"SDTM_SPEC_{version.replace(' ', '_')}.xlsx",
+                        file_name=file_name,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
 
