@@ -3206,9 +3206,9 @@ def build_trial_design_templates(protocol_no="", config_df=None, codelists_df=No
                 row["DOMAIN"] = domain
 
             df = pd.DataFrame([row], columns=ordered_columns)
-            outputs.append(df)
+        outputs.append(df)
 
-        return tuple(outputs)
+    return tuple(outputs)
 
 
 
