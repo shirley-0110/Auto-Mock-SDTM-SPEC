@@ -2719,7 +2719,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                 if hit is not None:
                     term_cd = safe_text(hit.get("Submission Value", term_candidate))
                     nci_code = safe_text(hit.get("NCI Term Code", ""))
-                    preferred_term = safe_text(hit.get("NCI Preferred Term", ""))
+                    preferred_term = safe_text(hit.get("Submission Value", ""))
 
                 # fallback：若 CT 沒抓到 preferred term，就嘗試用 pairing lookup
                 if not preferred_term:
