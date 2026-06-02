@@ -3141,7 +3141,7 @@ def build_ts_template_rows(
     # -----------------------------
     # 版本標準化
     # -----------------------------
-    ig_ver = normalize_sdtm_ig_version_text(sdtm_ig_version)
+    ig_ver = version.replace("Version", "").strip()
     ct_ver = normalize_ct_version_text(sdtm_ct_version)
     snomed_ver = str(snomed_version).strip() if pd.notna(snomed_version) else ""
     unii_ver = str(unii_version).strip() if pd.notna(unii_version) else ""
@@ -3222,7 +3222,7 @@ def build_ts_template_rows(
         row = make_empty_ts_row()
 
         if "TSSEQ" in row:
-            row["TSSEQ"] = i + 1
+            row["TSSEQ"] = 1
 
         if "TSPARMCD" in row:
             row["TSPARMCD"] = tspcd
