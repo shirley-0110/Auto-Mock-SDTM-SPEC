@@ -375,19 +375,21 @@ def build_tv_from_soa_list(
     ordered_columns=None
 ):
     """
-    由 SoA List 生成 TV
+    從 SoA List 建立 TV domain
+
     規則：
-      1. 只保留 Visit 非空白
-      2. 若 Source CRF Sheet == Abbreviation，排除
-      3. 依 SoA List 首次出現順序，對 Abbreviation + Visit 去重
+      - 依 Abbreviation 去重
+      - 保留 SoA 原順序
+      - 排除 Source CRF Sheet == Abbreviation
     """
+
     if ordered_columns is None:
         ordered_columns = [
             "STUDYID", "DOMAIN", "VISITNUM", "VISIT", "VISITDY",
             "ARMCD", "ARM", "TVSTRL", "TVENRL"
         ]
 
-    def make_empty_row():
+    def make_row():
         row = {c: "" for c in ordered_columns}
         if "STUDYID" in row:
             row["STUDYID"] = protocol_no
@@ -396,47 +398,44 @@ def build_tv_from_soa_list(
         return row
 
     if soa_list_df is None or soa_list_df.empty:
-        return pd.DataFrame([make_empty_row()], columns=ordered_columns)
+        return pd.DataFrame([make_row()], columns=ordered_columns)
 
-    work = soa_list_df.copy()
+    df = soa_list_df.copy()
 
     for c in ["Source CRF Sheet", "Abbreviation", "Visit"]:
-        if c not in work.columns:
-            work[c] = ""
+        if c not in df.columns:
+            df[c] = ""
 
-    work["Source CRF Sheet"] = (
-        work["Source CRF Sheet"].fillna("").astype(str).str.strip().str.upper()
-    )
-    work["Abbreviation"] = (
-        work["Abbreviation"].fillna("").astype(str).str.strip().str.upper()
-    )
-    work["Visit"] = (
-        work["Visit"].fillna("").astype(str).str.strip()
-    )
+    df["Source CRF Sheet"] = df["Source CRF Sheet"].astype(str).str.upper().str.strip()
+    df["Abbreviation"] = df["Abbreviation"].astype(str).str.upper().str.strip()
+    df["Visit"] = df["Visit"].astype(str).str.strip()
 
-    # 1) Visit 不能空白
-    work = work[work["Visit"] != ""].copy()
+    # 1 移除 Source CRF Sheet == Abbreviation
+    df = df[df["Source CRF Sheet"] != df["Abbreviation"]]
 
-    # 2) Source CRF Sheet 等於 Abbreviation 的，不納入 TV
-    work = work[work["Source CRF Sheet"] != work["Abbreviation"]].copy()
+    # 2 只保留有 Visit（Folder 已對應）
+    df = df[df["Visit"] != ""]
 
-    # 3) 依首次出現順序去重
-    # 以 Abbreviation + Visit 為唯一鍵
-    work = work.drop_duplicates(subset=["Abbreviation", "Visit"], keep="first").copy()
+    # 3 依 SoA 順序去重（重點）
+    df = df.drop_duplicates(subset=["Abbreviation"], keep="first")
 
-    if work.empty:
-        return pd.DataFrame([make_empty_row()], columns=ordered_columns)
-
+    # 4 建立 TV rows
     rows = []
-    for _, r in work.iterrows():
-        row = make_empty_row()
+
+    for _, r in df.iterrows():
+        row = make_row()
 
         if "VISIT" in row:
             row["VISIT"] = r["Visit"]
 
         rows.append(row)
 
+    if not rows:
+        rows = [make_row()]
+
     return pd.DataFrame(rows, columns=ordered_columns)
+
+
 
 
 def find_folder_oid_column(columns):
@@ -3701,11 +3700,9 @@ def build_trial_design_templates(
             )
 
         elif domain == "TV":
-            df = build_tv_template_rows(
+            df = build_tv_from_soa_list(
+                soa_list_df=st.session_state.get("soa_list_df"),
                 protocol_no=protocol_no,
-                file_bytes=file_bytes,
-                manual_soa_header=manual_soa_header,
-                manual_folder_header=manual_folder_header,
                 ordered_columns=ordered_columns
             )
 
