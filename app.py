@@ -2662,6 +2662,64 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     # 這些 ID 可能不會出現在 ct_mapping_df，但仍需 term rows
     # -------------------------------------------------
     for cid in distinct_ids:
+        if cid == "TSPARMCD":
+            meta = header_meta.get(cid, {})
+            nci_codelist_code = safe_upper(meta.get("NCI Codelist Code", ""))
+
+            ct_sub = pd.DataFrame()
+            if nci_codelist_code:
+                ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code].copy()
+                ct_sub = prepare_ct_sub(ct_sub)
+
+            for term_candidate in TS_TSPARMCD_TERMS:
+
+                hit = None
+                if not ct_sub.empty:
+                    hit = match_term(ct_sub, term_candidate)
+
+                term_val = term_candidate
+                nci_code = ""
+
+                if hit is not None:
+                    term_val = safe_text(hit.get("Submission Value", term_candidate))
+                    nci_code = safe_text(hit.get("NCI Term Code", ""))
+
+                dedup_key = (cid, term_val)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+
+                # TSPARMCD
+                rows.append({
+                    "ID": "TSPARMCD",
+                    "Name": meta.get("Name", ""),
+                    "NCI Codelist Code": nci_codelist_code,
+                    "Data Type": "text",
+                    "Terminology": terminology_value,
+                    "Comment": "",
+                    "Order": None,
+                    "Term": term_val,
+                    "NCI Term Code": nci_code,
+                    "Decoded Value": ""
+                })
+
+                # TSPARM（同步展開）
+                rows.append({
+                    "ID": "TSPARM",
+                    "Name": meta.get("Name", ""),
+                    "NCI Codelist Code": "",
+                    "Data Type": "text",
+                    "Terminology": terminology_value,
+                    "Comment": "",
+                    "Order": None,
+                    "Term": term_val,
+                    "NCI Term Code": nci_code,
+                    "Decoded Value": ""
+                })
+
+            continue
+
+        
         forced_terms = get_special_default_terms(cid)
         if not forced_terms:
             continue
