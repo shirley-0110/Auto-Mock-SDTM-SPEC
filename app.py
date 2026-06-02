@@ -2294,6 +2294,48 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         return None
 
 
+    def resolve_decoded_term_by_nci_code(ct_df, target_codelist_code, nci_term_code):
+        """
+        Generic helper:
+          已知 coded 端已對到某個 NCI Term Code，
+          再去 decoded 端 codelist 用同一個 NCI Term Code 找對應 term。
+
+        適用：
+          - TSPARMCD -> TSPARM
+          - --TESTCD -> --TEST
+        """
+        if ct_df is None or ct_df.empty:
+            return ""
+
+        target_codelist_code = safe_upper(target_codelist_code)
+        nci_term_code = safe_upper(nci_term_code)
+
+        if not target_codelist_code or not nci_term_code:
+            return ""
+
+        needed_cols = ["Codelist Code", "NCI Term Code", "Submission Value"]
+        for c in needed_cols:
+        if c not in ct_df.columns:
+            return ""
+
+        sub = ct_df[
+            (ct_df["Codelist Code"].apply(safe_upper) == target_codelist_code) &
+            (ct_df["NCI Term Code"].apply(safe_upper) == nci_term_code)
+        ].copy()
+
+        if sub.empty:
+            return ""
+
+        sub["Submission Value"] = sub["Submission Value"].apply(safe_text)
+        sub = sub[sub["Submission Value"] != ""]
+
+        if sub.empty:
+            return ""
+
+        return safe_text(sub.iloc[0]["Submission Value"])
+
+
+    
     def get_special_default_terms(display_id):
         display_id = safe_upper(display_id)
 
@@ -2693,7 +2735,6 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     # 這些 ID 可能不會出現在 ct_mapping_df，但仍需 term rows
     # -------------------------------------------------
     for cid in distinct_ids:
-
         if cid == "TSPARMCD":
             meta_cd = header_meta.get("TSPARMCD", {})
             meta_nm = header_meta.get("TSPARM", {})
@@ -2701,39 +2742,46 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             nci_codelist_code_cd = safe_upper(meta_cd.get("NCI Codelist Code", ""))
             nci_codelist_code_nm = safe_upper(meta_nm.get("NCI Codelist Code", ""))
 
-            ct_sub = pd.DataFrame()
+            ct_sub_cd = pd.DataFrame()
             if nci_codelist_code_cd:
-                ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code_cd].copy()
-                ct_sub = prepare_ct_sub(ct_sub)
+                ct_sub_cd = ct_df[ct_df["Codelist Code"].apply(safe_upper) == nci_codelist_code_cd].copy()
+                ct_sub_cd = prepare_ct_sub(ct_sub_cd)
 
             for term_candidate in TS_TSPARMCD_TERMS:
-                hit = None
-                if not ct_sub.empty:
-                    hit = match_term(ct_sub, term_candidate)
+                hit_cd = None
+                if not ct_sub_cd.empty:
+                    hit_cd = match_term(ct_sub_cd, term_candidate)
 
-                # coded side
+                # --------------------------------
+                # 先處理 TSPARMCD 端
+                # --------------------------------
                 term_cd = term_candidate
                 nci_code = ""
-                preferred_term = ""
 
-                if hit is not None:
-                    term_cd = safe_text(hit.get("Submission Value", term_candidate))
-                    nci_code = safe_text(hit.get("NCI Term Code", ""))
-                    preferred_term = safe_text(hit.get("Submission Value", ""))
+                if hit_cd is not None:
+                    term_cd = safe_text(hit_cd.get("Submission Value", term_candidate))
+                    nci_code = safe_text(hit_cd.get("NCI Term Code", ""))
 
-                # fallback：若 CT 沒抓到 preferred term，就嘗試用 pairing lookup
-                if not preferred_term:
-                    preferred_term = resolve_decoded_value("TS", "TSPARMCD", term_cd, decoded_pair_lookup)
+                # --------------------------------
+                # 再用 NCI Term Code 去 TSPARM codelist 找真正的 term
+                # --------------------------------
+                tsparm_term = resolve_decoded_term_by_nci_code(
+                    ct_df=ct_df,
+                    tsparm_codelist_code=nci_codelist_code_nm,
+                    nci_term_code=nci_code
+                )
 
-                # 如果還是沒有，就至少保留 code，不至於空白
-                if not preferred_term:
-                    preferred_term = term_cd
+                # fallback 1: 若 TSPARM codelist 找不到，再看 pairing lookup
+                if not tsparm_term:
+                    tsparm_term = resolve_decoded_value("TS", "TSPARMCD", term_cd, decoded_pair_lookup)
 
-                # ---------------------------
+                # fallback 2: 再不行就至少不要空白
+                if not tsparm_term:
+                    tsparm_term = term_cd
+
+                # --------------------------------
                 # TSPARMCD row
-                # Term = ACTSUB
-                # Decoded Value = Actual Number of Subjects
-                # ---------------------------
+                # --------------------------------
                 dedup_key_cd = ("TSPARMCD", term_cd)
                 if dedup_key_cd not in seen:
                     seen.add(dedup_key_cd)
@@ -2748,18 +2796,16 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                         "Order": None,
                         "Term": term_cd,
                         "NCI Term Code": nci_code,
-                        "Decoded Value": preferred_term
+                        "Decoded Value": tsparm_term
                     })
 
-                # ---------------------------
+                # --------------------------------
                 # TSPARM row
-                # Term = Actual Number of Subjects
-                # Decoded Value = blank
-                # ---------------------------
-                dedup_key_nm = ("TSPARM", normalize_term(preferred_term))
+                # --------------------------------
+                dedup_key_nm = ("TSPARM", normalize_term(tsparm_term))
                 if dedup_key_nm not in seen:
                     seen.add(dedup_key_nm)
-
+    
                     rows.append({
                         "ID": "TSPARM",
                         "Name": meta_nm.get("Name", ""),
@@ -2768,12 +2814,13 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                         "Terminology": terminology_value,
                         "Comment": "",
                         "Order": None,
-                        "Term": preferred_term,
+                        "Term": tsparm_term,
                         "NCI Term Code": nci_code,
                         "Decoded Value": ""
                     })
 
             continue
+
 
 
         
