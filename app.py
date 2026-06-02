@@ -3007,6 +3007,8 @@ def build_decoded_pair_lookup(work_df):
 
             # 規則優先
             forced_terms = resolve_forced_terms(display_id, var, opt, assign_val)
+            
+            st.write("DEBUG", var, opt, assign_val, forced_terms)
 
             if not forced_terms:
                 continue
