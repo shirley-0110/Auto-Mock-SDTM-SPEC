@@ -3735,56 +3735,65 @@ def build_trial_design_templates(
     config_df=None,
     codelists_df=None
 ):
-
-
     """
-    Trial Design template:
-      - STUDYID 自動帶 protocol_no
-      - DOMAIN 自動帶 TA/TE/TI/TS/TV
-      - 欄位順序依 config 的 VarNum 排
-      - TS 依 TSPARMCD / TSPARM 展開
-      - TV 依 SoA + Folder 展開 visits
+    穩定版 Trial Design template builder
+    保證每個 domain 都回傳 DataFrame（不會是 None）
     """
+
     defs = get_trial_design_definitions()
     outputs = []
 
     for domain in ["TA", "TE", "TI", "TS", "TV"]:
+
         fallback_columns = [v[0].upper() for v in defs[domain]["variables"]]
+
         ordered_columns = get_trial_design_columns_from_config(
             domain=domain,
             config_df=config_df,
             fallback_columns=fallback_columns
         )
 
-        if domain == "TS":
-            df = build_ts_template_rows(
-                protocol_no=protocol_no,
-                protocol_title=protocol_title,
-                sdtm_ig_version=sdtm_ig_version,
-                sdtm_ct_version=sdtm_ct_version,
-                snomed_version=snomed_version,
-                unii_version=unii_version,
-                medrt_version=medrt_version,
-                codelists_df=codelists_df,
-                ordered_columns=ordered_columns
-            )
+        # 每個 domain 都先給一個 default 空 df（關鍵）
+        df = pd.DataFrame(columns=ordered_columns)
 
-        elif domain == "TV":
-            df = build_tv_from_soa_list(
-                soa_list_df=st.session_state.get("soa_list_df"),
-                protocol_no=protocol_no,
-                ordered_columns=ordered_columns
-            )
+        try:
+            if domain == "TS":
+                df = build_ts_template_rows(
+                    protocol_no=protocol_no,
+                    protocol_title=protocol_title,
+                    sdtm_ig_version=sdtm_ig_version,
+                    sdtm_ct_version=sdtm_ct_version,
+                    snomed_version=snomed_version,
+                    unii_version=unii_version,
+                    medrt_version=medrt_version,
+                    codelists_df=codelists_df,
+                    ordered_columns=ordered_columns
+                )
 
-        else:
-            row = {c: "" for c in ordered_columns}
+            elif domain == "TV":
+                df = build_tv_from_soa_list(
+                    soa_list_df=st.session_state.get("soa_list_df"),
+                    protocol_no=protocol_no,
+                    ordered_columns=ordered_columns
+                )
 
-            if "STUDYID" in row:
-                row["STUDYID"] = protocol_no
-            if "DOMAIN" in row:
-                row["DOMAIN"] = domain
+            else:
+                # TA / TE / TI → 空骨架
+                row = {c: "" for c in ordered_columns}
+                if "STUDYID" in row:
+                    row["STUDYID"] = protocol_no
+                if "DOMAIN" in row:
+                    row["DOMAIN"] = domain
 
-            df = pd.DataFrame([row], columns=ordered_columns)
+                df = pd.DataFrame([row], columns=ordered_columns)
+
+        except Exception as e:
+            # 不讓錯誤把 df 變 None（關鍵）
+            print(f"[WARN] {domain} build failed:", e)
+
+        # 最後 double-check（極重要）
+        if df is None or not isinstance(df, pd.DataFrame):
+            df = pd.DataFrame(columns=ordered_columns)
 
         outputs.append(df)
 
