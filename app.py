@@ -49,7 +49,25 @@ def normalize_columns(df):
     df.columns = cols
     return df
 
+def normalize_test_display(term):
+    """
+    專門處理 TEST display value
+    例如：
+      Hemoglobin (Hb) → Hemoglobin
+      Red blood cell (RBC) → Red blood cell
+    """
+    if not term:
+        return ""
 
+    s = str(term)
+
+    # 去掉括號
+    s = re.sub(r"\s*\(.*?\)", "", s)
+
+    # trim
+    s = s.strip()
+
+    return s
 
 def split_option_displayed_value(value):
     """
@@ -2516,7 +2534,8 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if ct_sub.empty:
             return None
 
-        norm_val = normalize_term(term)
+        term_clean = normalize_test_display(term)
+        norm_val = normalize_term(term_clean)
 
         # ---------------------------------
         # 1. exact match
