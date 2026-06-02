@@ -4178,7 +4178,7 @@ if uploaded_file is not None:
 
                     from datetime import datetime
 
-                    sponsor, protocol_from_name = extract_sponsor_protocol_from_filename(uploaded_file.name)
+                    sponsor, protocol_from_name = extract_protocol_no_from_filename(uploaded_file.name)
 
                     protocol_for_filename = protocol_no if protocol_no else protocol_from_name
                     today_str = datetime.now().strftime("%Y%m%d")
