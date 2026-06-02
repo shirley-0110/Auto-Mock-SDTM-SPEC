@@ -2594,11 +2594,23 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         # ---------------------------------
         # 5. fuzzy fallback
         # ---------------------------------
-        candidates = list(
-            dict.fromkeys(ct_sub["submission_norm"].tolist() + ct_sub["pref_norm"].tolist())
-        )
+        candidates_df = ct_sub.copy()
 
-        matches = get_close_matches(norm_val, candidates, n=1, cutoff=0.6)
+        # 限制：至少包含一個關鍵字（避免亂配）
+        tokens = set(tokenize(term_clean))
+
+        def has_overlap(x):
+            x_tokens = set(x.split())
+            return len(tokens & x_tokens) > 0
+
+        candidates_df = candidates_df[
+            candidates_df["submission_norm"].apply(has_overlap)
+        ]
+
+        candidates = candidates_df["submission_norm"].tolist()
+
+        matches = get_close_matches(norm_val, candidates, n=1, cutoff=0.7)
+
         if matches:
             m = matches[0]
             hit = ct_sub[
