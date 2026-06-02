@@ -291,10 +291,11 @@ def build_soa_visit_list(
     }
 
     visit_cols = []
-    for col in soa_columns:
+    for idx, col in enumerate(soa_columns):
         col_up = normalize_text(col)
+        
         if col_up not in non_visit_headers:
-            visit_cols.append(col)
+            visit_cols.append((col, idx))
 
     # -----------------------------
     # 2) 讀 Folder
@@ -355,7 +356,8 @@ def build_soa_visit_list(
                 records.append({
                     "Source CRF Sheet": source_sheet,
                     "Abbreviation": abbr,
-                    "Visit": visit_name
+                    "Visit": visit_name,
+                    "visit_order": col_idx
                 })
 
     if records:
@@ -401,6 +403,9 @@ def build_tv_from_soa_list(
         return pd.DataFrame([make_row()], columns=ordered_columns)
 
     df = soa_list_df.copy()
+    
+    if "visit_order" not in df.columns:
+        df["visit_order"] = range(len(df))
 
     for c in ["Source CRF Sheet", "Abbreviation", "Visit"]:
         if c not in df.columns:
@@ -416,7 +421,9 @@ def build_tv_from_soa_list(
     # 2 只保留有 Visit（Folder 已對應）
     df = df[df["Visit"] != ""]
 
-    # 3 依 SoA 順序去重（重點）
+    # 3 先排序（依 SoA 欄位順序）、去重
+    df["visit_order"] = pd.to_numeric(df["visit_order"], errors="coerce")
+    df = df.sort_values(by="visit_order")
     df = df.drop_duplicates(subset=["Abbreviation"], keep="first")
 
     # 4 建立 TV rows
