@@ -49,25 +49,30 @@ def normalize_columns(df):
     df.columns = cols
     return df
 
+
 def normalize_test_display(term):
     """
     專門處理 TEST display value
     例如：
-      Hemoglobin (Hb) → Hemoglobin
-      Red blood cell (RBC) → Red blood cell
+      Hemoglobin (Hb) -> Hemoglobin
+      Red blood cell (RBC) -> Red blood cell
     """
-    if not term:
+    if pd.isna(term):
         return ""
 
-    s = str(term)
+    s = str(term).strip()
 
-    # 去掉括號
+    if not s:
+        return ""
+
+    # 去掉括號內容
     s = re.sub(r"\s*\(.*?\)", "", s)
 
-    # trim
-    s = s.strip()
+    # 去掉多餘空白
+    s = re.sub(r"\s+", " ", s).strip()
 
     return s
+
 
 def split_option_displayed_value(value):
     """
@@ -2474,11 +2479,16 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
         # ✅ TEST / TESTCD / ORRESU → 用 Assign Value
         if var.endswith("TEST") or var.endswith("TESTCD") or var.endswith("ORRESU"):
-            return [
-                x.strip()
-                for x in re.split(r"[;\n]+", assign_val)
-                if str(x).strip()
-            ]
+            if assign_val:
+                return [
+                    x.strip()
+                    for x in re.split(r"[;\n]+", assign_val)
+                    if str(x).strip()
+                ]
+            if opt:
+                return split_option_displayed_value(opt)
+            
+            return []
 
         # ✅ ND
         if display_id == "ND":
