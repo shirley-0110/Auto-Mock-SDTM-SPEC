@@ -4380,15 +4380,13 @@ if uploaded_file is not None:
         if missing_sheets:
             st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
 
-        st.markdown("### SoA List")
-
         try:
             soa_list_df = build_soa_visit_list(
                 file_bytes=file_bytes,
                 manual_soa_header=manual_soa_header,
                 manual_folder_header=None
             )
-            st.dataframe(soa_list_df, use_container_width=True)
+
             st.session_state["soa_list_df"] = soa_list_df
         except Exception as e:
             st.warning(f"SoA List 建立失敗：{e}")
