@@ -1913,10 +1913,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
 
     def build_display_name(display_id, base_name):
-        """
-        不寫死 DOMAIN_/UNIT_/FRM_ prefix，
-        只根據 display_id 結構去組名稱
-        """
+
         display_id = safe_upper(display_id)
         base_name = safe_text(base_name)
 
@@ -1956,6 +1953,165 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
         return base_name
 
+
+   TERM_NORMALIZATION_MAP = {
+        "START DATE UNKNOWN": "UNKNOWN",
+        "END DATE UNKNOWN": "UNKNOWN",
+        "UNKNOWN DATE": "UNKNOWN",
+        "NOT DONE": "NOT DONE"
+    }
+
+    TERM_SYNONYM_MAP = {
+        "DOSE UNCHANGED": "DOSE NOT CHANGED",
+        "DOSE INTERRUPTED": "DRUG INTERRUPTED",
+        "DOSE DISCONTINUED": "DRUG WITHDRAWN",
+    }
+
+    GENERIC_TOKENS = {
+        "DRUG", "DOSE", "MEDICATION", "TREATMENT",
+        "TEST", "COUNT", "LEVEL", "VALUE"
+    }
+
+    def normalize_term(term):
+        if pd.isna(term):
+            return ""
+        x = str(term).strip().upper()
+        x = re.sub(r"\s+", " ", x)
+
+        # normalize rule
+        if x in TERM_NORMALIZATION_MAP:
+            x = TERM_NORMALIZATION_MAP[x]
+
+        if "UNKNOWN" in x:
+            x = "UNKNOWN"
+
+        return x
+
+    def tokenize(term):
+        """
+        去符號 + split token
+        Red Blood Cell (RBC) Count
+        -> ["RED","BLOOD","CELL","RBC"]
+        """
+        term = normalize_term(term)
+        term = re.sub(r"[\(\)\[\]\{\}/,_\-]+", " ", term)
+        term = re.sub(r"\s+", " ", term)
+
+        tokens = [t for t in term.split() if t]
+        return tokens
+
+    def reduce_tokens(tokens):
+        """
+        去 generic token
+        RBC COUNT -> RBC
+        """
+        return [t for t in tokens if t not in GENERIC_TOKENS]
+
+    def to_phrase(tokens):
+        return " ".join(tokens)
+
+    def prepare_ct_sub(ct_sub):
+        """
+        預先做 CT token cache（效能必須）
+        """
+        if ct_sub.empty:
+            return ct_sub.copy()
+
+        df = ct_sub.copy()
+
+        df["submission_norm"] = df["Submission Value"].apply(normalize_term)
+        df["pref_norm"] = df["NCI Preferred Term"].apply(normalize_term)
+
+        df["submission_tokens"] = df["Submission Value"].apply(tokenize)
+        df["pref_tokens"] = df["NCI Preferred Term"].apply(tokenize)
+
+        df["submission_core"] = df["submission_tokens"].apply(reduce_tokens).apply(to_phrase)
+        df["pref_core"] = df["pref_tokens"].apply(reduce_tokens).apply(to_phrase)
+
+        def parse_syn(s):
+            if pd.isna(s):
+                return []
+            parts = re.split(r"[;,/]+", str(s))
+            return [normalize_term(p) for p in parts if p.strip()]
+
+        df["synonyms_norm"] = df["CDISC Synonym(s)"].apply(parse_syn)
+
+        return df
+
+    def match_term(ct_sub, term):
+        """
+        Hybrid matching（核心）
+        """
+        if ct_sub.empty:
+            return None
+
+        norm_val = normalize_term(term)
+
+        # ---------------------------------
+        # 1. exact match
+        # ---------------------------------
+        hit = ct_sub[
+            (ct_sub["submission_norm"] == norm_val) |
+            (ct_sub["pref_norm"] == norm_val)
+        ]
+        if not hit.empty:
+            return hit.iloc[0]
+
+        # ---------------------------------
+        # 2. synonym map
+        # ---------------------------------
+        if norm_val in TERM_SYNONYM_MAP:
+            target = normalize_term(TERM_SYNONYM_MAP[norm_val])
+            hit = ct_sub[
+                (ct_sub["submission_norm"] == target) |
+                (ct_sub["pref_norm"] == target)
+            ]
+            if not hit.empty:
+                return hit.iloc[0]
+
+        # ---------------------------------
+        # 3. CDISC synonym（最重要）
+        # ---------------------------------
+        hit = ct_sub[
+            ct_sub["synonyms_norm"].apply(lambda lst: norm_val in lst)
+        ]
+        if not hit.empty:
+            return hit.iloc[0]
+
+        # ---------------------------------
+        # 4. token match（RBC / Red Blood Cell）
+        # ---------------------------------
+        tokens = tokenize(term)
+        core = to_phrase(reduce_tokens(tokens))
+
+        hit = ct_sub[
+            (ct_sub["submission_core"] == core) |
+            (ct_sub["pref_core"] == core)
+        ]
+        if not hit.empty:
+            return hit.iloc[0]
+
+        # ---------------------------------
+        # 5. fuzzy fallback
+        # ---------------------------------
+        candidates = list(
+            dict.fromkeys(ct_sub["submission_norm"].tolist() + ct_sub["pref_norm"].tolist())
+        )
+
+        matches = get_close_matches(norm_val, candidates, n=1, cutoff=0.6)
+        if matches:
+            m = matches[0]
+            hit = ct_sub[
+                (ct_sub["submission_norm"] == m) |
+                (ct_sub["pref_norm"] == m)
+            ]
+            if not hit.empty:
+                return hit.iloc[0]
+
+        return None
+
+
+    
     # -------------------------------------------------
     # 1) variables_df：顯示用 ID
     # -------------------------------------------------
@@ -2186,15 +2342,10 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             header_meta[display_id]["Name"] = build_display_name(display_id, base_name)
 
 
-    # -------------------------------------------------
-    # 5) term matching 規則
-    # -------------------------------------------------
-    synonym_map = {
-        "DOSE UNCHANGED": "DOSE NOT CHANGED",
-        "DOSE INTERRUPTED": "DRUG INTERRUPTED",
-        "DOSE DISCONTINUED": "DRUG WITHDRAWN",
-    }
 
+    # -------------------------------------------------
+    # 5) Hybrid term matching
+    # -------------------------------------------------
     rows = []
     seen = set()
 
@@ -2228,49 +2379,18 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                 continue
 
             meta = header_meta.get(display_id, {})
-            nci_codelist_code = meta.get("NCI Codelist Code", "")
-            base_ct = meta.get("BaseCT", "")
+            nci_codelist_code = safe_upper(meta.get("NCI Codelist Code", ""))
 
-            # -------------------------
-            # 強制 term 規則
-            # -------------------------
-            forced_terms = []
-
-            # TEST / TESTCD / ORRESU -> 用 Assign Value
-            if var.endswith("TEST") or var.endswith("TESTCD") or var.endswith("ORRESU"):
-                forced_terms = split_assign_terms(assign_val)
-
-            # DOMAIN_XX -> term = XX
-            elif display_id.startswith("DOMAIN_") and "_" in display_id:
-                forced_terms = [display_id.split("_", 1)[1]]
-
-            # ND -> NOT DONE
-            elif display_id == "ND":
-                forced_terms = ["NOT DONE"]
-
-            # NY -> 只保留 N / Y
-            elif display_id == "NY":
-                forced_terms = ["N", "Y"]
-                    
-            # Y → 只保留 Y
-            elif display_id == "Y":
-                forced_terms = ["Y"]
-
-
-            # 其他 -> 用 option
-            else:
-                if opt:
-                    forced_terms = [opt]
+            # 規則優先
+            forced_terms = resolve_forced_terms(display_id, var, opt, assign_val)
 
             if not forced_terms:
                 continue
 
-            # -------------------------------------------------
             # A) 沒有 NCI Codelist Code：term 直接保留
-            # -------------------------------------------------
             if not nci_codelist_code:
                 for term_candidate in forced_terms:
-                    dedup_key = (display_id, term_candidate)
+                    dedup_key = (display_id, normalize_term_candidate(term_candidate))
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)
@@ -2289,15 +2409,13 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                     })
                 continue
 
-            # -------------------------------------------------
             # B) 有 NCI Codelist Code：去 CT term rows 找對應
-            # -------------------------------------------------
-            ct_sub = ct_df[ct_df["Codelist Code"] == safe_upper(nci_codelist_code)].copy()
+            ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code].copy()
+            ct_sub = prepare_ct_term_matching(ct_sub)
 
             if ct_sub.empty:
-                # 有 main codelist code，但沒抓到 term rows -> 至少保留 term
                 for term_candidate in forced_terms:
-                    dedup_key = (display_id, term_candidate)
+                    dedup_key = (display_id, normalize_term_candidate(term_candidate))
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)
@@ -2317,40 +2435,10 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                 continue
 
             for term_candidate in forced_terms:
-                norm_val = normalize_ct_text(term_candidate)
+                hit = match_term_row(ct_sub, term_candidate)
 
-                # 1) exact on Submission / Preferred
-                hit = ct_sub[
-                    (ct_sub["norm_submission"] == norm_val) |
-                    (ct_sub["norm_pref"] == norm_val)
-                ]
-
-                # 2) synonym
-                if hit.empty and norm_val in synonym_map:
-                    target = normalize_ct_text(synonym_map[norm_val])
-                    hit = ct_sub[
-                        (ct_sub["norm_submission"] == target) |
-                        (ct_sub["norm_pref"] == target)
-                    ]
-
-                # 3) fuzzy
-                if hit.empty:
-                    candidate_terms = list(
-                        dict.fromkeys(
-                            ct_sub["norm_submission"].tolist() + ct_sub["norm_pref"].tolist()
-                        )
-                    )
-                    matches = get_close_matches(norm_val, candidate_terms, n=1, cutoff=0.6)
-                    if matches:
-                        m = matches[0]
-                        hit = ct_sub[
-                            (ct_sub["norm_submission"] == m) |
-                            (ct_sub["norm_pref"] == m)
-                        ]
-
-                if hit.empty:
-                    # 沒 match 到 term row，至少保留原 term
-                    dedup_key = (display_id, term_candidate)
+                if hit is None:
+                    dedup_key = (display_id, normalize_term_candidate(term_candidate))
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)
@@ -2369,9 +2457,8 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                     })
                     continue
 
-                hit = hit.iloc[0]
-
-                dedup_key = (display_id, hit["Submission Value"])
+                submission_val = safe_text(hit.get("Submission Value", ""))
+                dedup_key = (display_id, submission_val)
                 if dedup_key in seen:
                     continue
                 seen.add(dedup_key)
@@ -2384,10 +2471,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                     "Terminology": terminology_value,
                     "Comment": "",
                     "Order": None,
-                    "Term": hit.get("Submission Value", ""),
-                    "NCI Term Code": hit.get("NCI Term Code", ""),
-                    "Decoded Value": hit.get("NCI Preferred Term", "")
+                    "Term": submission_val,
+                    "NCI Term Code": safe_text(hit.get("NCI Term Code", "")),
+                    "Decoded Value": safe_text(hit.get("NCI Preferred Term", ""))
                 })
+
 
     # -------------------------------------------------
     # 7) 先轉 DataFrame，保證欄位存在
