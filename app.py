@@ -1912,6 +1912,95 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         return list(dict.fromkeys(parts))
 
 
+    def build_decoded_pair_lookup(work_df):
+        """
+        建立 coded variable -> decoded variable 的對照：
+          --TESTCD -> --TEST
+          TSPARMCD -> TSPARM
+        key:
+          (SDTM Domain, coded variable, coded value)
+        value:
+          decoded text
+        """
+        lookup = {}
+
+        if work_df.empty:
+            return lookup
+
+        tmp = work_df.copy()
+
+        for c in ["SDTM Domain", "SDTM Variable", "Assign Value"]:
+            if c not in tmp.columns:
+                tmp[c] = ""
+
+        tmp["SDTM Domain"] = tmp["SDTM Domain"].apply(safe_upper)
+        tmp["SDTM Variable"] = tmp["SDTM Variable"].apply(safe_upper)
+        tmp["Assign Value"] = tmp["Assign Value"].apply(safe_text)
+
+        # 1) --TESTCD -> --TEST
+        test_rows = tmp[
+            tmp["SDTM Variable"].str.endswith("TEST") &
+            (~tmp["SDTM Variable"].str.endswith("TESTCD"))
+        ].copy()
+
+        test_lookup = {}
+        for _, r in test_rows.iterrows():
+            ds = r["SDTM Domain"]
+            var = r["SDTM Variable"]   # e.g. VSTEST
+            stem = var[:-4]            # e.g. VS
+            decoded_val = r["Assign Value"]
+            if decoded_val:
+                test_lookup[(ds, stem)] = decoded_val
+
+        coded_rows = tmp[tmp["SDTM Variable"].str.endswith("TESTCD")].copy()
+        for _, r in coded_rows.iterrows():
+            ds = r["SDTM Domain"]
+            coded_var = r["SDTM Variable"]   # e.g. VSTESTCD
+            stem = coded_var[:-6]            # e.g. VS
+            coded_val = r["Assign Value"]    # e.g. TEMP
+            decoded_val = test_lookup.get((ds, stem), "")
+            if coded_val and decoded_val:
+                lookup[(ds, coded_var, normalize_term(coded_val))] = decoded_val
+
+        # 2) TSPARMCD -> TSPARM
+        tsparm_rows = tmp[tmp["SDTM Variable"] == "TSPARM"].copy()
+        tsparm_val = ""
+        if not tsparm_rows.empty:
+            # 如果有多個，保留原順序後去重，用 ; 串起來（避免資訊丟失）
+            vals = [safe_text(x) for x in tsparm_rows["Assign Value"].tolist() if safe_text(x)]
+            vals = list(dict.fromkeys(vals))
+            tsparm_val = "; ".join(vals)
+
+        tsparmcd_rows = tmp[tmp["SDTM Variable"] == "TSPARMCD"].copy()
+        for _, r in tsparmcd_rows.iterrows():
+            coded_val = r["Assign Value"]
+            if coded_val and tsparm_val:
+                lookup[("TS", "TSPARMCD", normalize_term(coded_val))] = tsparm_val
+
+        return lookup
+
+
+
+    def resolve_decoded_value(ds, var, term_value, decoded_pair_lookup):
+        """
+        只有 --TESTCD 與 TSPARMCD 保留 Decoded Value
+        其他都回傳空白
+        """
+        ds = safe_upper(ds)
+        var = safe_upper(var)
+        term_key = normalize_term(term_value)
+
+        # --TESTCD -> 配對 --TEST
+        if var.endswith("TESTCD"):
+            return decoded_pair_lookup.get((ds, var, term_key), "")
+
+        # TSPARMCD -> 配對 TSPARM
+        if var == "TSPARMCD":
+            return decoded_pair_lookup.get((ds, var, term_key), "")
+
+        return ""
+    
+    
     def build_display_name(display_id, base_name):
 
         display_id = safe_upper(display_id)
@@ -1972,6 +2061,56 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         "TEST", "COUNT", "LEVEL", "VALUE"
     }
 
+
+   TS_TSPARMCD_TERMS = [
+        "ACTSUB",
+        "ADAPT",
+        "ADDON",
+        "AGEMAX",
+        "AGEMIN",
+        "DCUTDESC",
+        "DCUTDTC",
+        "EXTTIND",
+        "FCNTRY",
+        "HLTSUBJI",
+        "INDIC",
+        "INTMODEL",
+        "INTTYPE",
+        "LENGTH",
+        "NARMS",
+        "NCOHORT",
+        "OBJPRIM",
+        "OBJSEC",
+        "ONGOSIND",
+        "OUTMSPRI",
+        "OUTMSSEC",
+        "PCLAS",
+        "PDPSTIND",
+        "PDSTIND",
+        "PIPIND",
+        "PLANSUB",
+        "RANDOM",
+        "RDIND",
+        "REGID",
+        "SDTIGVER",
+        "SDTMVER",
+        "SENDTC",
+        "SEXPOP",
+        "SPONSOR",
+        "SSTDTC",
+        "STOPRULE",
+        "STYPE",
+        "TBLIND",
+        "TCNTRL",
+        "TDIGRP",
+        "THERAREA",
+        "TINDTP",
+        "TITLE",
+        "TPHASE",
+        "TRT",
+        "TTYPE",
+    ]
+    
     def normalize_term(term):
         if pd.isna(term):
             return ""
@@ -2164,9 +2303,13 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         if display_id == "Y":
             return ["Y"]
 
-        # NY -> N / Y（保留，雖然你這次沒特別問）
+        # NY -> N / Y
         if display_id == "NY":
             return ["N", "Y"]
+
+        # TS.TSPARMCD 骨架
+        if display_id == "TSPARMCD":
+            return TS_TSPARMCD_TERMS
 
         return []
 
@@ -2423,6 +2566,8 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         work["CT Codelist Code"] = work["CT Codelist Code"].apply(safe_text)
         work["Option Displayed Value"] = work["Option Displayed Value"].apply(safe_text)
         work["Assign Value"] = work["Assign Value"].apply(safe_text)
+        
+        decoded_pair_lookup = build_decoded_pair_lookup(work)
 
         for _, r in work.iterrows():
             ds = r["SDTM Domain"]
@@ -2464,7 +2609,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                         "Order": None,
                         "Term": term_candidate,
                         "NCI Term Code": "",
-                        "Decoded Value": ""
+                        "Decoded Value": resolve_decoded_value(ds, var, term_candidate, decoded_pair_lookup)
                     })
                 continue
 
@@ -2489,7 +2634,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                         "Order": None,
                         "Term": term_candidate,
                         "NCI Term Code": "",
-                        "Decoded Value": ""
+                        "Decoded Value": resolve_decoded_value(ds, var, term_candidate, decoded_pair_lookup)
                     })
                 continue
 
@@ -2512,7 +2657,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                         "Order": None,
                         "Term": term_candidate,
                         "NCI Term Code": "",
-                        "Decoded Value": ""
+                        "Decoded Value": resolve_decoded_value(ds, var, term_candidate, decoded_pair_lookup)
                     })
                     continue
 
@@ -2532,7 +2677,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                     "Order": None,
                     "Term": submission_val,
                     "NCI Term Code": safe_text(hit.get("NCI Term Code", "")),
-                    "Decoded Value": safe_text(hit.get("NCI Preferred Term", ""))
+                    "Decoded Value": resolve_decoded_value(ds, var, submission_val, decoded_pair_lookup)
                 })
 
 
