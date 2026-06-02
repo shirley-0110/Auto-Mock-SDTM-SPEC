@@ -3103,12 +3103,26 @@ def get_trial_design_columns_from_config(domain, config_df, fallback_columns):
 
 
 
-def build_ts_template_rows(protocol_no="", codelists_df=None, ordered_columns=None):
+
+def build_ts_template_rows(
+    protocol_no="",
+    protocol_title="",
+    sdtm_ig_version="",
+    sdtm_ct_version="",
+    snomed_version="",
+    unii_version="",
+    medrt_version="",
+    codelists_df=None,
+    ordered_columns=None
+):
     """
     依 Codelists 中的 TSPARMCD / Decoded Value 展開 TS template
-    - TSPARMCD <- codelists_df[ID='TSPARMCD'].Term
-    - TSPARM   <- codelists_df[ID='TSPARMCD'].Decoded Value
-    - TSSEQ    <- 1..n
+
+    規則：
+      - TSSEQ: 依 TSPARMCD 排序後給序號
+      - TSPARMCD <- codelists_df[ID='TSPARMCD'].Term
+      - TSPARM   <- codelists_df[ID='TSPARMCD'].Decoded Value
+      - 預設 TSVAL / TSVCDREF / TSVCDVER 依 TSPARMCD 填入
     """
     if ordered_columns is None:
         ordered_columns = [
@@ -3116,14 +3130,29 @@ def build_ts_template_rows(protocol_no="", codelists_df=None, ordered_columns=No
             "TSVAL", "TSVALCD", "TSVCDREF", "TSVCDVER", "TSVALNF"
         ]
 
-    # 沒有 codelists 時，回傳一列骨架
-    if codelists_df is None or codelists_df.empty:
+    def make_empty_ts_row():
         row = {c: "" for c in ordered_columns}
         if "STUDYID" in row:
             row["STUDYID"] = protocol_no
         if "DOMAIN" in row:
             row["DOMAIN"] = "TS"
-        return pd.DataFrame([row], columns=ordered_columns)
+        return row
+
+    # -----------------------------
+    # 版本標準化
+    # -----------------------------
+    ig_ver = normalize_sdtm_ig_version_text(sdtm_ig_version)
+    ct_ver = normalize_ct_version_text(sdtm_ct_version)
+    snomed_ver = str(snomed_version).strip() if pd.notna(snomed_version) else ""
+    unii_ver = str(unii_version).strip() if pd.notna(unii_version) else ""
+    medrt_ver = str(medrt_version).strip() if pd.notna(medrt_version) else ""
+    protocol_title_val = str(protocol_title).strip() if pd.notna(protocol_title) else ""
+
+    # -----------------------------
+    # 沒有 codelists -> 回傳骨架
+    # -----------------------------
+    if codelists_df is None or codelists_df.empty:
+        return pd.DataFrame([make_empty_ts_row()], columns=ordered_columns)
 
     tmp = codelists_df.copy()
 
@@ -3136,49 +3165,112 @@ def build_ts_template_rows(protocol_no="", codelists_df=None, ordered_columns=No
     tmp["Decoded Value"] = tmp["Decoded Value"].fillna("").astype(str).str.strip()
     tmp["Order_num"] = pd.to_numeric(tmp["Order"], errors="coerce")
 
-    # 只抓 TSPARMCD rows
+    # -----------------------------
+    # 只抓 TSPARMCD
+    # -----------------------------
     ts_cd = tmp[
         (tmp["ID"] == "TSPARMCD") &
         (tmp["Term"] != "")
     ].copy()
 
     if ts_cd.empty:
-        row = {c: "" for c in ordered_columns}
-        if "STUDYID" in row:
-            row["STUDYID"] = protocol_no
-        if "DOMAIN" in row:
-            row["DOMAIN"] = "TS"
-        return pd.DataFrame([row], columns=ordered_columns)
+        return pd.DataFrame([make_empty_ts_row()], columns=ordered_columns)
 
-    ts_cd = ts_cd.sort_values(by=["Order_num", "Term"], na_position="last").reset_index(drop=True)
+    # 同一個 TSPARMCD 只保留一筆
+    # 優先保留前面 order 較小的
+    ts_cd = ts_cd.sort_values(by=["Order_num", "Term"], na_position="last")
+    ts_cd = ts_cd.drop_duplicates(subset=["Term"], keep="first").copy()
+
+    # ✅ TSSEQ by TSPARMCD
+    ts_cd = ts_cd.sort_values(by=["Term"], na_position="last").reset_index(drop=True)
+
+    # -----------------------------
+    # TSVAL 預設
+    # -----------------------------
+    tsval_map = {
+        "SDTIGVER": ig_ver,
+        "SDTMVER": "2.0" if ig_ver == "3.4" else ("1.7" if ig_ver == "3.3" else ""),
+        "TITLE": protocol_title_val
+    }
+
+    # -----------------------------
+    # TSVCDREF / TSVCDVER 預設
+    # -----------------------------
+    refver_map = {
+        "ADAPT":   ("CDISC CT", ct_ver),
+        "ADDON":   ("CDISC CT", ct_ver),
+        "EXTTIND": ("CDISC CT", ct_ver),
+
+        "INDIC":   ("SNOMED", snomed_ver),
+        "TDIGRP":  ("SNOMED", snomed_ver),
+
+        "PCLAS":   ("MED-RT", medrt_ver),
+
+        "TRT":     ("UNII", unii_ver),
+
+        "SPONSOR": ("D-U-N-S NUMBER", ""),
+        "REGID":   ("ClinicalTrials.gov", ""),
+        "FCNTRY":  ("ISO 3166", "")
+    }
 
     rows = []
-    for i, r in ts_cd.iterrows():
-        row = {c: "" for c in ordered_columns}
 
-        if "STUDYID" in row:
-            row["STUDYID"] = protocol_no
-        if "DOMAIN" in row:
-            row["DOMAIN"] = "TS"
+    for i, r in ts_cd.iterrows():
+        tspcd = str(r["Term"]).strip()
+        tsparm = str(r["Decoded Value"]).strip()
+
+        row = make_empty_ts_row()
+
         if "TSSEQ" in row:
             row["TSSEQ"] = i + 1
+
         if "TSPARMCD" in row:
-            row["TSPARMCD"] = r["Term"]
+            row["TSPARMCD"] = tspcd
+
         if "TSPARM" in row:
-            row["TSPARM"] = r["Decoded Value"]
+            row["TSPARM"] = tsparm
+
+        # 預設 TSVAL
+        if "TSVAL" in row:
+            row["TSVAL"] = tsval_map.get(tspcd, "")
+
+        # 預設 TSVCDREF / TSVCDVER
+        ref_val, ver_val = refver_map.get(tspcd, ("", ""))
+
+        if "TSVCDREF" in row:
+            row["TSVCDREF"] = ref_val
+
+        if "TSVCDVER" in row:
+            row["TSVCDVER"] = ver_val
 
         rows.append(row)
+
+    if not rows:
+        rows = [make_empty_ts_row()]
 
     return pd.DataFrame(rows, columns=ordered_columns)
 
 
-def build_trial_design_templates(protocol_no="", config_df=None, codelists_df=None):
+
+
+def build_trial_design_templates(
+    protocol_no="",
+    protocol_title="",
+    sdtm_ig_version="",
+    sdtm_ct_version="",
+    snomed_version="",
+    unii_version="",
+    medrt_version="",
+    config_df=None,
+    codelists_df=None
+):
     """
     Trial Design template:
       - STUDYID 自動帶 protocol_no
       - DOMAIN 自動帶 TA/TE/TI/TS/TV
       - 欄位順序依 config 的 VarNum 排
       - TS 依 TSPARMCD / TSPARM 展開
+      - TSVAL / TSVCDREF / TSVCDVER 預設帶入
     """
     defs = get_trial_design_definitions()
     outputs = []
@@ -3194,6 +3286,12 @@ def build_trial_design_templates(protocol_no="", config_df=None, codelists_df=No
         if domain == "TS":
             df = build_ts_template_rows(
                 protocol_no=protocol_no,
+                protocol_title=protocol_title,
+                sdtm_ig_version=sdtm_ig_version,
+                sdtm_ct_version=sdtm_ct_version,
+                snomed_version=snomed_version,
+                unii_version=unii_version,
+                medrt_version=medrt_version,
                 codelists_df=codelists_df,
                 ordered_columns=ordered_columns
             )
@@ -3206,9 +3304,11 @@ def build_trial_design_templates(protocol_no="", config_df=None, codelists_df=No
                 row["DOMAIN"] = domain
 
             df = pd.DataFrame([row], columns=ordered_columns)
+
         outputs.append(df)
 
     return tuple(outputs)
+
 
 
 
@@ -3934,6 +4034,12 @@ if uploaded_file is not None:
                     st.markdown("### 2.6 Trial Design")
                     ta_df, te_df, ti_df, ts_df, tv_df = build_trial_design_templates(
                         protocol_no=protocol_no,
+                        protocol_title=protocol_title,
+                        sdtm_ig_version=version,
+                        sdtm_ct_version=sdtm_ct,
+                        snomed_version=snomed_version,
+                        unii_version=unii_version,
+                        medrt_version=medrt_version,
                         config_df=cfg_df,
                         codelists_df=codelists_df
                     )
