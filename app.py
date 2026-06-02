@@ -3901,6 +3901,7 @@ def to_excel_bytes(sheet_dict):
 
 
 
+
 def extract_tv_visits_from_soa_folder(
     file_bytes,
     manual_soa_header=None,
@@ -3910,11 +3911,12 @@ def extract_tv_visits_from_soa_folder(
     用 SoA + Folder 產生 TV 的 visit 清單
 
     規則：
-      - SoA 的 Form OID 決定順序
-      - Folder 的 OID + Full Term 決定 visit 顯示文字
-      - 只有在 Folder 找得到的 OID 才算 visit
-      - DS / CM / AE 這類若不在 Folder，就不會進 TV
+      - SoA 的「欄位名稱」代表 visit OID（例如 SCR, V2-CI, V2）
+      - Folder 的 OID + Full Term 提供 visit 顯示文字
+      - 只有同時存在於 SoA 欄位、且存在於 Folder OID 的項目才算 visit
+      - 順序以 SoA 欄位順序為準
     """
+
     # -----------------------------
     # 1) 讀 SoA
     # -----------------------------
@@ -3925,28 +3927,35 @@ def extract_tv_visits_from_soa_folder(
         manual_header_row_excel=manual_soa_header
     )
 
-    form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
-    if form_oid_col is None:
-        raise ValueError("SoA 分頁中找不到 Form OID 欄位")
+    # SoA 的 visit 應該來自欄名，而不是 Form OID 的值
+    soa_columns = [str(c).strip() for c in soa_df.columns if str(c).strip()]
 
-    ordered_oids = []
+    # 排除明顯不是 visit 的欄位
+    non_visit_headers = {
+        "FORM OID",
+        "FORMOID",
+        "FORM",
+        "FORM NAME",
+        "FULL TERM",
+        "TERM",
+        "DESCRIPTION",
+        "SEQ",
+        "ORDER"
+    }
+
+    ordered_visit_oids = []
     seen_soa = set()
 
-    for value in soa_df[form_oid_col].dropna():
-        text = str(value).strip()
-        if not text:
+    for col in soa_columns:
+        col_up = normalize_text(col)
+
+        if col_up in non_visit_headers:
             continue
 
-        parts = re.split(r"[,\n;/]+", text)
-
-        for part in parts:
-            oid = str(part).strip().upper()
-            if not oid:
-                continue
-
-            if oid not in seen_soa:
-                ordered_oids.append(oid)
-                seen_soa.add(oid)
+        # 保留原始字樣，但比對時用大寫
+        if col_up and col_up not in seen_soa:
+            ordered_visit_oids.append(col_up)
+            seen_soa.add(col_up)
 
     # -----------------------------
     # 2) 讀 Folder
@@ -3954,7 +3963,7 @@ def extract_tv_visits_from_soa_folder(
     folder_df, _ = read_sheet_with_detected_header(
         file_bytes=file_bytes,
         sheet_name="Folder",
-        keyword_groups=[["OID", "FULL", "TERM"], ["FOLDER", "OID"], ["FULL", "TERM"]],
+        keyword_groups=[["FOLDER", "OID"], ["FULL", "TERM"], ["OID"]],
         manual_header_row_excel=manual_folder_header
     )
 
@@ -3981,12 +3990,12 @@ def extract_tv_visits_from_soa_folder(
     folder_lookup = dict(zip(folder_work["OID"], folder_work["Full Term"]))
 
     # -----------------------------
-    # 3) 只保留 SoA 中、且存在 Folder 的 visit
+    # 3) 用 SoA 欄順序 + Folder 對應 Full Term
     # -----------------------------
     visits = []
     seen_visit = set()
 
-    for oid in ordered_oids:
+    for oid in ordered_visit_oids:
         if oid in folder_lookup and oid not in seen_visit:
             visits.append({
                 "VISIT_OID": oid,
@@ -3995,7 +4004,6 @@ def extract_tv_visits_from_soa_folder(
             seen_visit.add(oid)
 
     return pd.DataFrame(visits, columns=["VISIT_OID", "VISIT"])
-
 
 
 
