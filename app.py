@@ -2889,30 +2889,23 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     out = out[cols]
     out = out.sort_values(by=["ID", "Term"], na_position="last").reset_index(drop=True)
 
-    order_values = []
-    current_id = None
-    seq = 0
+    out = out.copy()
+    for c in cols:
+        if c not in out.columns:
+            out[c] = ""
 
-    for _, row in out.iterrows():
-        row_id = str(row["ID"]).strip()
-        row_term = str(row["Term"]).strip()
+    out = out[cols]
 
-        if row_id != current_id:
-            current_id = row_id
-            seq = 0
+    # 先排 ID，再排 Term（空白也保留）
+    out["_term_sort"] = out["Term"].fillna("").astype(str).str.upper().str.strip()
+    out = out.sort_values(by=["ID", "_term_sort"], na_position="last").reset_index(drop=True)
 
-        if row_term != "":
-            seq += 1
-            order_values.append(seq)
-        else:
-            order_values.append("")
+    # 每個 ID 內，不管 Term 是否空白，都給順序
+    out["Order"] = out.groupby("ID").cumcount() + 1
 
-    out["Order"] = order_values
+    out = out.drop(columns=["_term_sort"])
 
     return out[cols]
-
-
-
 
 
 
@@ -3109,12 +3102,83 @@ def get_trial_design_columns_from_config(domain, config_df, fallback_columns):
     return final_cols
 
 
-def build_trial_design_templates(protocol_no="", config_df=None):
+
+def build_ts_template_rows(protocol_no="", codelists_df=None, ordered_columns=None):
+    """
+    依 Codelists 中的 TSPARMCD / Decoded Value 展開 TS template
+    - TSPARMCD <- codelists_df[ID='TSPARMCD'].Term
+    - TSPARM   <- codelists_df[ID='TSPARMCD'].Decoded Value
+    - TSSEQ    <- 1..n
+    """
+    if ordered_columns is None:
+        ordered_columns = [
+            "STUDYID", "DOMAIN", "TSSEQ", "TSPARMCD", "TSPARM",
+            "TSVAL", "TSVALCD", "TSVCDREF", "TSVCDVER", "TSVALNF"
+        ]
+
+    # 沒有 codelists 時，回傳一列骨架
+    if codelists_df is None or codelists_df.empty:
+        row = {c: "" for c in ordered_columns}
+        if "STUDYID" in row:
+            row["STUDYID"] = protocol_no
+        if "DOMAIN" in row:
+            row["DOMAIN"] = "TS"
+        return pd.DataFrame([row], columns=ordered_columns)
+
+    tmp = codelists_df.copy()
+
+    for c in ["ID", "Term", "Decoded Value", "Order"]:
+        if c not in tmp.columns:
+            tmp[c] = ""
+
+    tmp["ID"] = tmp["ID"].astype(str).str.upper().str.strip()
+    tmp["Term"] = tmp["Term"].fillna("").astype(str).str.strip()
+    tmp["Decoded Value"] = tmp["Decoded Value"].fillna("").astype(str).str.strip()
+    tmp["Order_num"] = pd.to_numeric(tmp["Order"], errors="coerce")
+
+    # 只抓 TSPARMCD rows
+    ts_cd = tmp[
+        (tmp["ID"] == "TSPARMCD") &
+        (tmp["Term"] != "")
+    ].copy()
+
+    if ts_cd.empty:
+        row = {c: "" for c in ordered_columns}
+        if "STUDYID" in row:
+            row["STUDYID"] = protocol_no
+        if "DOMAIN" in row:
+            row["DOMAIN"] = "TS"
+        return pd.DataFrame([row], columns=ordered_columns)
+
+    ts_cd = ts_cd.sort_values(by=["Order_num", "Term"], na_position="last").reset_index(drop=True)
+
+    rows = []
+    for i, r in ts_cd.iterrows():
+        row = {c: "" for c in ordered_columns}
+
+        if "STUDYID" in row:
+            row["STUDYID"] = protocol_no
+        if "DOMAIN" in row:
+            row["DOMAIN"] = "TS"
+        if "TSSEQ" in row:
+            row["TSSEQ"] = i + 1
+        if "TSPARMCD" in row:
+            row["TSPARMCD"] = r["Term"]
+        if "TSPARM" in row:
+            row["TSPARM"] = r["Decoded Value"]
+
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=ordered_columns)
+
+
+def build_trial_design_templates(protocol_no="", config_df=None, codelists_df=None):
     """
     Trial Design template:
       - STUDYID 自動帶 protocol_no
       - DOMAIN 自動帶 TA/TE/TI/TS/TV
       - 欄位順序依 config 的 VarNum 排
+      - TS 依 TSPARMCD / TSPARM 展開
     """
     defs = get_trial_design_definitions()
     outputs = []
@@ -3127,17 +3191,24 @@ def build_trial_design_templates(protocol_no="", config_df=None):
             fallback_columns=fallback_columns
         )
 
-        row = {c: "" for c in ordered_columns}
+        if domain == "TS":
+            df = build_ts_template_rows(
+                protocol_no=protocol_no,
+                codelists_df=codelists_df,
+                ordered_columns=ordered_columns
+            )
+        else:
+            row = {c: "" for c in ordered_columns}
 
-        if "STUDYID" in row:
-            row["STUDYID"] = protocol_no
-        if "DOMAIN" in row:
-            row["DOMAIN"] = domain
+            if "STUDYID" in row:
+                row["STUDYID"] = protocol_no
+            if "DOMAIN" in row:
+                row["DOMAIN"] = domain
 
-        df = pd.DataFrame([row], columns=ordered_columns)
-        outputs.append(df)
+            df = pd.DataFrame([row], columns=ordered_columns)
+            outputs.append(df)
 
-    return tuple(outputs)
+        return tuple(outputs)
 
 
 
@@ -3832,39 +3903,6 @@ if uploaded_file is not None:
                         ct_mapping_df = prefill_ct_mapping_df(ct_mapping_df, ct_master_df)
                         st.session_state["ct_mapping_df"] = ct_mapping_df
 
-                 
-                    st.markdown("### CT Term Mapping Review")
-
-                    ct_mapping_df = st.session_state.get("ct_mapping_df", pd.DataFrame())
-                    
-                    if ct_mapping_df.empty:
-                        st.info("No CT mapping seed available from Step 1.")
-                    else:
-                        review_cols = [
-                            "Source CRF Sheet",
-                            "Source CRF Variable",
-                            "SDTM Domain",
-                            "SDTM Variable",
-                            "Assign Value",
-                            "CT Codelist Code",
-                            "Option Displayed Value",
-                            "Suggested CT Term",
-                            "Match Status"
-                        ]
-
-                        for c in review_cols:
-                            if c not in ct_mapping_df.columns:
-                                ct_mapping_df[c] = ""
-
-                        ct_mapping_df = st.data_editor(
-                            ct_mapping_df[review_cols],
-                            num_rows="dynamic",
-                            use_container_width=True,
-                            key="ct_mapping_review_editor"
-                        )
-
-                        st.session_state["ct_mapping_df"] = ct_mapping_df
-
                     
                     # 2.4 Codelists
                     st.markdown("### 2.4 Codelists")
@@ -3896,7 +3934,8 @@ if uploaded_file is not None:
                     st.markdown("### 2.6 Trial Design")
                     ta_df, te_df, ti_df, ts_df, tv_df = build_trial_design_templates(
                         protocol_no=protocol_no,
-                        config_df=cfg_df
+                        config_df=cfg_df,
+                        codelists_df=codelists_df
                     )
 
                     with st.expander("TA / TE / TI / TS / TV 基本欄位骨架", expanded=False):
