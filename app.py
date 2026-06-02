@@ -2149,6 +2149,27 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         return None
 
 
+    def get_special_default_terms(display_id):
+        display_id = safe_upper(display_id)
+
+        # DOMAIN_AE -> AE
+        if display_id.startswith("DOMAIN_") and "_" in display_id:
+            return [display_id.split("_", 1)[1]]
+
+        # ND -> NOT DONE
+        if display_id == "ND":
+            return ["NOT DONE"]
+
+        # Y -> Y
+        if display_id == "Y":
+            return ["Y"]
+
+        # NY -> N / Y（保留，雖然你這次沒特別問）
+        if display_id == "NY":
+            return ["N", "Y"]
+
+        return []
+
     
     # -------------------------------------------------
     # 1) variables_df：顯示用 ID
@@ -2514,6 +2535,66 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                     "Decoded Value": safe_text(hit.get("NCI Preferred Term", ""))
                 })
 
+
+    # -------------------------------------------------
+    # 6.5) 補 special IDs（DOMAIN_XX / ND / Y / NY）
+    # 這些 ID 可能不會出現在 ct_mapping_df，但仍需 term rows
+    # -------------------------------------------------
+    for cid in distinct_ids:
+        forced_terms = get_special_default_terms(cid)
+        if not forced_terms:
+            continue
+
+        meta = header_meta.get(cid, {})
+        nci_codelist_code = safe_upper(meta.get("NCI Codelist Code", ""))
+
+        ct_sub = pd.DataFrame()
+        if nci_codelist_code:
+            ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code].copy()
+            ct_sub = prepare_ct_sub(ct_sub)
+
+        for term_candidate in forced_terms:
+            hit = None
+            if not ct_sub.empty:
+                hit = match_term(ct_sub, term_candidate)
+
+            if hit is not None:
+                submission_val = safe_text(hit.get("Submission Value", ""))
+                dedup_key = (cid, submission_val)
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+
+                rows.append({
+                    "ID": cid,
+                    "Name": meta.get("Name", ""),
+                    "NCI Codelist Code": nci_codelist_code,
+                    "Data Type": "text",
+                    "Terminology": terminology_value,
+                    "Comment": "",
+                    "Order": None,
+                    "Term": submission_val,
+                    "NCI Term Code": safe_text(hit.get("NCI Term Code", "")),
+                    "Decoded Value": safe_text(hit.get("NCI Preferred Term", ""))
+                })
+            else:
+                dedup_key = (cid, normalize_term(term_candidate))
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+
+                rows.append({
+                    "ID": cid,
+                    "Name": meta.get("Name", ""),
+                    "NCI Codelist Code": nci_codelist_code,
+                    "Data Type": "text",
+                    "Terminology": terminology_value,
+                    "Comment": "",
+                    "Order": None,
+                    "Term": term_candidate,
+                    "NCI Term Code": "",
+                    "Decoded Value": ""
+                })
 
     # -------------------------------------------------
     # 7) 先轉 DataFrame，保證欄位存在
