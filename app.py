@@ -2243,6 +2243,13 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
     if out_df is None or not isinstance(out_df, pd.DataFrame):
         out_df = pd.DataFrame(columns=cols)
 
+    st.write("DEBUG display_id missing:", debug_display_id_missing)
+    st.write("DEBUG forced_terms empty:", debug_forced_terms_empty)
+    st.write("DEBUG CT match hit:", debug_match_hit)
+    st.write("DEBUG CT match miss:", debug_match_miss)
+    st.write("DEBUG rows built:", len(rows))
+    st.write("DEBUG codelists out_df rows:", len(out_df))
+
     return out_df
 
 
@@ -2773,6 +2780,12 @@ def build_decoded_pair_lookup(work_df):
 
     distinct_ids = sorted(id_df["Codelist"].drop_duplicates().tolist())
 
+    st.write("DEBUG id_df rows:", len(id_df))
+    st.write("DEBUG distinct_ids count:", len(distinct_ids))
+    if not id_df.empty:
+        st.write("DEBUG id_df sample:", id_df.head(10))
+
+
     # -------------------------------------------------
     # 2) cfg_df：base CT code（真正 config-driven）
     # -------------------------------------------------
@@ -2979,6 +2992,11 @@ def build_decoded_pair_lookup(work_df):
     # -------------------------------------------------
     # 6) ct_mapping_df -> term rows
     # -------------------------------------------------
+    debug_display_id_missing = 0
+    debug_forced_terms_empty = 0
+    debug_match_hit = 0
+    debug_match_miss = 0
+    
     if not ct_mapping_df.empty:
         work = ct_mapping_df.copy()
 
@@ -3005,6 +3023,7 @@ def build_decoded_pair_lookup(work_df):
 
             display_id = display_id_lookup.get((ds, var), "")
             if not display_id:
+                debug_display_id_missing += 1
                 continue
 
             meta = header_meta.get(display_id, {})
@@ -3067,6 +3086,7 @@ def build_decoded_pair_lookup(work_df):
                 hit = match_term(ct_sub, term_candidate)
 
                 if hit is None:
+                    debug_match_miss += 1
                     dedup_key = (display_id, normalize_term(term_candidate))
                     if dedup_key in seen:
                         continue
@@ -3086,6 +3106,7 @@ def build_decoded_pair_lookup(work_df):
                     })
                     continue
 
+                debug_match_hit += 1
                 submission_val = safe_text(hit.get("Submission Value", ""))
                 dedup_key = (display_id, submission_val)
                 if dedup_key in seen:
