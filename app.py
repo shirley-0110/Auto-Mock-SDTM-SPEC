@@ -2449,7 +2449,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
             # B) 有 NCI Codelist Code：去 CT term rows 找對應
             ct_sub = ct_df[ct_df["Codelist Code"] == nci_codelist_code].copy()
-            ct_sub = prepare_ct_term_matching(ct_sub)
+            ct_sub = prepare_ct_sub(ct_sub)
 
             if ct_sub.empty:
                 for term_candidate in forced_terms:
