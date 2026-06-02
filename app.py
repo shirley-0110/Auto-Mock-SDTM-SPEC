@@ -2428,7 +2428,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
             # A) 沒有 NCI Codelist Code：term 直接保留
             if not nci_codelist_code:
                 for term_candidate in forced_terms:
-                    dedup_key = (display_id, normalize_term_candidate(term_candidate))
+                    dedup_key = (display_id, normalize_term(term_candidate))
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)
@@ -2453,7 +2453,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
 
             if ct_sub.empty:
                 for term_candidate in forced_terms:
-                    dedup_key = (display_id, normalize_term_candidate(term_candidate))
+                    dedup_key = (display_id, normalize_term(term_candidate))
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)
@@ -2476,7 +2476,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                 hit = match_term(ct_sub, term_candidate)
 
                 if hit is None:
-                    dedup_key = (display_id, normalize_term_candidate(term_candidate))
+                    dedup_key = (display_id, normalize_term(term_candidate))
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)
