@@ -345,6 +345,7 @@ def build_soa_visit_list(
 
         for col in visit_cols:
             abbr = normalize_text(col)
+            abbr = re.sub(r'[\*\^]+', '', abbr).strip()
             cell_val = str(row.get(col, "")).strip().upper()
 
             # 只抓 ticked X
