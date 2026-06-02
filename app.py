@@ -2767,7 +2767,7 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
                 # --------------------------------
                 tsparm_term = resolve_decoded_term_by_nci_code(
                     ct_df=ct_df,
-                    tsparm_codelist_code=nci_codelist_code_nm,
+                    target_codelist_code=nci_codelist_code_nm,
                     nci_term_code=nci_code
                 )
 
