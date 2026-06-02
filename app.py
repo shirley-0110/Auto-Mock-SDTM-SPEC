@@ -2201,6 +2201,11 @@ def build_codelists_from_ct_mapping(ct_mapping_df, ct_master_df, variables_df, c
         "Comment", "Order", "Term", "NCI Term Code", "Decoded Value"
     ]
 
+    debug_display_id_missing = 0
+    debug_forced_terms_empty = 0
+    debug_match_hit = 0
+    debug_match_miss = 0
+
     if variables_df.empty:
         return pd.DataFrame(columns=cols)
 
