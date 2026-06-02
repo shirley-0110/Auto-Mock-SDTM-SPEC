@@ -344,7 +344,7 @@ def build_soa_visit_list(
         if not source_sheet:
             continue
 
-        for col in visit_cols:
+        for col, col_idx in visit_cols:
             abbr = normalize_text(col)
             abbr = re.sub(r'[\*\^]+', '', abbr).strip()
             cell_val = str(row.get(col, "")).strip().upper()
