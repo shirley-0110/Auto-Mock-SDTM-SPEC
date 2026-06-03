@@ -1125,10 +1125,10 @@ if uploaded_file is not None:
             st.session_state["config_loaded"] = True
         
 
-        # Load CT Mapping Dictionary（新增）
+        # Load CT Term Mapping Dictionary
         ct_mapping_dict_df = None
 
-        dict_path = "config/ct_mapping_dictionary.xlsx"
+        dict_path = "config/CT Term Mapping Dictionary.xlsx"
 
         if os.path.exists(dict_path):
             try:
