@@ -30,12 +30,12 @@ except Exception:
 def parse_soa_basic(soa_df):
 
     records = []
+    cols = list(soa_df.columns)
 
-    # 假設第一欄是 dataset
-    dataset_col = soa_df.columns[0]
 
-    # 剩下全部是 visit
-    visit_cols = soa_df.columns[1:]
+    dataset_col = cols[0]   # Form OID
+    form_name_col = cols[1] # CRF Name
+    visit_cols = cols[2:]   # 後面全部視為 visit
 
     for _, row in soa_df.iterrows():
 
