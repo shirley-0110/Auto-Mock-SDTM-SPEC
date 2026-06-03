@@ -26,9 +26,8 @@ except Exception:
 # ===================================================================================================================================================================================
 
 # =================================================================================================================
-# 基本工具函式
+# 文字處理
 # =================================================================================================================
-
 def normalize_text(x):
     if pd.isna(x):
         return ""
@@ -54,6 +53,9 @@ def normalize_columns(df):
     # End=========================================================
 
 
+# =================================================================================================================
+# 匯入Excel各種工具
+# =================================================================================================================
 def find_column(columns, required_keywords):
     for col in columns:
         upper_col = normalize_text(col)
@@ -123,7 +125,11 @@ def read_sheet_with_detected_header(
 
 
 
+# =================================================================================================================
+# 特定使用
+# =================================================================================================================
 
+# 抓SoA的Visit
 def build_soa_visit_list(
     file_bytes,
     manual_soa_header=None,
@@ -288,6 +294,58 @@ def find_source_variable_column(columns):
             return col
 
     return None
+    # End=========================================================
+
+def parse_sdtm_targets(value):
+    """
+    規則：
+      - 只用分號 ; 和換行切
+      - 不用逗號和斜線切
+      - 支援：
+          AE.AETERM
+          VS.VSTESTCD="TEMP"
+          DM.SEX='F'
+    """
+    parsed_records = []
+    unparsed_tokens = []
+
+    if pd.isna(value):
+        return parsed_records, unparsed_tokens
+
+    text = str(value).strip()
+    if not text:
+        return parsed_records, unparsed_tokens
+
+    tokens = re.split(r"[;\n]+", text)
+
+    pattern = re.compile(
+        r'^\s*([A-Za-z][A-Za-z0-9]{0,7})\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*["\']?(.*?)["\']?)?\s*$'
+    )
+
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            continue
+
+        match = pattern.match(token)
+        if match:
+            dom, var, assign_val = match.groups()
+
+            if assign_val is None:
+                assign_val = ""
+            else:
+                assign_val = str(assign_val).strip()
+
+            parsed_records.append({
+                "SDTM Domain": dom.upper(),
+                "SDTM Variable": var.upper(),
+                "Assign Value": assign_val
+            })
+        else:
+            unparsed_tokens.append(token)
+
+    return parsed_records, unparsed_tokens
+    # End=========================================================
 
 
 
@@ -391,8 +449,55 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, common_domain_header=Non
 
 
 
+def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, common_domain_header=None):
+    if "SoA" not in all_sheets:
+        raise ValueError("找不到 SoA 分頁")
 
+    soa_df, _ = read_sheet_with_detected_header(
+        file_bytes=file_bytes,
+        sheet_name="SoA",
+        keyword_groups=[["FORM", "OID"]],
+        manual_header_row_excel=manual_soa_header
+    )
 
+    form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
+    if form_oid_col is None:
+        raise ValueError("SoA 分頁中找不到 Form OID 欄位")
+
+    valid_domains = extract_form_oids(soa_df[form_oid_col])
+    sheet_upper_map = {s.upper(): s for s in all_sheets}
+
+    available_sheets = [
+        sheet_upper_map[d] for d in valid_domains if d in sheet_upper_map
+    ]
+
+    missing_sheets = [
+        d for d in valid_domains if d not in sheet_upper_map
+    ]
+
+    mapping_df, detail_df, sheet_errors, unparsed_records = build_sdtm_mapping(
+        file_bytes=file_bytes,
+        selected_crf_sheets=available_sheets,
+        common_domain_header=common_domain_header
+    )
+    
+    ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
+        file_bytes=file_bytes,
+        selected_crf_sheets=available_sheets,
+        common_domain_header=common_domain_header
+    )
+
+    return {
+        "available_sheets": available_sheets,
+        "missing_sheets": missing_sheets,
+        "mapping_df": mapping_df,
+        "detail_df": detail_df,
+        "sheet_errors": sheet_errors,
+        "unparsed_records": unparsed_records,
+        "ct_mapping_df": ct_mapping_df,
+        "ct_mapping_sheet_errors": ct_mapping_sheet_errors
+    }
+    # End=========================================================
 
 
 
@@ -471,6 +576,21 @@ def build_tv_from_soa_list(
         rows = [make_row()]
 
     return pd.DataFrame(rows, columns=ordered_columns)
+    # End=========================================================
+
+
+
+
+# 判斷 Step 1 結果能不能重用（避免每次重跑）
+def make_step1_cache_key(file_bytes):
+    md5 = hashlib.md5(file_bytes).hexdigest()
+    return md5
+    # End=========================================================
+
+
+
+
+
 
 
 
@@ -532,6 +652,31 @@ if uploaded_file is not None:
         # -------------------------------------------------
         st.markdown("## Step 1｜CRF → SDTM Mapping")
 
+        st.markdown("## Step 1｜CRF → SDTM Mapping")
 
+        step1_cache_key = make_step1_cache_key(file_bytes)
+
+        if (
+            st.session_state.get("step1_cache_key") == step1_cache_key
+            and st.session_state.get("step1_result") is not None
+        ):
+            result = st.session_state["step1_result"]
+        else:
+            result = process_uploaded_excel(
+                file_bytes=file_bytes,
+                all_sheets=all_sheets,
+                manual_soa_header=manual_soa_header,
+                common_domain_header=common_domain_header
+            )
+            st.session_state["step1_cache_key"] = step1_cache_key
+            st.session_state["step1_result"] = result
+
+        missing_sheets = result["missing_sheets"]
+        mapping_df = result["mapping_df"]
+        detail_df = result["detail_df"]
+        sheet_errors = result["sheet_errors"]
+        unparsed_records = result["unparsed_records"]
+        ct_mapping_df = result.get("ct_mapping_df", pd.DataFrame())
+        ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
