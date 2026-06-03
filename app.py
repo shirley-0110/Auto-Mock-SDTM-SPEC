@@ -303,16 +303,13 @@ if uploaded_file is not None:
 
 
         # 讀 SoA
-
-
-        soa_df, _ = read_sheet_with_detected_header(
+        soa_list_df = build_soa_visit_list(
             file_bytes=file_bytes,
-            sheet_name="SoA",
-            keyword_groups=[["FORM", "OID"]],
-            manual_header_row_excel=manual_soa_header
+            manual_soa_header=manual_soa_header,
+            manual_folder_header=None
         )
         
-        st.write(soa_df)
+        st.write(soa_list_df )
 
 
 
