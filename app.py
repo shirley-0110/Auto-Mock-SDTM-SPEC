@@ -97,18 +97,14 @@ def read_sheet_with_detected_header(
     file_bytes,
     sheet_name,
     keyword_groups,
-    manual_header_row_excel=None,
     max_scan_rows=30
 ):
-    if manual_header_row_excel is not None:
-        header_row_zero_based = manual_header_row_excel - 1
-    else:
-        header_row_zero_based = detect_header_row(
-            file_bytes=file_bytes,
-            sheet_name=sheet_name,
-            keyword_groups=keyword_groups,
-            max_scan_rows=max_scan_rows
-        )
+    header_row_zero_based = detect_header_row(
+        file_bytes=file_bytes,
+        sheet_name=sheet_name,
+        keyword_groups=keyword_groups,
+        max_scan_rows=max_scan_rows
+    )
 
     if header_row_zero_based is None:
         raise ValueError(f"無法自動判斷 {sheet_name} 的 header row")
@@ -130,11 +126,7 @@ def read_sheet_with_detected_header(
 # =================================================================================================================
 
 # 抓SoA的Visit
-def build_soa_visit_list(
-    file_bytes,
-    manual_soa_header=None,
-    manual_folder_header=None
-):
+def build_soa_visit_list(file_bytes):
     """
     從 SoA + Folder 建立 SoA List:
       CRF Dataset / Abbreviation / Visit
@@ -150,8 +142,7 @@ def build_soa_visit_list(
     soa_df, _ = read_sheet_with_detected_header(
         file_bytes=file_bytes,
         sheet_name="SoA",
-        keyword_groups=[["FORM", "OID"]],
-        manual_header_row_excel=manual_soa_header
+        keyword_groups=[["FORM", "OID"]]
     )
 
     form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
@@ -186,8 +177,7 @@ def build_soa_visit_list(
     folder_df, _ = read_sheet_with_detected_header(
         file_bytes=file_bytes,
         sheet_name="Folder",
-        keyword_groups=[["ABBREVIATION"], ["FULL", "TERM"]],
-        manual_header_row_excel=manual_folder_header
+        keyword_groups=[["ABBREVIATION"], ["FULL", "TERM"]]
     )
 
     abbr_col = find_column(folder_df.columns, ["ABBREVIATION"])
@@ -350,11 +340,8 @@ def parse_sdtm_targets(value):
 
 
 
-def build_sdtm_mapping(file_bytes, selected_crf_sheets, common_domain_header=None):
-    """
-    common_domain_header:
-      所有 Domain Sheet 共用 header row（Excel 1-based）
-    """
+def build_sdtm_mapping(file_bytes, selected_crf_sheets):
+
     mapping_records = []
     detail_records = []
     sheet_errors = []
@@ -365,8 +352,7 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, common_domain_header=Non
             df, _ = read_sheet_with_detected_header(
                 file_bytes=file_bytes,
                 sheet_name=sheet,
-                keyword_groups=[["SDTM", "TARGET"]],
-                manual_header_row_excel=common_domain_header
+                keyword_groups=[["SDTM", "TARGET"]]
             )
         except Exception:
             sheet_errors.append(sheet)
@@ -449,15 +435,14 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets, common_domain_header=Non
 
 
 
-def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, common_domain_header=None):
+def process_uploaded_excel(file_bytes, all_sheets):
     if "SoA" not in all_sheets:
         raise ValueError("找不到 SoA 分頁")
 
     soa_df, _ = read_sheet_with_detected_header(
         file_bytes=file_bytes,
         sheet_name="SoA",
-        keyword_groups=[["FORM", "OID"]],
-        manual_header_row_excel=manual_soa_header
+        keyword_groups=[["FORM", "OID"]]
     )
 
     form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
@@ -477,14 +462,12 @@ def process_uploaded_excel(file_bytes, all_sheets, manual_soa_header=None, commo
 
     mapping_df, detail_df, sheet_errors, unparsed_records = build_sdtm_mapping(
         file_bytes=file_bytes,
-        selected_crf_sheets=available_sheets,
-        common_domain_header=common_domain_header
+        selected_crf_sheets=available_sheets
     )
     
     ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
         file_bytes=file_bytes,
-        selected_crf_sheets=available_sheets,
-        common_domain_header=common_domain_header
+        selected_crf_sheets=available_sheets
     )
 
     return {
@@ -623,11 +606,7 @@ if uploaded_file is not None:
         all_sheets = xls.sheet_names
 
         # 呼叫SoA
-        soa_df = build_soa_visit_list(
-            file_bytes=file_bytes,
-            manual_soa_header=None,
-            manual_folder_header=None
-        )
+        soa_df = build_soa_visit_list(file_bytes)
 
         # Visit去重複 (供後續TV使用)
         unique_visit_df = (           
@@ -664,9 +643,7 @@ if uploaded_file is not None:
         else:
             result = process_uploaded_excel(
                 file_bytes=file_bytes,
-                all_sheets=all_sheets,
-                manual_soa_header=manual_soa_header,
-                common_domain_header=common_domain_header
+                all_sheets=all_sheets
             )
             st.session_state["step1_cache_key"] = step1_cache_key
             st.session_state["step1_result"] = result
@@ -678,5 +655,6 @@ if uploaded_file is not None:
         unparsed_records = result["unparsed_records"]
         ct_mapping_df = result.get("ct_mapping_df", pd.DataFrame())
         ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
+        
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
