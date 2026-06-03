@@ -304,11 +304,7 @@ if uploaded_file is not None:
 
 
         # 讀 SoA
-        soa_df = pd.read_excel(
-            BytesIO(file_bytes),
-            sheet_name="SoA",
-            header=(manual_soa_header - 1) if use_manual_soa_header else 1  # 不是手填的話defult是第2列
-        )
+
 
         soa_df, _ = read_sheet_with_detected_header(
             file_bytes=file_bytes,
