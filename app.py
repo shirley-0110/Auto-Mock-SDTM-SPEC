@@ -49,12 +49,12 @@ def parse_soa_basic(soa_df):
 
             value = row[visit]
 
-            # ✅ 有值就代表該 dataset 在該 visit 出現
+            # 只抓 ticked X
             if pd.notna(value) and str(value).strip() == "X":
                 
                 records.append({
-                    "dataset": dataset,
-                    "visit": str(visit).strip()
+                    "CRF Dataset": dataset,
+                    "Abbreviation": str(visit).strip().str.replace(r"[\*\^]", "", regex=True)
                 })
 
     return pd.DataFrame(records)
