@@ -90,18 +90,6 @@ if uploaded_file is not None:
         xls = pd.ExcelFile(BytesIO(file_bytes))
         all_sheets = xls.sheet_names
 
-        
-        # 讀 SoA（先用最簡單 header）
-        soa_df = pd.read_excel(
-            BytesIO(file_bytes),
-            sheet_name="SoA"
-        )
-
-        # parse
-        soa_map_df = parse_soa_basic(soa_df)
-        st.write(soa_map_df)
-
-
         # -------------------------------------------------
         # Header Override：放在上傳檔案下面
         # -------------------------------------------------
@@ -131,7 +119,18 @@ if uploaded_file is not None:
                     step=1
                 )
 
-    
+
+        # 讀 SoA（先用最簡單 header）
+        soa_df = pd.read_excel(
+            BytesIO(file_bytes),
+            sheet_name="SoA",
+            header=(manual_soa_header - 1) if use_manual_soa_header else 0
+        )
+
+        # parse
+        soa_map_df = parse_soa_basic(soa_df)
+        st.write(soa_map_df)
+        
         # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
         # -------------------------------------------------
