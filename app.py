@@ -226,10 +226,10 @@ def build_soa_visit_list(
                 visit_name = folder_lookup.get(abbr, "")
 
                 records.append({
-                    "Source CRF Sheet": source_sheet,
+                    "CRF Dataset": source_sheet,
                     "Abbreviation": abbr,
                     "Visit": visit_name,
-                    "visit_order": col_idx
+                    "Visit_order": col_idx
                 })
 
     if records:
@@ -247,11 +247,10 @@ def build_soa_visit_list(
 
 
 
-
-
-# =========================================================
+# =========================================================================================================================================================
 # 主流程 UI
-# =========================================================
+# =========================================================================================================================================================
+
 st.set_page_config(page_title="Auto SDTM SPEC", layout="wide")
 st.title("Auto SDTM SPEC")
 
@@ -272,34 +271,6 @@ if uploaded_file is not None:
         xls = pd.ExcelFile(BytesIO(file_bytes))
         all_sheets = xls.sheet_names
 
-        # -------------------------------------------------
-        # Header Override：放在上傳檔案下面
-        # -------------------------------------------------
-        st.markdown("### Header Override（選填）")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            use_manual_soa_header = st.checkbox("手動指定 SoA header row")
-            manual_soa_header = None
-            if use_manual_soa_header:
-                manual_soa_header = st.number_input(
-                    "SoA header 在 Excel 第幾列？",
-                    min_value=1,
-                    value=2,
-                    step=1
-                )
-
-        with col2:
-            use_manual_domain_header = st.checkbox("所有 Domain Sheet 使用同一個 header row")
-            common_domain_header = None
-            if use_manual_domain_header:
-                common_domain_header = st.number_input(
-                    "所有 Domain Sheet header 在 Excel 第幾列？",
-                    min_value=1,
-                    value=2,
-                    step=1
-                )
 
 
         # 讀 SoA
