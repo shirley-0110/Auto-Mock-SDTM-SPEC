@@ -50,11 +50,14 @@ def parse_soa_basic(soa_df):
             value = row[visit]
 
             # 只抓 ticked X
-            if pd.notna(value) and str(value).strip() == "X":
+            if pd.notna(value) and str(value).strip().upper() == "X":
+
+                raw_visit = str(visit).strip()
+                abbr = re.sub(r'[\*\^]+', '', raw_visit).strip()
                 
                 records.append({
                     "CRF Dataset": dataset,
-                    "Abbreviation": str(visit).strip().str.replace(r"[\*\^]", "", regex=True)
+                    "Abbreviation": abbr
                 })
 
     return pd.DataFrame(records)
