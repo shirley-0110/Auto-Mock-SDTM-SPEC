@@ -120,9 +120,36 @@ def read_sheet_with_detected_header(
     # End=========================================================
 
 
+
+
+# =================================================================================================================
+# 處理OID
+# =================================================================================================================
+def extract_form_oids(series):
+    domains = set()
+
+    for value in series.dropna():
+        text = str(value).strip()
+        if not text:
+            continue
+
+        parts = re.split(r"[,\n;/]+", text)
+
+        for part in parts:
+            item = part.strip()
+            if item:
+                domains.add(item.upper())
+
+    return domains
+    # End=========================================================
+
+
+
+
+
 def build_step1_context(file_bytes, all_sheets):
 
-    # 匯入SoA
+    # 1. 匯入SoA
     soa_df, _ = read_sheet_with_detected_header(
         file_bytes=file_bytes,
         sheet_name="SoA",
@@ -145,18 +172,16 @@ def build_step1_context(file_bytes, all_sheets):
         d for d in valid_domains if d not in sheet_upper_map
     ]
 
-    # -----------------------------
-    # 2. Folder（一次）
-    # -----------------------------
+
+    # 2. Folder
     folder_df, _ = read_sheet_with_detected_header(
         file_bytes=file_bytes,
         sheet_name="Folder",
         keyword_groups=[["ABBREVIATION"], ["FULL", "TERM"]]
     )
 
-    # -----------------------------
-    # ✅ 3. CRF Domain Sheets（一次全部讀 ✅）
-    # -----------------------------
+
+    # 3. CRF Domain Sheets
     domain_df_map = {}
     sheet_errors = []
 
@@ -176,11 +201,15 @@ def build_step1_context(file_bytes, all_sheets):
     return {
         "soa_df": soa_df,
         "folder_df": folder_df,
-        "domain_df_map": domain_df_map,   # ✅ 核心
+        "domain_df_map": domain_df_map,
         "available_sheets": available_sheets,
         "missing_sheets": missing_sheets,
         "sheet_errors": sheet_errors
     }
+    # End=========================================================
+
+
+
 
 # =================================================================================================================
 # 特定使用
@@ -401,20 +430,18 @@ def parse_sdtm_targets(value):
 
 
 
-def build_sdtm_mapping(file_bytes, selected_crf_sheets):
+def build_sdtm_mapping(domain_df_map):
 
     mapping_records = []
     detail_records = []
     sheet_errors = []
     unparsed_records = []
 
-    for sheet in selected_crf_sheets:
+    for sheet, df in domain_df_map.items():
         try:
-            df, _ = read_sheet_with_detected_header(
-                file_bytes=file_bytes,
-                sheet_name=sheet,
-                keyword_groups=[["SDTM", "TARGET"]]
-            )
+            target_col = find_column(df.columns, ["SDTM", "TARGET"])
+            source_var_col = find_source_variable_column(df.columns)
+
         except Exception:
             sheet_errors.append(sheet)
             continue
@@ -497,63 +524,42 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets):
 
 
 
-def extract_form_oids(series):
-    domains = set()
-
-    for value in series.dropna():
-        text = str(value).strip()
-        if not text:
-            continue
-
-        parts = re.split(r"[,\n;/]+", text)
-
-        for part in parts:
-            item = part.strip()
-            if item:
-                domains.add(item.upper())
-
-    return domains
-    # End=========================================================
-
-
 
 def process_uploaded_excel(file_bytes, all_sheets):
-    if "SoA" not in all_sheets:
-        raise ValueError("找不到 SoA 分頁")
 
-    soa_df, _ = read_sheet_with_detected_header(
-        file_bytes=file_bytes,
-        sheet_name="SoA",
-        keyword_groups=[["FORM", "OID"]]
+    # Step1 context
+    ctx = build_step1_context(file_bytes, all_sheets)
+
+    soa_df = ctx["soa_df"]
+    folder_df = ctx["folder_df"]
+    domain_df_map = ctx["domain_df_map"]
+    available_sheets = ctx["available_sheets"]
+    missing_sheets = ctx["missing_sheets"]
+    sheet_errors = ctx["sheet_errors"]
+
+    # SoA list
+    soa_list_df = build_soa_visit_list(soa_df, folder_df)
+
+    # SDTM mapping
+    mapping_df, detail_df, _, unparsed_records = build_sdtm_mapping(
+        domain_df_map
     )
 
-    form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
-    if form_oid_col is None:
-        raise ValueError("SoA 分頁中找不到 Form OID 欄位")
-
-    valid_domains = extract_form_oids(soa_df[form_oid_col])
-    sheet_upper_map = {s.upper(): s for s in all_sheets}
-
-    available_sheets = [
-        sheet_upper_map[d] for d in valid_domains if d in sheet_upper_map
-    ]
-
-    missing_sheets = [
-        d for d in valid_domains if d not in sheet_upper_map
-    ]
-
-    mapping_df, detail_df, sheet_errors, unparsed_records = build_sdtm_mapping(
-        file_bytes=file_bytes,
-        selected_crf_sheets=available_sheets
+    # CT mapping
+    ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
+        domain_df_map
     )
-    
+
     return {
-        "available_sheets": available_sheets,
-        "missing_sheets": missing_sheets,
+        "soa_list_df": soa_list_df,
         "mapping_df": mapping_df,
         "detail_df": detail_df,
+        "available_sheets": available_sheets,
+        "missing_sheets": missing_sheets,
         "sheet_errors": sheet_errors,
-        "unparsed_records": unparsed_records
+        "unparsed_records": unparsed_records,
+        "ct_mapping_df": ct_mapping_df,
+        "ct_mapping_sheet_errors": ct_mapping_sheet_errors
     }
     # End=========================================================
 
@@ -691,7 +697,7 @@ if uploaded_file is not None:
         all_sheets = xls.sheet_names
 
         # 呼叫SoA
-        soa_df = build_soa_visit_list(file_bytes)
+        soa_df = result["soa_list_df"]
 
         # Visit去重複 (供後續TV使用)
         unique_visit_df = (           
