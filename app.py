@@ -229,7 +229,7 @@ def build_step1_context(file_bytes, all_sheets):
 
 
 # =================================================================================================================
-# 匯入Config
+# 匯入/整理Config
 # =================================================================================================================
 def load_domains_config(version):
     if version == "Version 3.3":
@@ -247,6 +247,41 @@ def load_domains_config(version):
     cfg_df = normalize_columns(cfg_df)
 
     return cfg_df, path
+    # End=========================================================
+
+
+def standardize_domains_config(cfg_df):
+    df = cfg_df.copy()
+    df.columns = [str(c).strip().lower() for c in df.columns]
+
+    rename_map = {
+        "domain": "Dataset",
+        "dlabel": "Dataset Label",
+        "repeat": "Repeat",
+        "refdata": "RefData",
+        "structure": "Structure",
+        "keyvars": "Key Variables",
+        "keyseq": "KeySeq",
+        "varnum": "VarNum",
+        "name": "Variable",
+        "label": "Variable Label",
+        "type": "Data Type",
+        "mandatory": "Mandatory",
+        "role": "Role",
+        "core": "Core",
+        "ctcode": "Codelist",
+        "class": "Class"
+    }
+
+    df = df.rename(columns=rename_map)
+
+    if "Dataset" in df.columns:
+        df["Dataset"] = df["Dataset"].astype(str).str.upper().str.strip()
+
+    if "Variable" in df.columns:
+        df["Variable"] = df["Variable"].astype(str).str.upper().str.strip()
+
+    return df
     # End=========================================================
 
 
