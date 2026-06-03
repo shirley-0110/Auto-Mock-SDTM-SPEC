@@ -757,31 +757,12 @@ if uploaded_file is not None:
             file_bytes=file_bytes,
             all_sheets=all_sheets
         )
-        # 呼叫SoA
-        soa_df = result["soa_list_df"]
-
-        # Visit去重複 (供後續TV使用)
-        unique_visit_df = (           
-            soa_df
-            .loc[
-                (soa_df["Visit"].notna()) &
-                (soa_df["Visit"].str.strip() != "") &
-                (soa_df["CRF Dataset"] != soa_df["Abbreviation"])
-            ]
-            [["Abbreviation", "Visit", "Visit_order"]]
-            .drop_duplicates()
-            .sort_values("Visit_order")
-            .reset_index(drop=True)
-        )
-        
-        st.session_state["unique_visit_df"] = unique_visit_df
-        # st.write(unique_visit_df)
-
 
         # -------------------------------------------------
-        # Basic Information
+        # 前置作業
         # -------------------------------------------------
-        st.markdown("### 📌 Basic Information")
+        # Sponsor_Protocol
+        st.markdown("#### Basic Information")
 
         sponsor, default_protocol_no = extract_protocol_no_from_filename(uploaded_file.name)
 
@@ -801,10 +782,7 @@ if uploaded_file is not None:
                 key="protocol_title"
             )
 
-
-        # -------------------------------------------------
         # Version Control
-        # -------------------------------------------------
         st.markdown("#### Version Control")
 
         r1_c1, r1_c2 = st.columns(2)
@@ -833,7 +811,7 @@ if uploaded_file is not None:
         with r3_c2:
             cm_version = st.text_input("CM 版本", value="", key="cm_version")
 
-
+        
         r4_c1, r4_c2, r4_c3 = st.columns(3)
 
         with r4_c1:
@@ -848,6 +826,58 @@ if uploaded_file is not None:
 
 
 
+        # Load Config
+        # 檢查是否需要 reload（關鍵)
+        if (
+            not st.session_state.get("config_loaded")
+            or st.session_state.get("config_version") != version
+        ):
+
+            raw_cfg_df, cfg_path = load_domains_config(version)
+
+            cfg_df = standardize_domains_config(raw_cfg_df)
+    
+            # ✅ 存 config
+            st.session_state["config_df"] = cfg_df
+
+            # ✅ 建 mapping（CT mapping會用）
+            st.session_state["var_to_ctcode"] = dict(
+                zip(cfg_df["name"], cfg_df["ctcode"])
+            )
+
+            # ✅ 記錄版本
+            st.session_state["config_version"] = version
+            st.session_state["config_loaded"] = True
+
+        
+
+
+        # 呼叫SoA
+        soa_df = result["soa_list_df"]
+
+        # Visit去重複 (供後續TV使用)
+        unique_visit_df = (           
+            soa_df
+            .loc[
+                (soa_df["Visit"].notna()) &
+                (soa_df["Visit"].str.strip() != "") &
+                (soa_df["CRF Dataset"] != soa_df["Abbreviation"])
+            ]
+            [["Abbreviation", "Visit", "Visit_order"]]
+            .drop_duplicates()
+            .sort_values("Visit_order")
+            .reset_index(drop=True)
+        )
+        
+        st.session_state["unique_visit_df"] = unique_visit_df
+        # st.write(unique_visit_df)
+
+
+
+
+        # Version Control
+        
+        
         # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
         # -------------------------------------------------
