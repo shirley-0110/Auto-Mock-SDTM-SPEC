@@ -482,6 +482,12 @@ def process_uploaded_excel(file_bytes, all_sheets):
     mapping_df, detail_df, mapping_errors, unparsed_records = build_sdtm_mapping(
         domain_df_map
     )
+    
+    detail_df = detail_df.rename(columns={
+        "Source CRF Sheet": "CRF Dataset",
+        "Source CRF Variable": "CRF Variable"
+    })
+
 
     # CT mapping
     ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
