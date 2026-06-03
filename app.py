@@ -120,6 +120,67 @@ def read_sheet_with_detected_header(
     # End=========================================================
 
 
+def build_step1_context(file_bytes, all_sheets):
+
+    # 匯入SoA
+    soa_df, _ = read_sheet_with_detected_header(
+        file_bytes=file_bytes,
+        sheet_name="SoA",
+        keyword_groups=[["FORM", "OID"]]
+    )
+
+    form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
+    if form_oid_col is None:
+        raise ValueError("SoA 找不到 Form OID")
+
+    valid_domains = extract_form_oids(soa_df[form_oid_col])
+
+    sheet_upper_map = {s.upper(): s for s in all_sheets}
+
+    available_sheets = [
+        sheet_upper_map[d] for d in valid_domains if d in sheet_upper_map
+    ]
+
+    missing_sheets = [
+        d for d in valid_domains if d not in sheet_upper_map
+    ]
+
+    # -----------------------------
+    # 2. Folder（一次）
+    # -----------------------------
+    folder_df, _ = read_sheet_with_detected_header(
+        file_bytes=file_bytes,
+        sheet_name="Folder",
+        keyword_groups=[["ABBREVIATION"], ["FULL", "TERM"]]
+    )
+
+    # -----------------------------
+    # ✅ 3. CRF Domain Sheets（一次全部讀 ✅）
+    # -----------------------------
+    domain_df_map = {}
+    sheet_errors = []
+
+    for sheet in available_sheets:
+
+        try:
+            df, _ = read_sheet_with_detected_header(
+                file_bytes=file_bytes,
+                sheet_name=sheet,
+                keyword_groups=[["SDTM", "TARGET"]]
+            )
+            domain_df_map[sheet] = df
+
+        except Exception:
+            sheet_errors.append(sheet)
+
+    return {
+        "soa_df": soa_df,
+        "folder_df": folder_df,
+        "domain_df_map": domain_df_map,   # ✅ 核心
+        "available_sheets": available_sheets,
+        "missing_sheets": missing_sheets,
+        "sheet_errors": sheet_errors
+    }
 
 # =================================================================================================================
 # 特定使用
