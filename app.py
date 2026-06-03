@@ -750,6 +750,8 @@ if uploaded_file is not None:
         
         st.session_state["unique_visit_df"] = unique_visit_df
         # st.write(unique_visit_df)
+
+
         
         # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
@@ -779,33 +781,73 @@ if uploaded_file is not None:
         ct_mapping_df = result.get("ct_mapping_df", pd.DataFrame())
         ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
 
+        # SoA / Sheet 檢查
         if missing_sheets:
             st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
 
-       
-        st.markdown("### 整份檔案要呈現的 SDTM Domains / Variables")
+
+        # SDTM Summary（by Domain）
+        st.markdown("### 📊 SDTM Summary (by Domain)")
+
         if mapping_df.empty:
-            st.warning("目前沒有從各 CRF sheet 的 SDTM IG Target 抓到可解析的 SDTM Domain / Variable")
+            st.warning("目前沒有從 CRF Sheet 抓到可解析的 SDTM Domain / Variable")
         else:
-            st.write(mapping_df)
-            
+            summary_df = (
+                mapping_df
+                .groupby("SDTM Domain")["SDTM Variable"]
+                .apply(lambda x: sorted(set(x)))
+                .reset_index()
+            )
+
+            summary_df["Variable Count"] = summary_df["SDTM Variable"].apply(len)
+            summary_df["Variables"] = summary_df["SDTM Variable"].apply(lambda x: "; ".join(x))
+
+            st.dataframe(summary_df[["SDTM Domain", "Variable Count", "Variables"]], use_container_width=True)
 
 
-        st.markdown("### SDTM Mapping 明細")
-        if detail_df.empty:
-            st.info("目前沒有可顯示的明細")
-        else:
-            st.dataframe(detail_df, use_container_width=True)
 
-        if sheet_errors:
-            clean_sheets = sorted(set(sheet_errors))
-            st.markdown("### 無法處理的 Sheets")
-            st.warning(f"header 偵測失敗，無法自動判斷 header row: {clean_sheets}")
+        # Mapping（Raw)
+        with st.expander("🔍 SDTM Mapping（Raw Table）"):
 
-        if unparsed_records:
-            st.markdown("### 無法解析的 SDTM IG Target 值")
-            st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
+            if mapping_df.empty:
+                st.info("沒有可顯示資料")
+            else:
+                st.dataframe(mapping_df, use_container_width=True)
 
+
+
+        # Detail（CRF → SDTM）
+        with st.expander("🔍 SDTM Mapping 明細（CRF → SDTM）"):
+
+            if detail_df.empty:
+                st.info("目前沒有可顯示的明細")
+            else:
+                st.dataframe(detail_df, use_container_width=True)
+
+
+
+        # CT Seed
+        with st.expander("🧩 CT Mapping Seed（Option level）"):
+
+            if ct_mapping_df.empty:
+                st.info("目前沒有 CT Mapping Seed")
+            else:
+                st.dataframe(ct_mapping_df, use_container_width=True)
+
+
+
+        # 錯誤 / Debug
+        with st.expander("⚠️ Debug / Error 檢查"):
+
+            if sheet_errors:
+                st.warning(f"無法處理的 Sheets（header偵測失敗）：{sorted(set(sheet_errors))}")
+
+            if unparsed_records:
+                st.markdown("#### 無法解析的 SDTM IG Target")
+                st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
+
+            if ct_mapping_sheet_errors:
+                st.warning(f"CT Mapping 無法處理的 Sheets：{sorted(set(ct_mapping_sheet_errors))}")
 
     
         
