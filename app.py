@@ -483,17 +483,10 @@ def process_uploaded_excel(file_bytes, all_sheets):
         domain_df_map
     )
     
-    detail_df = detail_df.rename(columns={
-        "Source CRF Sheet": "CRF Dataset",
-        "Source CRF Variable": "CRF Variable"
-    })
-
-
     # CT mapping
     ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
         domain_df_map
     )
-
 
     return {
         "soa_list_df": soa_list_df,
