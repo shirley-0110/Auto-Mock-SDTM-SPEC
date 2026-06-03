@@ -903,28 +903,6 @@ if uploaded_file is not None:
             
             st.write(st.session_state["var_to_ctcode"])
 
-
-        # 呼叫SoA
-        soa_df = result["soa_list_df"]
-
-        # Visit去重複 (供後續TV使用)
-        unique_visit_df = (           
-            soa_df
-            .loc[
-                (soa_df["Visit"].notna()) &
-                (soa_df["Visit"].str.strip() != "") &
-                (soa_df["CRF Dataset"] != soa_df["Abbreviation"])
-            ]
-            [["Abbreviation", "Visit", "Visit_order"]]
-            .drop_duplicates()
-            .sort_values("Visit_order")
-            .reset_index(drop=True)
-        )
-        
-        st.session_state["unique_visit_df"] = unique_visit_df
-        # st.write(unique_visit_df)
-
-
         
         
         # -------------------------------------------------
@@ -947,6 +925,28 @@ if uploaded_file is not None:
             st.session_state["step1_cache_key"] = step1_cache_key
             st.session_state["step1_result"] = result
 
+
+        # 呼叫SoA
+        soa_df = result["soa_list_df"]
+
+        # Visit去重複 (供後續TV使用)
+        unique_visit_df = (           
+            soa_df
+            .loc[
+                (soa_df["Visit"].notna()) &
+                (soa_df["Visit"].str.strip() != "") &
+                (soa_df["CRF Dataset"] != soa_df["Abbreviation"])
+            ]
+            [["Abbreviation", "Visit", "Visit_order"]]
+            .drop_duplicates()
+            .sort_values("Visit_order")
+            .reset_index(drop=True)
+        )
+        
+        st.session_state["unique_visit_df"] = unique_visit_df
+        # st.write(unique_visit_df)
+
+        
         missing_sheets = result["missing_sheets"]
         mapping_df = result["mapping_df"]
         detail_df = result["detail_df"]
