@@ -216,7 +216,7 @@ def build_step1_context(file_bytes, all_sheets):
 # =================================================================================================================
 
 # 抓SoA的Visit
-def build_soa_visit_list(file_bytes):
+def build_soa_visit_list(soa_df, folder_df):
     """
     從 SoA + Folder 建立 SoA List:
       CRF Dataset / Abbreviation / Visit
@@ -226,15 +226,8 @@ def build_soa_visit_list(file_bytes):
       - SoA 的 visit 欄位只要 cell = X，就輸出一列
       - Folder 的 Abbreviation -> Full Term 對出 Visit
     """
-    # -----------------------------
-    # 1) 讀 SoA
-    # -----------------------------
-    soa_df, _ = read_sheet_with_detected_header(
-        file_bytes=file_bytes,
-        sheet_name="SoA",
-        keyword_groups=[["FORM", "OID"]]
-    )
 
+    # 1 呼叫SoA
     form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
     if form_oid_col is None:
         raise ValueError("SoA 分頁中找不到 Form OID 欄位")
@@ -261,15 +254,8 @@ def build_soa_visit_list(file_bytes):
         if col_up not in non_visit_headers:
             visit_cols.append((col, idx))
 
-    # -----------------------------
-    # 2) 讀 Folder
-    # -----------------------------
-    folder_df, _ = read_sheet_with_detected_header(
-        file_bytes=file_bytes,
-        sheet_name="Folder",
-        keyword_groups=[["ABBREVIATION"], ["FULL", "TERM"]]
-    )
 
+    # 2 呼叫 Folder
     abbr_col = find_column(folder_df.columns, ["ABBREVIATION"])
     if abbr_col is None:
         raise ValueError("Folder 分頁中找不到 Abbreviation 欄位")
