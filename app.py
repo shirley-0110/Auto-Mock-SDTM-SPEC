@@ -131,10 +131,11 @@ if uploaded_file is not None:
                     step=1
                 )
 
-    # -------------------------------------------------
-    # Step 1：CRF → SDTM Mapping
-    # -------------------------------------------------
-    st.markdown("## Step 1｜CRF → SDTM Mapping")
+    
+        # -------------------------------------------------
+        # Step 1：CRF → SDTM Mapping
+        # -------------------------------------------------
+        st.markdown("## Step 1｜CRF → SDTM Mapping")
 
 
     except Exception as e:
