@@ -736,6 +736,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                             "SDTM Domain": rec["SDTM Domain"],
                             "SDTM Variable": sdtm_var,
                             "CTcode": ctcode,
+                            "Assign Value": assign_val,
                             "Option Displayed Value": opt,
                             "ORIVAL": orival,
                             "ORIVAL Normalized": orival_norm
@@ -752,9 +753,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                 subset=[
                     "SDTM Domain",
                     "SDTM Variable",
-                    "CTcode",
-                    "Option Displayed Value",
-                    "ORIVAL Normalized"
+                    "CTcode"
                 ]
             )
             .sort_values(
