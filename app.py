@@ -116,6 +116,32 @@ def read_sheet_with_detected_header(
 
 
 
+# 抓檔名 (Sponsor, Protocol)
+def extract_protocol_no_from_filename(file_name):
+    if not file_name:
+        return ""
+
+    name = os.path.splitext(file_name)[0].strip()
+
+    parts = re.split(r"ecrf\s*schema", name, flags=re.IGNORECASE)
+    prefix = parts[0].strip().strip("_") if parts else name
+
+    tokens = [t.strip() for t in prefix.split("_") if t.strip()]
+
+    sponsor = ""
+    protocol = ""
+
+    if len(tokens) >= 2:
+        sponsor = tokens[0]
+        protocol = tokens[1]
+    elif len(tokens) == 1:
+        protocol = tokens[0]
+
+    return sponsor, protocol
+    # End=========================================================
+
+
+
 
 # 處理OID
 def extract_form_oids(series):
@@ -711,7 +737,7 @@ st.set_page_config(page_title="Auto SDTM SPEC", layout="wide")
 st.title("Auto SDTM SPEC")
 
 
-uploaded_file = st.file_uploader("請上傳 CRF Mapping Excel", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("請上傳 eCRF Schema Excel", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
     file_bytes = uploaded_file.getvalue()
@@ -752,7 +778,76 @@ if uploaded_file is not None:
         # st.write(unique_visit_df)
 
 
+        # -------------------------------------------------
+        # Basic Information
+        # -------------------------------------------------
+        st.markdown("### 📌 Basic Information")
+
+        sponsor, default_protocol_no = extract_protocol_no_from_filename(uploaded_file.name)
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            protocol_no = st.text_input(
+                "Protocol No",
+                value=default_protocol_no,
+                key="protocol_no"
+            )
+
+        with col2:
+            protocol_title = st.text_input(
+                "Protocol Title",
+                value="",
+                key="protocol_title"
+            )
+
+
+        # -------------------------------------------------
+        # Version Control
+        # -------------------------------------------------
+        st.markdown("#### Version Control")
+
+        r1_c1, r1_c2 = st.columns(2)
+
+        with r1_c1:
+            version = st.selectbox(
+                "SDTM IG",
+                ["Version 3.4", "Version 3.3"],
+                key="sdtm_version_selector"
+            )
+
+        with r1_c2:
+            sdtm_ct = st.text_input("SDTM CT", value="", key="sdtm_ct")
         
+        meddra_version = st.text_input("MedDRA", value="", key="meddra_version")
+
+        r3_c1, r3_c2 = st.columns(2)
+
+        with r3_c1:
+            cm_dictionary = st.selectbox(
+                "CM 字典",
+                ["WHODrug Global B3", "WHO ATC/DDD"],
+                key="cm_dictionary"
+            )
+
+        with r3_c2:
+            cm_version = st.text_input("CM 版本", value="", key="cm_version")
+
+
+        r4_c1, r4_c2, r4_c3 = st.columns(3)
+
+        with r4_c1:
+            snomed_version = st.text_input("SNOMED", value="", key="snomed_version")
+
+        with r4_c2:
+            unii_version = st.text_input("UNII", value="", key="unii_version")
+
+        with r4_c3:
+            medrt_version = st.text_input("MED-RT", value="", key="medrt_version")
+
+
+
+
         # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
         # -------------------------------------------------
@@ -815,9 +910,9 @@ if uploaded_file is not None:
                 ascending=[True, True, True, True]
             ).reset_index(drop=True)
 
+            
+            """ 先不開篩選功能 (太慢了)
             gb = GridOptionsBuilder.from_dataframe(sorted_detail_df)
-
-            # ✅ 開啟篩選（關鍵）
             gb.configure_default_column(filter=True, sortable=True)
     
             grid_options = gb.build()
@@ -828,9 +923,8 @@ if uploaded_file is not None:
                 enable_enterprise_modules=False,
                 fit_columns_on_grid_load=True
             )
-
-            
-            #st.dataframe(sorted_detail_df, use_container_width=True)
+            """ 
+            st.dataframe(sorted_detail_df, use_container_width=True)
 
 
 
@@ -846,10 +940,10 @@ if uploaded_file is not None:
         st.markdown("### ⚠️ Debug / Error 檢查")
 
         if missing_sheets:
-            st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
+            st.warning(f"SoA 有出現的 Form OID，但 Excel 沒有對應的 Sheets: {missing_sheets}")
         
         if sheet_errors:
-            st.warning(f"無法處理的 Sheets（header偵測失敗）：{sorted(set(sheet_errors))}")
+            st.warning(f"無法處理的 Sheets (Header偵測失敗): {sorted(set(sheet_errors))}")
         
         if unparsed_records:
             st.markdown("#### 無法解析的 SDTM IG Target")
