@@ -21,6 +21,52 @@ except Exception:
 
 
 
+
+# =========================================================
+# 基本工具函式
+# =========================================================
+
+
+def parse_soa_basic(soa_df):
+
+    records = []
+
+    # 假設第一欄是 dataset
+    dataset_col = soa_df.columns[0]
+
+    # 剩下全部是 visit
+    visit_cols = soa_df.columns[1:]
+
+    for _, row in soa_df.iterrows():
+
+        dataset = str(row[dataset_col]).strip()
+
+        # 跳過空行
+        if dataset == "" or dataset.lower() == "nan":
+            continue
+
+        for visit in visit_cols:
+
+            value = row[visit]
+
+            # ✅ 有值就代表該 dataset 在該 visit 出現
+            if pd.notna(value) and str(value).strip() != "":
+                
+                records.append({
+                    "dataset": dataset,
+                    "visit": str(visit).strip()
+                })
+
+    return pd.DataFrame(records)
+    # End=========================================================
+
+
+
+
+
+
+
+
 # =========================================================
 # 主流程 UI
 # =========================================================
@@ -44,30 +90,16 @@ if uploaded_file is not None:
         xls = pd.ExcelFile(BytesIO(file_bytes))
         all_sheets = xls.sheet_names
 
-
-        # 顯示有哪些 sheets
-        st.markdown("### 📑 Sheets in file")
-        st.write(all_sheets)
-
-
-        # 選擇要 preview 的 sheet
-        selected_sheet = st.selectbox(
-            "Select a sheet to preview",
-            all_sheets
+        
+        # 讀 SoA（先用最簡單 header）
+        soa_df = pd.read_excel(
+            BytesIO(file_bytes),
+            sheet_name="SoA"
         )
 
-        if selected_sheet:
-            try:
-                preview_df = pd.read_excel(
-                    BytesIO(file_bytes),
-                    sheet_name=selected_sheet
-                )
-
-                st.markdown(f"### 📄 Preview: {selected_sheet}")
-                st.dataframe(preview_df, use_container_width=True)
-
-            except Exception as e:
-                st.warning(f"⚠️ 無法預覽該 sheet：{e}")
+        # parse
+        soa_map_df = parse_soa_basic(soa_df)
+        print(soa_map_df.head())
 
 
         # -------------------------------------------------
@@ -99,10 +131,10 @@ if uploaded_file is not None:
                     step=1
                 )
 
-        # -------------------------------------------------
-        # Step 1：CRF → SDTM Mapping
-        # -------------------------------------------------
-        st.markdown("## Step 1｜CRF → SDTM Mapping")
+    # -------------------------------------------------
+    # Step 1：CRF → SDTM Mapping
+    # -------------------------------------------------
+    st.markdown("## Step 1｜CRF → SDTM Mapping")
 
 
     except Exception as e:
