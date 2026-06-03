@@ -180,7 +180,7 @@ def build_soa_visit_list(
         manual_header_row_excel=manual_folder_header
     )
 
-    abbr_col = find_column(folder_df.columns, ["ABBREVIATION", "ABB"])
+    abbr_col = find_column(folder_df.columns, ["ABBREVIATION"])
     if abbr_col is None:
         raise ValueError("Folder 分頁中找不到 Abbreviation 欄位")
 
@@ -233,14 +233,99 @@ def build_soa_visit_list(
                 })
 
     if records:
-        out_df = pd.DataFrame(records).drop_duplicates().reset_index(drop=True)
+        out_df = pd.DataFrame(records).drop_duplicates()
+        
+        # 排序：先 CRF Dataset，再 Visit_order
+        out_df = out_df.sort_values(
+            by=["CRF Dataset", "Visit_order"],
+            ascending=[True, True]
+        ).reset_index(drop=True)
+
     else:
         out_df = pd.DataFrame(columns=[
-            "Source CRF Sheet", "Abbreviation", "Visit"
+            "CRF Dataset", "Abbreviation", "Visit", "Visit_order"
         ])
 
     return out_df
     # End=========================================================
+
+
+
+
+
+
+
+def build_tv_from_soa_list(
+    soa_list_df,
+    protocol_no="",
+    ordered_columns=None
+):
+    """
+    從 SoA List 建立 TV domain
+
+    規則：
+      - 依 Abbreviation 去重
+      - 保留 SoA 原順序
+      - 排除 Source CRF Sheet == Abbreviation
+    """
+
+    if ordered_columns is None:
+        ordered_columns = [
+            "STUDYID", "DOMAIN", "VISITNUM", "VISIT", "VISITDY",
+            "ARMCD", "ARM", "TVSTRL", "TVENRL"
+        ]
+
+    def make_row():
+        row = {c: "" for c in ordered_columns}
+        if "STUDYID" in row:
+            row["STUDYID"] = protocol_no
+        if "DOMAIN" in row:
+            row["DOMAIN"] = "TV"
+        return row
+
+    if soa_list_df is None or soa_list_df.empty:
+        return pd.DataFrame([make_row()], columns=ordered_columns)
+
+    df = soa_list_df.copy()
+    
+    if "visit_order" not in df.columns:
+        df["visit_order"] = range(len(df))
+
+    for c in ["Source CRF Sheet", "Abbreviation", "Visit"]:
+        if c not in df.columns:
+            df[c] = ""
+
+    df["Source CRF Sheet"] = df["Source CRF Sheet"].astype(str).str.upper().str.strip()
+    df["Abbreviation"] = df["Abbreviation"].astype(str).str.upper().str.strip()
+    df["Visit"] = df["Visit"].astype(str).str.strip()
+
+    # 1 移除 Source CRF Sheet == Abbreviation
+    df = df[df["Source CRF Sheet"] != df["Abbreviation"]]
+
+    # 2 只保留有 Visit（Folder 已對應）
+    df = df[df["Visit"] != ""]
+
+    # 3 先排序（依 SoA 欄位順序）、去重
+    df["visit_order"] = pd.to_numeric(df["visit_order"], errors="coerce")
+    df = df.sort_values(by="visit_order")
+    df = df.drop_duplicates(subset=["Abbreviation"], keep="first")
+
+    # 4 建立 TV rows
+    rows = []
+
+    for _, r in df.iterrows():
+        row = make_row()
+
+        if "VISIT" in row:
+            row["VISIT"] = r["Visit"]
+
+        rows.append(row)
+
+    if not rows:
+        rows = [make_row()]
+
+    return pd.DataFrame(rows, columns=ordered_columns)
+
 
 
 
@@ -272,9 +357,7 @@ if uploaded_file is not None:
         all_sheets = xls.sheet_names
 
 
-
-
-        # 讀 SoA
+        # 呼叫
         soa_list_df = build_soa_visit_list(
             file_bytes=file_bytes,
             manual_soa_header=None,
@@ -282,11 +365,6 @@ if uploaded_file is not None:
         )
         
         st.write(soa_list_df )
-
-
-
-
-
 
 
         
