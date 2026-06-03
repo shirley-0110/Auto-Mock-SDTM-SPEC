@@ -252,9 +252,6 @@ def build_soa_visit_list(
 
 
 
-
-
-
 def build_tv_from_soa_list(
     soa_list_df,
     protocol_no="",
@@ -364,9 +361,13 @@ if uploaded_file is not None:
             manual_folder_header=None
         )
         
-        st.write(soa_list_df )
-
-
+        unique_visit_df = (
+            soa_df[["Abbreviation", "Visit", "Visit_order"]]
+            .drop_duplicates()
+            .sort_values("Visit_order")
+            .reset_index(drop=True)
+        )
+        st.write(unique_visit_df)
         
         
         # -------------------------------------------------
