@@ -683,64 +683,67 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                 ct_mapping_sheet_errors.append(sheet)
                 continue
 
-            # 沒有 option 欄位，不算錯，但這張無法產 seed
-            if option_col is None:
-                continue
-
             for _, row in df.iterrows():
+                try:
+                    raw_target = row.get(target_col, "")
+                    source_var = row.get(source_var_col, "")
+                    raw_option = row.get(option_col, "")
 
-                raw_target = row.get(target_col, "")
-                source_var = row.get(source_var_col, "")
-                raw_option = row.get(option_col, "")
+                    source_var = "" if pd.isna(source_var) else str(source_var).strip()
+                    raw_target = "" if pd.isna(raw_target) else str(raw_target).strip()
+                    raw_option = "" if pd.isna(raw_option) else str(raw_option).strip()
 
-                source_var = "" if pd.isna(source_var) else str(source_var).strip()
-                raw_target = "" if pd.isna(raw_target) else str(raw_target).strip()
-                raw_option = "" if pd.isna(raw_option) else str(raw_option).strip()
+                    # 沒有 source var 就跳過
+                    if not source_var:
+                        continue
 
-                # 沒有 source var 就跳過
-                if not source_var:
-                    continue
+                    # 先 parse SDTM target
+                    parsed_records, _ = parse_sdtm_targets(raw_target)
 
-                # 先 parse SDTM target
-                parsed_records, _ = parse_sdtm_targets(raw_target)
+                    # 沒 parse 到 SDTM target，就不進 seed
+                    if not parsed_records:
+                        continue
 
-                # 沒 parse 到 SDTM target，就不進 seed
-                if not parsed_records:
-                    continue
+                    # 拆 options
+                    option_tokens = split_option_displayed_values(raw_option)
 
-                # 拆 options
-                option_tokens = split_option_displayed_values(raw_option)
-
-                # 沒 option 的變數，不進 CT seed
-                if not option_tokens:
-                    continue
-
-                for rec in parsed_records:
+                    for rec in parsed_records:
 
                     sdtm_var = str(rec["SDTM Variable"]).strip().upper()
                     ctcode = var_to_ctcode.get(sdtm_var, "")
+                    assign_val = rec.get("Assign Value", "")
+                    assign_val = "" if pd.isna(assign_val) else str(assign_val).strip()
+
 
                     if not ctcode:
                         continue
 
-                    assign_val = rec["Assign Value"]
-                    assign_val = "" if pd.isna(assign_val) else str(assign_val).strip()
+                        # Assign Value 優先；否則用 option_tokens
+                        if assign_val:
+                            orival_candidates = [(assign_val, "")]
+                        else:
+                            if not option_tokens:
+                                continue
+                            orival_candidates = [(opt, opt) for opt in option_tokens]
 
-                    for opt in option_tokens:
-                        
-                        # ORIVAL邏輯
-                        orival = assign_val if assign_val else opt
-                        orival_norm = normalize_text(orival)
-                        
-                        seed_records.append({
-                            "SDTM Domain": rec["SDTM Domain"],
-                            "SDTM Variable": sdtm_var,
-                            "CTcode": ctcode,
-                            "Assign Value": assign_val,
-                            "Option Displayed Value": opt,
-                            "ORIVAL": orival,
-                            "ORIVAL Normalized": orival_norm
-                        })
+                        for orival, option_displayed_value in orival_candidates:
+                            orival = "" if pd.isna(orival) else str(orival).strip()
+
+                            if not orival:
+                                continue
+
+                            seed_records.append({
+                                "SDTM Domain": sdtm_dom,
+                                "SDTM Variable": sdtm_var,
+                                "CTcode": ctcode,
+                                "Option Displayed Value": option_displayed_value,
+                                "ORIVAL": orival,
+                                "ORIVAL Normalized": normalize_text(orival)
+                            })
+
+                except Exception:
+                    # 單列失敗不影響整張 sheet
+                    continue
 
         except Exception:
             ct_mapping_sheet_errors.append(sheet)
@@ -753,7 +756,9 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                 subset=[
                     "SDTM Domain",
                     "SDTM Variable",
-                    "CTcode"
+                    "CTcode",
+                    "Option Displayed Value",
+                    "ORIVAL Normalized"
                 ]
             )
             .sort_values(
@@ -761,7 +766,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     "SDTM Domain",
                     "SDTM Variable",
                     "CTcode",
-                    "ORIVAL Normalized"
+                    "ORIVAL Normalized",
+                    "Option Displayed Value"
                 ]
             )
             .reset_index(drop=True)
@@ -771,8 +777,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
             "SDTM Domain",
             "SDTM Variable",
             "CTcode",
-            "Assign Value",
             "Option Displayed Value",
+            "ORIVAL",
             "ORIVAL Normalized"
         ])
 
