@@ -11,6 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from difflib import get_close_matches
+from st_aggrid import AgGrid, GridOptionsBuilder
 
 # Step 2 用到 sas7bdat
 try:
@@ -800,7 +801,7 @@ if uploaded_file is not None:
             summary_df["Variable Count"] = summary_df["SDTM Variable"].apply(len)
             summary_df["Variables"] = summary_df["SDTM Variable"].apply(lambda x: "; ".join(x))
 
-            st.data_editor(summary_df[["SDTM Domain", "Variable Count", "Variables"]], use_container_width=True)
+            st.dataframe(summary_df[["SDTM Domain", "Variable Count", "Variables"]], use_container_width=True)
 
 
         # Detail（CRF → SDTM）
