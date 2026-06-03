@@ -28,7 +28,6 @@ st.set_page_config(page_title="Auto SDTM SPEC", layout="wide")
 st.title("Auto SDTM SPEC")
 
 
-
 uploaded_file = st.file_uploader("請上傳 CRF Mapping Excel", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
@@ -44,6 +43,32 @@ if uploaded_file is not None:
     try:
         xls = pd.ExcelFile(BytesIO(file_bytes))
         all_sheets = xls.sheet_names
+
+
+        # 顯示有哪些 sheets
+        st.markdown("### 📑 Sheets in file")
+        st.write(all_sheets)
+
+
+        # 選擇要 preview 的 sheet
+        selected_sheet = st.selectbox(
+            "Select a sheet to preview",
+            all_sheets
+        )
+
+        if selected_sheet:
+            try:
+                preview_df = pd.read_excel(
+                    BytesIO(file_bytes),
+                    sheet_name=selected_sheet
+                )
+
+                st.markdown(f"### 📄 Preview: {selected_sheet}")
+                st.dataframe(preview_df, use_container_width=True)
+
+            except Exception as e:
+                st.warning(f"⚠️ 無法預覽該 sheet：{e}")
+
 
         # -------------------------------------------------
         # Header Override：放在上傳檔案下面
