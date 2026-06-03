@@ -736,8 +736,6 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                                 "SDTM Domain": str(rec["SDTM Domain"]).strip(),
                                 "SDTM Variable": sdtm_var,
                                 "CTcode": ctcode,
-                                "Option Displayed Value": option_displayed_value,
-                                "ORIVAL": orival,
                                 "ORIVAL Normalized": normalize_text(orival)
                             })
 
@@ -757,7 +755,6 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     "SDTM Domain",
                     "SDTM Variable",
                     "CTcode",
-                    "Option Displayed Value",
                     "ORIVAL Normalized"
                 ]
             )
@@ -767,7 +764,6 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     "SDTM Variable",
                     "CTcode",
                     "ORIVAL Normalized",
-                    "Option Displayed Value"
                 ]
             )
             .reset_index(drop=True)
@@ -777,13 +773,222 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
             "SDTM Domain",
             "SDTM Variable",
             "CTcode",
-            "Option Displayed Value",
-            "ORIVAL",
             "ORIVAL Normalized"
         ])
 
     return ct_mapping_df, sorted(list(set(ct_mapping_sheet_errors)))
     # End=========================================================
+
+
+
+
+
+def standardize_ct_mapping_dict(df):
+    df = df.copy()
+    df = normalize_columns(df)
+
+    rename_map = {
+        "CTCODE": "CTcode",
+        "ORIVAL NORMALIZED": "ORIVAL Normalized",
+        "CTVAL": "CTVAL",
+        "ACTIVE": "Active",
+        "NOTES": "Notes"
+    }
+
+    # 先把欄名 normalize 到大寫，再對映
+    normalized_col_map = {c: normalize_text(c) for c in df.columns}
+    new_cols = {}
+    for original_col, norm_col in normalized_col_map.items():
+        if norm_col in rename_map:
+            new_cols[original_col] = rename_map[norm_col]
+
+    df = df.rename(columns=new_cols)
+
+    required_cols = ["CTcode", "ORIVAL Normalized", "CTVAL"]
+    for c in required_cols:
+        if c not in df.columns:
+            raise ValueError(f"CT Mapping Dictionary 缺少必要欄位: {c}")
+
+    df["CTcode"] = df["CTcode"].astype(str).str.strip().str.upper()
+    df["ORIVAL Normalized"] = df["ORIVAL Normalized"].astype(str).str.strip().str.upper()
+    df["CTVAL"] = df["CTVAL"].astype(str).str.strip()
+
+    if "Active" in df.columns:
+        df["Active"] = df["Active"].astype(str).str.strip().str.upper()
+        df = df[df["Active"] != "N"]
+
+    df = df[
+        (df["CTcode"] != "") &
+        (df["ORIVAL Normalized"] != "") &
+        (df["CTVAL"] != "")
+    ].drop_duplicates(subset=["CTcode", "ORIVAL Normalized"], keep="first")
+
+    return df
+    # End=========================================================
+
+
+
+
+def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
+    """
+    依 CTcode + ORIVAL Normalized 做 CT mapping
+
+    Parameters
+    ----------
+    ct_seed_df : DataFrame
+        來自 build_ct_mapping_seed() 的輸出
+        必要欄位:
+        - SDTM Domain
+        - SDTM Variable
+        - CTcode
+        - Option Displayed Value
+        - ORIVAL
+        - ORIVAL Normalized
+
+    mapping_dict_df : DataFrame
+        開發者維護的 CT Mapping Dictionary
+        必要欄位:
+        - CTcode
+        - ORIVAL Normalized
+        - CTVAL
+
+    ct_alias_df : DataFrame, optional
+        CT 主檔整理出的 alias 表，用來 fallback
+        建議欄位:
+        - CTcode
+        - ORIVAL Normalized
+        - CTVAL
+        - Alias Source   (optional)
+
+    Returns
+    -------
+    matched_df : DataFrame
+    unmatched_df : DataFrame
+    """
+
+    if ct_seed_df is None or ct_seed_df.empty:
+        empty_cols = [
+            "SDTM Domain", "SDTM Variable", "CTcode",
+            "Option Displayed Value", "ORIVAL", "ORIVAL Normalized",
+            "CTVAL", "Match Method"
+        ]
+        return pd.DataFrame(columns=empty_cols), pd.DataFrame(columns=empty_cols)
+
+    seed = ct_seed_df.copy()
+    seed = normalize_columns(seed)
+
+    # 統一 seed 欄名（如果 normalize_columns 後有大小寫差異）
+    seed_col_map = {c: normalize_text(c) for c in seed.columns}
+    rename_seed = {}
+    for original, norm in seed_col_map.items():
+        if norm == "SDTM DOMAIN":
+            rename_seed[original] = "SDTM Domain"
+        elif norm == "SDTM VARIABLE":
+            rename_seed[original] = "SDTM Variable"
+        elif norm == "CTCODE":
+            rename_seed[original] = "CTcode"
+        elif norm == "OPTION DISPLAYED VALUE":
+            rename_seed[original] = "Option Displayed Value"
+        elif norm == "ORIVAL":
+            rename_seed[original] = "ORIVAL"
+        elif norm == "ORIVAL NORMALIZED":
+            rename_seed[original] = "ORIVAL Normalized"
+
+    seed = seed.rename(columns=rename_seed)
+
+    required_seed_cols = [
+        "SDTM Domain", "SDTM Variable", "CTcode",
+        "Option Displayed Value", "ORIVAL", "ORIVAL Normalized"
+    ]
+    for c in required_seed_cols:
+        if c not in seed.columns:
+            raise ValueError(f"CT Seed 缺少必要欄位: {c}")
+
+    seed["CTcode"] = seed["CTcode"].astype(str).str.strip().str.upper()
+    seed["ORIVAL Normalized"] = seed["ORIVAL Normalized"].astype(str).str.strip().str.upper()
+
+    # 1) 主 mapping dictionary
+    mapping_dict = standardize_ct_mapping_dict(mapping_dict_df)
+
+    matched = seed.merge(
+        mapping_dict[["CTcode", "ORIVAL Normalized", "CTVAL"]],
+        how="left",
+        on=["CTcode", "ORIVAL Normalized"]
+    )
+
+    matched["Match Method"] = matched["CTVAL"].apply(
+        lambda x: "DICT" if pd.notna(x) and str(x).strip() != "" else ""
+    )
+
+    # 2) fallback：CT alias exact match（optional）
+    if ct_alias_df is not None and not ct_alias_df.empty:
+        alias_df = ct_alias_df.copy()
+        alias_df = normalize_columns(alias_df)
+
+        alias_col_map = {c: normalize_text(c) for c in alias_df.columns}
+        rename_alias = {}
+        for original, norm in alias_col_map.items():
+            if norm == "CTCODE":
+                rename_alias[original] = "CTcode"
+            elif norm == "ORIVAL NORMALIZED":
+                rename_alias[original] = "ORIVAL Normalized"
+            elif norm == "CTVAL":
+                rename_alias[original] = "CTVAL"
+            elif norm == "ALIAS SOURCE":
+                rename_alias[original] = "Alias Source"
+
+        alias_df = alias_df.rename(columns=rename_alias)
+
+        required_alias_cols = ["CTcode", "ORIVAL Normalized", "CTVAL"]
+        has_alias = all(c in alias_df.columns for c in required_alias_cols)
+
+        if has_alias:
+            alias_df["CTcode"] = alias_df["CTcode"].astype(str).str.strip().str.upper()
+            alias_df["ORIVAL Normalized"] = alias_df["ORIVAL Normalized"].astype(str).str.strip().str.upper()
+            alias_df["CTVAL"] = alias_df["CTVAL"].astype(str).str.strip()
+
+            alias_df = alias_df.drop_duplicates(subset=["CTcode", "ORIVAL Normalized"], keep="first")
+
+            need_fallback = matched["CTVAL"].isna() | (matched["CTVAL"].astype(str).str.strip() == "")
+            fallback_seed = matched.loc[need_fallback, required_seed_cols].copy()
+
+            if not fallback_seed.empty:
+                fallback_hit = fallback_seed.merge(
+                    alias_df[["CTcode", "ORIVAL Normalized", "CTVAL"]],
+                    how="left",
+                    on=["CTcode", "ORIVAL Normalized"]
+                )
+
+                for idx, row in fallback_hit.iterrows():
+                    ctval = row["CTVAL"]
+                    if pd.notna(ctval) and str(ctval).strip() != "":
+                        original_idx = fallback_seed.index[idx]
+                        matched.loc[original_idx, "CTVAL"] = ctval
+                        matched.loc[original_idx, "Match Method"] = "ALIAS_EXACT"
+
+    # 3) split matched / unmatched
+    matched_mask = matched["CTVAL"].notna() & (matched["CTVAL"].astype(str).str.strip() != "")
+    matched_df = matched.loc[matched_mask].copy()
+    unmatched_df = matched.loc[~matched_mask].copy()
+
+    # 4) 排序
+    sort_cols = [c for c in [
+        "SDTM Domain", "SDTM Variable", "CTcode", "ORIVAL Normalized", "Option Displayed Value"
+    ] if c in matched_df.columns]
+
+    if not matched_df.empty:
+        matched_df = matched_df.sort_values(sort_cols).reset_index(drop=True)
+
+    if not unmatched_df.empty:
+        unmatched_df = unmatched_df.sort_values(sort_cols).reset_index(drop=True)
+
+    return matched_df, unmatched_df
+    # End=========================================================
+
+
+
+
+
 
 
 
@@ -1009,13 +1214,57 @@ if uploaded_file is not None:
 
 
         # CT Seed
-        st.markdown("🧩 CT Mapping Seed (Option level)")
+        st.markdown("###🧩 CT Mapping Seed (Option level)")
         if ct_mapping_df.empty:
             st.info("目前沒有 CT Mapping Seed")
         else:
             st.dataframe(ct_mapping_df, use_container_width=True)
 
 
+
+        st.markdown("### 🧩 CT Mapping Result")
+
+        matched_ct_df, unmatched_ct_df = build_ct_mapping(
+            ct_mapping_df,
+            ct_mapping_dict_df,   # 你之後載入的字典
+            ct_alias_df=None      # 之後若有 CT alias 再接
+        )
+
+        tab1, tab2 = st.tabs(["Matched", "Unmatched"])
+
+        with tab1:
+            if matched_ct_df.empty:
+                st.info("目前沒有 matched CT mapping")
+            else:
+                st.dataframe(
+                    matched_ct_df[
+                        [
+                            "SDTM Domain", "SDTM Variable", "CTcode",
+                            "Option Displayed Value", "ORIVAL",
+                            "ORIVAL Normalized", "CTVAL", "Match Method"
+                        ]
+                    ],
+                    use_container_width=True
+                )
+
+        with tab2:
+            if unmatched_ct_df.empty:
+                st.success("目前沒有 unmatched 資料")
+            else:
+                st.warning("以下 ORIVAL 尚未對應到 CTVAL，建議加入 CT Mapping Dictionary")
+                st.dataframe(
+                    unmatched_ct_df[
+                        [
+                            "SDTM Domain", "SDTM Variable", "CTcode",
+                            "Option Displayed Value", "ORIVAL",
+                            "ORIVAL Normalized"
+                        ]
+                    ],
+                    use_container_width=True
+                )
+
+
+        
         # 錯誤 / Debug
         st.markdown("### ⚠️ Debug / Error 檢查")
 
