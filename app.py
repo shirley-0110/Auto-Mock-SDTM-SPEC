@@ -1124,6 +1124,24 @@ if uploaded_file is not None:
             st.session_state["config_version"] = version
             st.session_state["config_loaded"] = True
         
+
+        # Load CT Mapping Dictionary（新增）
+        ct_mapping_dict_df = None
+
+        dict_path = "config/ct_mapping_dictionary.xlsx"
+
+        if os.path.exists(dict_path):
+            try:
+                ct_mapping_dict_df = pd.read_excel(dict_path)
+                ct_mapping_dict_df = normalize_columns(ct_mapping_dict_df)
+
+                st.success("CT Mapping Dictionary 載入成功")
+            except Exception as e:
+                st.warning(f"CT Mapping Dictionary 載入失敗：{e}")
+        else:
+            st.warning("找不到 CT Mapping Dictionary（目前只使用 seed）")
+
+
         
         # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
