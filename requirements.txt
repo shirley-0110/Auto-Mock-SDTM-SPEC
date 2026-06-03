@@ -2,5 +2,6 @@
 pyreadstat
 pandas
 streamlit
+streamlit-aggrid
 openpyxl
 beautifulsoup4
