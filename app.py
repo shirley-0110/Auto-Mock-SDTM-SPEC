@@ -124,7 +124,7 @@ if uploaded_file is not None:
         soa_df = pd.read_excel(
             BytesIO(file_bytes),
             sheet_name="SoA",
-            header=(manual_soa_header - 1) if use_manual_soa_header else 0
+            header=(manual_soa_header - 1) if use_manual_soa_header else 1
         )
 
         soa_map_df = parse_soa_basic(soa_df)
