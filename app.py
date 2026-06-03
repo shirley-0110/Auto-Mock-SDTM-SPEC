@@ -367,6 +367,7 @@ if uploaded_file is not None:
             .sort_values("Visit_order")
             .reset_index(drop=True)
         )
+        st.write(soa_df)        
         st.write(unique_visit_df)
         
         
