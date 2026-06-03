@@ -809,11 +809,11 @@ if uploaded_file is not None:
         st.markdown("### 📊 SDTM Varialbe Mapping (Detail)")
         
         st.write(detail_df.columns)
-
-            if detail_df.empty:
-                st.info("目前沒有可顯示的明細")
-            else:
-                st.dataframe(detail_df, use_container_width=True)
+        
+        if detail_df.empty:
+            st.info("目前沒有可顯示的明細")
+        else:
+            st.dataframe(detail_df, use_container_width=True)
 
 
 
