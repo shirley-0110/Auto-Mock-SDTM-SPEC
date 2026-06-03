@@ -786,8 +786,8 @@ if uploaded_file is not None:
             st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
 
 
-        # SDTM Summary（by Domain）
-        st.markdown("### 📊 SDTM Summary (by Domain)")
+        # SDTM Varialbe Mapping (Summary by Domain）
+        st.markdown("### 📊 SDTM Varialbe Mapping (Summary by Domain)")
 
         if mapping_df.empty:
             st.warning("目前沒有從 CRF Sheet 抓到可解析的 SDTM Domain / Variable")
@@ -803,17 +803,6 @@ if uploaded_file is not None:
             summary_df["Variables"] = summary_df["SDTM Variable"].apply(lambda x: "; ".join(x))
 
             st.dataframe(summary_df[["SDTM Domain", "Variable Count", "Variables"]], use_container_width=True)
-
-
-
-        # Mapping（Raw)
-        with st.expander("🔍 SDTM Mapping（Raw Table）"):
-
-            if mapping_df.empty:
-                st.info("沒有可顯示資料")
-            else:
-                st.dataframe(mapping_df, use_container_width=True)
-
 
 
         # Detail（CRF → SDTM）
