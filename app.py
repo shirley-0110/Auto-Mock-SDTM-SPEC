@@ -116,9 +116,7 @@ def read_sheet_with_detected_header(
 
 
 
-# =================================================================================================================
 # 處理OID
-# =================================================================================================================
 def extract_form_oids(series):
     domains = set()
 
@@ -139,8 +137,7 @@ def extract_form_oids(series):
 
 
 
-
-
+# 整個eCRF schema匯入+暫存
 def build_step1_context(file_bytes, all_sheets):
 
     # 1. 匯入SoA
@@ -310,7 +307,7 @@ def build_soa_visit_list(soa_df, folder_df):
 
 
 
-
+# 抓各個CRF Domain的Field OID
 def find_source_variable_column(columns):
     """
     Source CRF Variable 優先抓 Field OID
@@ -345,6 +342,9 @@ def find_source_variable_column(columns):
     return None
     # End=========================================================
 
+
+
+# 處理SDTM IG Target
 def parse_sdtm_targets(value):
     """
     規則：
@@ -398,7 +398,7 @@ def parse_sdtm_targets(value):
 
 
 
-
+# 處理CRF -> SDTM Variable Mapping
 def build_sdtm_mapping(domain_df_map):
 
     mapping_records = []
@@ -464,7 +464,7 @@ def build_sdtm_mapping(domain_df_map):
 
 
 
-
+# 整批CRF處理
 def process_uploaded_excel(file_bytes, all_sheets):
 
     # Step1 context
@@ -507,12 +507,185 @@ def process_uploaded_excel(file_bytes, all_sheets):
 
 
 
+# =================================================================================================================
+# CT系列
+# =================================================================================================================
+
+# 抓CRF Option Displayed Value欄位
+def find_option_displayed_value_column(columns):
+    """
+    優先抓 Option Displayed Value
+    """
+    priority_exact = [
+        "OPTION DISPLAYED VALUE",
+        "OPTION_DISPLAYED_VALUE",
+        "OPTION DISPLAY VALUE",
+        "DISPLAYED VALUE",
+        "OPTION VALUE",
+        "OPTIONS"
+    ]
+
+    normalized_map = {col: normalize_text(col) for col in columns}
+
+    # 1. 先找完全一致
+    for target in priority_exact:
+        for col, norm_col in normalized_map.items():
+            if norm_col == target:
+                return col
+
+    # 2. 再找包含 OPTION + DISPLAY + VALUE
+    for col, norm_col in normalized_map.items():
+        if "OPTION" in norm_col and "DISPLAY" in norm_col and "VALUE" in norm_col:
+            return col
+
+    # 3. 再退一步找 OPTION + VALUE
+    for col, norm_col in normalized_map.items():
+        if "OPTION" in norm_col and "VALUE" in norm_col:
+            return col
+
+    return None
+    # End=========================================================
+
+
+# 處理CRF Option Displayed Value
+def split_option_displayed_values(value):
+    """
+    將 Option Displayed Value 拆成多個 option
+    規則：
+      - 只用分號 ; 和換行切
+      - 不用逗號和斜線切
+    """
+    if pd.isna(value):
+        return []
+
+    text = str(value).strip()
+    if not text:
+        return []
+
+    tokens = re.split(r"[;\n]+", text)
+
+    out = []
+    for token in tokens:
+        token = str(token).strip()
+        if token:
+            out.append(token)
+
+    return out
+    # End=========================================================
 
 
 
+# 處理CRF -> SDTM CT Mapping
+def build_ct_mapping_seed(domain_df_map):
+    """
+    從已讀入的 CRF Domain DataFrames 建立 CT Mapping Seed
+
+    輸出：
+      - ct_mapping_df
+      - ct_mapping_sheet_errors
+    """
+
+    seed_records = []
+    ct_mapping_sheet_errors = []
+
+    for sheet, df in domain_df_map.items():
+
+        try:
+            target_col = find_column(df.columns, ["SDTM", "TARGET"])
+            source_var_col = find_source_variable_column(df.columns)
+            option_col = find_option_displayed_value_column(df.columns)
+
+            # 至少要有 SDTM Target 與 Source Variable
+            if target_col is None or source_var_col is None:
+                ct_mapping_sheet_errors.append(sheet)
+                continue
+
+            # 沒有 option 欄位，不算錯，但這張無法產 seed
+            if option_col is None:
+                continue
+
+            for _, row in df.iterrows():
+
+                raw_target = row.get(target_col, "")
+                source_var = row.get(source_var_col, "")
+                raw_option = row.get(option_col, "")
+
+                source_var = "" if pd.isna(source_var) else str(source_var).strip()
+                raw_target = "" if pd.isna(raw_target) else str(raw_target).strip()
+                raw_option = "" if pd.isna(raw_option) else str(raw_option).strip()
+
+                # 沒有 source var 就跳過
+                if not source_var:
+                    continue
+
+                # 先 parse SDTM target
+                parsed_records, _ = parse_sdtm_targets(raw_target)
+
+                # 沒 parse 到 SDTM target，就不進 seed
+                if not parsed_records:
+                    continue
+
+                # 拆 options
+                option_tokens = split_option_displayed_values(raw_option)
+
+                # 沒 option 的變數，不進 CT seed
+                if not option_tokens:
+                    continue
+
+                for rec in parsed_records:
+                    for opt in option_tokens:
+                        seed_records.append({
+                            "CRF Dataset": sheet,
+                            "CRF Variable": source_var,
+                            "SDTM Domain": rec["SDTM Domain"],
+                            "SDTM Variable": rec["SDTM Variable"],
+                            "Assign Value": rec["Assign Value"],
+                            "SDTM IG Target Raw": raw_target,
+                            "Option Displayed Value Raw": raw_option,
+                            "Option Displayed Value": opt,
+                            "Option Normalized": normalize_text(opt)
+                        })
+
+        except Exception:
+            ct_mapping_sheet_errors.append(sheet)
+            continue
+
+    if seed_records:
+        ct_mapping_df = (
+            pd.DataFrame(seed_records)
+            .drop_duplicates()
+            .sort_values(
+                by=[
+                    "SDTM Domain",
+                    "SDTM Variable",
+                    "CRF Dataset",
+                    "CRF Variable",
+                    "Option Displayed Value"
+                ]
+            )
+            .reset_index(drop=True)
+        )
+    else:
+        ct_mapping_df = pd.DataFrame(columns=[
+            "CRF Dataset",
+            "CRF Variable",
+            "SDTM Domain",
+            "SDTM Variable",
+            "Assign Value",
+            "SDTM IG Target Raw",
+            "Option Displayed Value Raw",
+            "Option Displayed Value",
+            "Option Normalized"
+        ])
+
+    return ct_mapping_df, sorted(list(set(ct_mapping_sheet_errors)))
+    # End=========================================================
 
 
 
+# =================================================================================================================
+# 系統流程設定
+# =================================================================================================================
 # 判斷 Step 1 結果能不能重用（避免每次重跑）
 def make_step1_cache_key(file_bytes):
     md5 = hashlib.md5(file_bytes).hexdigest()
