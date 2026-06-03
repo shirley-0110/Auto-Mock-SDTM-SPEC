@@ -901,7 +901,7 @@ if uploaded_file is not None:
             st.session_state["config_version"] = version
             st.session_state["config_loaded"] = True
             
-            st.write(var_to_ctcode)
+            st.write(st.session_state["var_to_ctcode"])
 
 
         # 呼叫SoA
