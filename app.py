@@ -355,7 +355,7 @@ if uploaded_file is not None:
 
 
         # 呼叫
-        soa_list_df = build_soa_visit_list(
+        soa_df = build_soa_visit_list(
             file_bytes=file_bytes,
             manual_soa_header=None,
             manual_folder_header=None
