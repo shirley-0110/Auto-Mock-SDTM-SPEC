@@ -717,19 +717,27 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
 
                 for rec in parsed_records:
                     ctcode = var_to_ctcode.get(rec["SDTM Variable"], "")
+                    sdtm_var = str(rec["SDTM Variable"]).strip().upper()
+                    ctcode = var_to_ctcode.get(sdtm_var, "")
+
+                    if not ctcode:
+                        continue
+
+                    assign_val = rec["Assign Value"]
+                    assign_val = "" if pd.isna(assign_val) else str(assign_val).strip()
+
+                    # ORIVAL邏輯
+                    orival = assign_val if assign_val else opt
+                    orival_norm = normalize_text(orival)
                     
                     for opt in option_tokens:
                         seed_records.append({
-                            "CRF Dataset": sheet,
-                            "CRF Variable": source_var,
                             "SDTM Domain": rec["SDTM Domain"],
-                            "SDTM Variable": rec["SDTM Variable"],
+                            "SDTM Variable": sdtm_var,
                             "CTcode": ctcode,
-                            "Assign Value": rec["Assign Value"],
-                            "SDTM IG Target Raw": raw_target,
-                            "Option Displayed Value Raw": raw_option,
                             "Option Displayed Value": opt,
-                            "Option Normalized": normalize_text(opt)
+                            "ORIVAL": orival,
+                            "ORIVAL Normalized": orival_norm
                         })
 
         except Exception:
@@ -739,30 +747,32 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
     if seed_records:
         ct_mapping_df = (
             pd.DataFrame(seed_records)
-            .drop_duplicates()
+            .drop_duplicates(
+                subset=[
+                    "SDTM Domain",
+                    "SDTM Variable",
+                    "CTcode",
+                    "Option Displayed Value",
+                    "ORIVAL Normalized"
+                ]
+            )
             .sort_values(
                 by=[
                     "SDTM Domain",
                     "SDTM Variable",
-                    "CRF Dataset",
-                    "CRF Variable",
-                    "Option Displayed Value"
+                    "CTcode",
+                    "ORIVAL Normalized"
                 ]
             )
             .reset_index(drop=True)
         )
     else:
         ct_mapping_df = pd.DataFrame(columns=[
-            "CRF Dataset",
-            "CRF Variable",
             "SDTM Domain",
             "SDTM Variable",
             "CTcode",
-            "Assign Value",
-            "SDTM IG Target Raw",
-            "Option Displayed Value Raw",
             "Option Displayed Value",
-            "Option Normalized"
+            "ORIVAL Normalized"
         ])
 
     return ct_mapping_df, sorted(list(set(ct_mapping_sheet_errors)))
