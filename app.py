@@ -21,10 +21,14 @@ except Exception:
 
 
 
+# ===================================================================================================================================================================================
+# 所有 Function
+# ===================================================================================================================================================================================
 
-# =========================================================================================================================================================
+# =================================================================================================================
 # 基本工具函式
-# =========================================================================================================================================================
+# =================================================================================================================
+
 def normalize_text(x):
     if pd.isna(x):
         return ""
@@ -252,6 +256,151 @@ def build_soa_visit_list(
 
 
 
+def find_source_variable_column(columns):
+    """
+    Source CRF Variable 優先抓 Field OID
+    """
+    priority_exact = [
+        "FIELD OID",
+        "FIELDOID",
+        "FIELD OID NAME",
+        "CRF FIELD OID",
+        "SOURCE FIELD OID",
+        "VARIABLE",
+        "VARIABLE NAME",
+        "CRF VARIABLE",
+        "SOURCE VARIABLE"
+    ]
+
+    normalized_map = {col: normalize_text(col) for col in columns}
+
+    for target in priority_exact:
+        for col, norm_col in normalized_map.items():
+            if norm_col == target:
+                return col
+
+    for col, norm_col in normalized_map.items():
+        if "FIELD" in norm_col and "OID" in norm_col:
+            return col
+
+    for col, norm_col in normalized_map.items():
+        if "VARIABLE" in norm_col and "TARGET" not in norm_col and "SDTM" not in norm_col:
+            return col
+
+    return None
+
+
+
+
+def build_sdtm_mapping(file_bytes, selected_crf_sheets, common_domain_header=None):
+    """
+    common_domain_header:
+      所有 Domain Sheet 共用 header row（Excel 1-based）
+    """
+    mapping_records = []
+    detail_records = []
+    sheet_errors = []
+    unparsed_records = []
+
+    for sheet in selected_crf_sheets:
+        try:
+            df, _ = read_sheet_with_detected_header(
+                file_bytes=file_bytes,
+                sheet_name=sheet,
+                keyword_groups=[["SDTM", "TARGET"]],
+                manual_header_row_excel=common_domain_header
+            )
+        except Exception:
+            sheet_errors.append(sheet)
+            continue
+
+        target_col = find_column(df.columns, ["SDTM", "TARGET"])
+        if target_col is None:
+            sheet_errors.append(sheet)
+            continue
+
+        source_var_col = find_source_variable_column(df.columns)
+
+        for _, row in df.iterrows():
+            raw_target = row[target_col]
+            source_var = row[source_var_col] if source_var_col is not None else ""
+
+            parsed_records, unparsed_tokens = parse_sdtm_targets(raw_target)
+
+            for rec in parsed_records:
+                mapping_records.append({
+                    "SDTM Domain": rec["SDTM Domain"],
+                    "SDTM Variable": rec["SDTM Variable"]
+                })
+
+                detail_records.append({
+                    "Source CRF Sheet": sheet,
+                    "Source CRF Variable": source_var,
+                    "SDTM Domain": rec["SDTM Domain"],
+                    "SDTM Variable": rec["SDTM Variable"],
+                    "Assign Value": rec["Assign Value"],
+                    "SDTM IG Target Raw": raw_target
+                })
+
+            for token in unparsed_tokens:
+                if str(token).strip():
+                    unparsed_records.append({
+                        "Source CRF Sheet": sheet,
+                        "Source CRF Variable": source_var,
+                        "SDTM IG Target Raw": raw_target,
+                        "Unparsed Token": token
+                    })
+
+    if mapping_records:
+        mapping_df = (
+            pd.DataFrame(mapping_records)
+            .drop_duplicates()
+            .sort_values(by=["SDTM Domain", "SDTM Variable"])
+            .reset_index(drop=True)
+        )
+    else:
+        mapping_df = pd.DataFrame(columns=["SDTM Domain", "SDTM Variable"])
+
+    if detail_records:
+        detail_df = (
+            pd.DataFrame(detail_records)
+            .drop_duplicates()
+            .sort_values(
+                by=[
+                    "SDTM Domain",
+                    "SDTM Variable",
+                    "Source CRF Sheet",
+                    "Source CRF Variable",
+                    "Assign Value"
+                ]
+            )
+            .reset_index(drop=True)
+        )
+    else:
+        detail_df = pd.DataFrame(columns=[
+            "Source CRF Sheet",
+            "Source CRF Variable",
+            "SDTM Domain",
+            "SDTM Variable",
+            "Assign Value",
+            "SDTM IG Target Raw"
+        ])
+
+    return mapping_df, detail_df, sheet_errors, unparsed_records
+    # End=========================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
 def build_tv_from_soa_list(
     soa_list_df,
     protocol_no="",
@@ -353,14 +502,14 @@ if uploaded_file is not None:
         xls = pd.ExcelFile(BytesIO(file_bytes))
         all_sheets = xls.sheet_names
 
-
-        # 呼叫
+        # 呼叫SoA
         soa_df = build_soa_visit_list(
             file_bytes=file_bytes,
             manual_soa_header=None,
             manual_folder_header=None
         )
-        
+
+        # Visit去重複 (供後續TV使用)
         unique_visit_df = (           
             soa_df
             .loc[
@@ -373,8 +522,9 @@ if uploaded_file is not None:
             .sort_values("Visit_order")
             .reset_index(drop=True)
         )
-        st.write(soa_df)        
-        st.write(unique_visit_df)
+        
+        st.session_state["unique_visit_df"] = unique_visit_df
+        # st.write(unique_visit_df)
         
         
         # -------------------------------------------------
