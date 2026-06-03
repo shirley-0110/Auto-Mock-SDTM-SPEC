@@ -786,7 +786,7 @@ if uploaded_file is not None:
 
 
         # SDTM Varialbe Mapping (Summary by Domain）
-        st.markdown("### 📊 SDTM Varialbe Mapping (Summary by Domain)")
+        st.markdown("### 📊 SDTM Variable Mapping (Summary by Domain)")
 
         if mapping_df.empty:
             st.warning("目前沒有從 CRF Sheet 抓到可解析的 SDTM Domain / Variable")
@@ -805,14 +805,17 @@ if uploaded_file is not None:
 
 
         # Detail（CRF → SDTM）
-        st.markdown("### 📊 SDTM Varialbe Mapping (Detail)")
-        
-        st.write(detail_df.columns)
-        
+        st.markdown("### 📊 SDTM Variable Mapping (Detail)")
+                
         if detail_df.empty:
             st.info("目前沒有可顯示的明細")
-        else:
-            st.dataframe(detail_df, use_container_width=True)
+        else:          
+            sorted_detail_df = detail_df.sort_values(
+                by=["CRF Dataset", "CRF Variable", "SDTM Domain", "SDTM Variable"],
+                ascending=[True, True, True, True]
+            ).reset_index(drop=True)
+            
+            st.dataframe(sorted_detail_df, use_container_width=True)
 
 
 
@@ -823,7 +826,6 @@ if uploaded_file is not None:
                 st.info("目前沒有 CT Mapping Seed")
             else:
                 st.dataframe(ct_mapping_df, use_container_width=True)
-
 
 
         # 錯誤 / Debug
