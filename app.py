@@ -749,9 +749,9 @@ if uploaded_file is not None:
         )
         
         st.session_state["unique_visit_df"] = unique_visit_df
-        st.write(unique_visit_df)
+        # st.write(unique_visit_df)
         
-            # -------------------------------------------------
+        # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
         # -------------------------------------------------
         st.markdown("## Step 1｜CRF → SDTM Mapping")
@@ -787,8 +787,9 @@ if uploaded_file is not None:
         if mapping_df.empty:
             st.warning("目前沒有從各 CRF sheet 的 SDTM IG Target 抓到可解析的 SDTM Domain / Variable")
         else:
-            summary_df = summarize_sdtm_mapping(mapping_df)
-            st.dataframe(summary_df, use_container_width=True)
+            st.write(mapping_df)
+            
+
 
         st.markdown("### SDTM Mapping 明細")
         if detail_df.empty:
