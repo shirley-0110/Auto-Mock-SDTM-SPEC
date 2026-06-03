@@ -716,7 +716,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     continue
 
                 for rec in parsed_records:
-                    ctcode = var_to_ctcode.get(rec["SDTM Variable"], "")
+
                     sdtm_var = str(rec["SDTM Variable"]).strip().upper()
                     ctcode = var_to_ctcode.get(sdtm_var, "")
 
@@ -726,11 +726,12 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     assign_val = rec["Assign Value"]
                     assign_val = "" if pd.isna(assign_val) else str(assign_val).strip()
 
-                    # ORIVAL邏輯
-                    orival = assign_val if assign_val else opt
-                    orival_norm = normalize_text(orival)
-                    
                     for opt in option_tokens:
+                        
+                        # ORIVAL邏輯
+                        orival = assign_val if assign_val else opt
+                        orival_norm = normalize_text(orival)
+                        
                         seed_records.append({
                             "SDTM Domain": rec["SDTM Domain"],
                             "SDTM Variable": sdtm_var,
