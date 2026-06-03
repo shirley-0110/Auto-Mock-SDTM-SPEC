@@ -780,13 +780,11 @@ if uploaded_file is not None:
         ct_mapping_df = result.get("ct_mapping_df", pd.DataFrame())
         ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
 
-        # SoA / Sheet 檢查
-        if missing_sheets:
-            st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
+
 
 
         # SDTM Varialbe Mapping (Summary by Domain）
-        st.markdown("### 📊 SDTM Variable Mapping (Summary by Domain)")
+        st.markdown("### 📊 SDTM Variable Mapping")
         st.markdown("#### - Summary by Domain")
         
         if mapping_df.empty:
@@ -802,7 +800,7 @@ if uploaded_file is not None:
             summary_df["Variable Count"] = summary_df["SDTM Variable"].apply(len)
             summary_df["Variables"] = summary_df["SDTM Variable"].apply(lambda x: "; ".join(x))
 
-            st.dataframe(summary_df[["SDTM Domain", "Variable Count", "Variables"]], use_container_width=True)
+            st.data_editor(summary_df[["SDTM Domain", "Variable Count", "Variables"]], use_container_width=True)
 
 
         # Detail（CRF → SDTM）
@@ -821,16 +819,19 @@ if uploaded_file is not None:
 
 
         # CT Seed
-        with st.expander("🧩 CT Mapping Seed（Option level）"):
-
-            if ct_mapping_df.empty:
-                st.info("目前沒有 CT Mapping Seed")
-            else:
-                st.dataframe(ct_mapping_df, use_container_width=True)
+        st.markdown("🧩 CT Mapping Seed (Option level)")
+        if ct_mapping_df.empty:
+            st.info("目前沒有 CT Mapping Seed")
+        else:
+            st.dataframe(ct_mapping_df, use_container_width=True)
 
 
         # 錯誤 / Debug
         st.markdown("### ⚠️ Debug / Error 檢查")
+
+        if missing_sheets:
+            st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
+        
         if sheet_errors:
             st.warning(f"無法處理的 Sheets（header偵測失敗）：{sorted(set(sheet_errors))}")
         
