@@ -32,23 +32,17 @@ def normalize_text(x):
     if pd.isna(x):
         return ""
     x = str(x) #統一資料型態
-    x = x.replace("\n", " ") #移除換行
-    x = x.replace("\r", " ")
-    x = x.replace("\xa0", " ")
+    x = x.replace("\n", " ").replace("\r", " ").replace("\xa0", " ") #移除換行
     x = re.sub(r"\s+", " ", x) #壓縮多於空白
     return x.strip().upper()
     # End=========================================================
 
 def normalize_columns(df):
-    cols = []
-    for c in df.columns:
-        c = str(c)
-        c = c.replace("\n", " ")
-        c = c.replace("\r", " ")
-        c = c.replace("\xa0", " ")
-        c = re.sub(r"\s+", " ", c).strip()
-        cols.append(c)
-    df.columns = cols
+    df = df.copy()
+    df.columns = [
+        re.sub(r"\s+", " ", str(c).replace("\n", " ").replace("\r", " ").replace("\xa0", " ")).strip()
+        for c in df.columns
+    ]
     return df
     # End=========================================================
 
@@ -237,24 +231,17 @@ def build_soa_visit_list(soa_df, folder_df):
 
     # 這些欄位不是 visit abbreviation
     non_visit_headers = {
-        "FORM OID",
-        "FORMOID",
-        "FORM",
-        "CRF NAME",
-        "FORM NAME",
-        "DESCRIPTION",
-        "SEQ",
-        "ORDER"
+        "FORM OID", "FORMOID", "FORM",
+        "CRF NAME", "FORM NAME",
+        "DESCRIPTION", "SEQ", "ORDER"
     }
 
-    visit_cols = []
-    for idx, col in enumerate(soa_columns):
-        col_up = normalize_text(col)
-        
-        if col_up not in non_visit_headers:
-            visit_cols.append((col, idx))
-
-
+    visit_cols = [
+        (col, idx)
+        for idx, col in enumerate(soa_columns)
+        if normalize_text(col) not in non_visit_headers
+    ]
+    
     # 2 呼叫 Folder
     abbr_col = find_column(folder_df.columns, ["ABBREVIATION"])
     if abbr_col is None:
@@ -264,22 +251,18 @@ def build_soa_visit_list(soa_df, folder_df):
     if full_term_col is None:
         raise ValueError("Folder 分頁中找不到 Full Term 欄位")
 
-    folder_work = folder_df[[abbr_col, full_term_col]].copy()
-    folder_work.columns = ["Abbreviation", "Visit"]
-
-    folder_work["Abbreviation"] = (
-        folder_work["Abbreviation"].fillna("").astype(str).str.strip().str.upper()
+    folder_work = (
+        folder_df[[abbr_col, full_term_col]]
+        .rename(columns={abbr_col: "Abbreviation", full_term_col: "Visit"})
+        .dropna()
     )
-    folder_work["Visit"] = (
-        folder_work["Visit"].fillna("").astype(str).str.strip()
+    
+    folder_work["Abbreviation"] = folder_work["Abbreviation"].astype(str).str.strip().str.upper()
+    folder_work["Visit"] = folder_work["Visit"].astype(str).str.strip()
+
+    folder_lookup = dict(
+        folder_work.drop_duplicates("Abbreviation")[["Abbreviation", "Visit"]].values
     )
-
-    folder_work = folder_work[
-        (folder_work["Abbreviation"] != "") &
-        (folder_work["Visit"] != "")
-    ].drop_duplicates(subset=["Abbreviation"], keep="first")
-
-    folder_lookup = dict(zip(folder_work["Abbreviation"], folder_work["Visit"]))
 
     # -----------------------------
     # 3) 展開 SoA List
@@ -424,20 +407,12 @@ def build_sdtm_mapping(domain_df_map):
     unparsed_records = []
 
     for sheet, df in domain_df_map.items():
-        try:
-            target_col = find_column(df.columns, ["SDTM", "TARGET"])
-            source_var_col = find_source_variable_column(df.columns)
-
-        except Exception:
-            sheet_errors.append(sheet)
-            continue
-
         target_col = find_column(df.columns, ["SDTM", "TARGET"])
+        source_var_col = find_source_variable_column(df.columns)
+
         if target_col is None:
             sheet_errors.append(sheet)
             continue
-
-        source_var_col = find_source_variable_column(df.columns)
 
         for _, row in df.iterrows():
             raw_target = row[target_col]
@@ -469,40 +444,19 @@ def build_sdtm_mapping(domain_df_map):
                         "Unparsed Token": token
                     })
 
-    if mapping_records:
-        mapping_df = (
-            pd.DataFrame(mapping_records)
-            .drop_duplicates()
-            .sort_values(by=["SDTM Domain", "SDTM Variable"])
-            .reset_index(drop=True)
-        )
-    else:
-        mapping_df = pd.DataFrame(columns=["SDTM Domain", "SDTM Variable"])
+    mapping_df = (
+        pd.DataFrame(mapping_records)
+        .drop_duplicates()
+        .sort_values(by=["SDTM Domain", "SDTM Variable"])
+        .reset_index(drop=True)
+    ) if mapping_records else pd.DataFrame(columns=["SDTM Domain", "SDTM Variable"])
 
-    if detail_records:
-        detail_df = (
-            pd.DataFrame(detail_records)
-            .drop_duplicates()
-            .sort_values(
-                by=[
-                    "SDTM Domain",
-                    "SDTM Variable",
-                    "Source CRF Sheet",
-                    "Source CRF Variable",
-                    "Assign Value"
-                ]
-            )
-            .reset_index(drop=True)
-        )
-    else:
-        detail_df = pd.DataFrame(columns=[
-            "Source CRF Sheet",
-            "Source CRF Variable",
-            "SDTM Domain",
-            "SDTM Variable",
-            "Assign Value",
-            "SDTM IG Target Raw"
-        ])
+    detail_df = (
+        pd.DataFrame(detail_records)
+        .drop_duplicates()
+        .sort_values(["SDTM Domain", "SDTM Variable", "CRF Dataset"])
+        .reset_index(drop=True)
+    ) if detail_records else pd.DataFrame()
 
     return mapping_df, detail_df, sheet_errors, unparsed_records
     # End=========================================================
@@ -519,15 +473,13 @@ def process_uploaded_excel(file_bytes, all_sheets):
     soa_df = ctx["soa_df"]
     folder_df = ctx["folder_df"]
     domain_df_map = ctx["domain_df_map"]
-    available_sheets = ctx["available_sheets"]
-    missing_sheets = ctx["missing_sheets"]
-    sheet_errors = ctx["sheet_errors"]
+
 
     # SoA list
     soa_list_df = build_soa_visit_list(soa_df, folder_df)
 
     # SDTM mapping
-    mapping_df, detail_df, _, unparsed_records = build_sdtm_mapping(
+    mapping_df, detail_df, mapping_errors, unparsed_records = build_sdtm_mapping(
         domain_df_map
     )
 
@@ -536,16 +488,18 @@ def process_uploaded_excel(file_bytes, all_sheets):
         domain_df_map
     )
 
+
     return {
         "soa_list_df": soa_list_df,
         "mapping_df": mapping_df,
         "detail_df": detail_df,
-        "available_sheets": available_sheets,
-        "missing_sheets": missing_sheets,
-        "sheet_errors": sheet_errors,
         "unparsed_records": unparsed_records,
+        "mapping_sheet_errors": mapping_errors,
         "ct_mapping_df": ct_mapping_df,
-        "ct_mapping_sheet_errors": ct_mapping_sheet_errors
+        "ct_mapping_sheet_errors": ct_mapping_sheet_errors,
+        "available_sheets": ctx["available_sheets"],
+        "missing_sheets": ctx["missing_sheets"],
+        "sheet_errors": ctx["sheet_errors"]
     }
     # End=========================================================
 
