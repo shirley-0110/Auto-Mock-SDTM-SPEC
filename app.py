@@ -733,7 +733,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                                 continue
 
                             seed_records.append({
-                                "SDTM Domain": sdtm_dom,
+                                "SDTM Domain": str(rec["SDTM Domain"]).strip(),
                                 "SDTM Variable": sdtm_var,
                                 "CTcode": ctcode,
                                 "Option Displayed Value": option_displayed_value,
