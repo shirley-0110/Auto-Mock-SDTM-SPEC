@@ -427,8 +427,8 @@ def build_sdtm_mapping(domain_df_map):
                 })
 
                 detail_records.append({
-                    "Source CRF Sheet": sheet,
-                    "Source CRF Variable": source_var,
+                    "CRF Dataset": sheet,
+                    "CRF Variable": source_var,
                     "SDTM Domain": rec["SDTM Domain"],
                     "SDTM Variable": rec["SDTM Variable"],
                     "Assign Value": rec["Assign Value"],
@@ -438,8 +438,8 @@ def build_sdtm_mapping(domain_df_map):
             for token in unparsed_tokens:
                 if str(token).strip():
                     unparsed_records.append({
-                        "Source CRF Sheet": sheet,
-                        "Source CRF Variable": source_var,
+                        "CRF Dataset": sheet,
+                        "CRF Variable": source_var,
                         "SDTM IG Target Raw": raw_target,
                         "Unparsed Token": token
                     })
