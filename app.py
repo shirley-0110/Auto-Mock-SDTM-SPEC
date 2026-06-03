@@ -814,8 +814,23 @@ if uploaded_file is not None:
                 by=["SDTM Domain", "SDTM Variable", "CRF Dataset", "CRF Variable"],
                 ascending=[True, True, True, True]
             ).reset_index(drop=True)
+
+            gb = GridOptionsBuilder.from_dataframe(sorted_detail_df)
+
+            # ✅ 開啟篩選（關鍵）
+            gb.configure_default_column(filter=True, sortable=True)
+    
+            grid_options = gb.build()
+
+            AgGrid(
+                sorted_detail_df,
+                gridOptions=grid_options,
+                enable_enterprise_modules=False,
+                fit_columns_on_grid_load=True
+            )
+
             
-            st.dataframe(sorted_detail_df, use_container_width=True)
+            #st.dataframe(sorted_detail_df, use_container_width=True)
 
 
 
