@@ -435,6 +435,27 @@ def build_sdtm_mapping(file_bytes, selected_crf_sheets):
 
 
 
+
+def extract_form_oids(series):
+    domains = set()
+
+    for value in series.dropna():
+        text = str(value).strip()
+        if not text:
+            continue
+
+        parts = re.split(r"[,\n;/]+", text)
+
+        for part in parts:
+            item = part.strip()
+            if item:
+                domains.add(item.upper())
+
+    return domains
+    # End=========================================================
+
+
+
 def process_uploaded_excel(file_bytes, all_sheets):
     if "SoA" not in all_sheets:
         raise ValueError("找不到 SoA 分頁")
@@ -465,20 +486,13 @@ def process_uploaded_excel(file_bytes, all_sheets):
         selected_crf_sheets=available_sheets
     )
     
-    ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
-        file_bytes=file_bytes,
-        selected_crf_sheets=available_sheets
-    )
-
     return {
         "available_sheets": available_sheets,
         "missing_sheets": missing_sheets,
         "mapping_df": mapping_df,
         "detail_df": detail_df,
         "sheet_errors": sheet_errors,
-        "unparsed_records": unparsed_records,
-        "ct_mapping_df": ct_mapping_df,
-        "ct_mapping_sheet_errors": ct_mapping_sheet_errors
+        "unparsed_records": unparsed_records
     }
     # End=========================================================
 
@@ -560,6 +574,16 @@ def build_tv_from_soa_list(
 
     return pd.DataFrame(rows, columns=ordered_columns)
     # End=========================================================
+
+
+
+
+
+
+
+
+
+
 
 
 
