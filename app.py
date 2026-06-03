@@ -120,16 +120,16 @@ if uploaded_file is not None:
                 )
 
 
-        # 讀 SoA（先用最簡單 header）
+        # 讀 SoA
         soa_df = pd.read_excel(
             BytesIO(file_bytes),
             sheet_name="SoA",
             header=(manual_soa_header - 1) if use_manual_soa_header else 0
         )
 
-        # parse
         soa_map_df = parse_soa_basic(soa_df)
         st.write(soa_map_df)
+        st.write(soa_df.columns)
         
         # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
