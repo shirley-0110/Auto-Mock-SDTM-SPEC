@@ -560,7 +560,7 @@ if uploaded_file is not None:
         )
         # 呼叫SoA
         soa_df = result["soa_list_df"]
-        st.write(soa_df)
+        st.write(result)
 
         # Visit去重複 (供後續TV使用)
         unique_visit_df = (           
