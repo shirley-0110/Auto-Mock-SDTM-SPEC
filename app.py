@@ -709,14 +709,14 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
 
                     for rec in parsed_records:
 
-                    sdtm_var = str(rec["SDTM Variable"]).strip().upper()
-                    ctcode = var_to_ctcode.get(sdtm_var, "")
-                    assign_val = rec.get("Assign Value", "")
-                    assign_val = "" if pd.isna(assign_val) else str(assign_val).strip()
+                        sdtm_var = str(rec["SDTM Variable"]).strip().upper()
+                        ctcode = var_to_ctcode.get(sdtm_var, "")
+                        assign_val = rec.get("Assign Value", "")
+                        assign_val = "" if pd.isna(assign_val) else str(assign_val).strip()
 
 
-                    if not ctcode:
-                        continue
+                        if not ctcode:
+                            continue
 
                         # Assign Value 優先；否則用 option_tokens
                         if assign_val:
