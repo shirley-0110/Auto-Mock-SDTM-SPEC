@@ -273,10 +273,11 @@ if uploaded_file is not None:
 
 
 
+
         # 讀 SoA
         soa_list_df = build_soa_visit_list(
             file_bytes=file_bytes,
-            manual_soa_header=manual_soa_header,
+            manual_soa_header=None,
             manual_folder_header=None
         )
         
