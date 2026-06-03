@@ -695,7 +695,11 @@ if uploaded_file is not None:
     try:
         xls = pd.ExcelFile(BytesIO(file_bytes))
         all_sheets = xls.sheet_names
-
+       
+        result = process_uploaded_excel(
+            file_bytes=file_bytes,
+            all_sheets=all_sheets
+        )
         # 呼叫SoA
         soa_df = result["soa_list_df"]
 
