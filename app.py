@@ -269,7 +269,7 @@ def standardize_domains_config(cfg_df):
         "mandatory": "Mandatory",
         "role": "Role",
         "core": "Core",
-        "ctcode": "Codelist",
+        "ctcode": "CTcode",
         "class": "Class"
     }
 
@@ -898,7 +898,7 @@ if uploaded_file is not None:
 
             # ✅ 建 mapping（CT mapping會用）
             st.session_state["var_to_ctcode"] = dict(
-                zip(cfg_df["Variable"], cfg_df["ctcode"])
+                zip(cfg_df["Variable"], cfg_df["CTcode"])
             )
 
             # ✅ 記錄版本
