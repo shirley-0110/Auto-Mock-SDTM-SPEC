@@ -716,6 +716,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     continue
 
                 for rec in parsed_records:
+                    ctcode = var_to_ctcode.get(rec["SDTM Variable"], "")
+                    
                     for opt in option_tokens:
                         seed_records.append({
                             "CRF Dataset": sheet,
