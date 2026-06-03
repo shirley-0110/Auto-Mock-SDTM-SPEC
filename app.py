@@ -714,66 +714,8 @@ if uploaded_file is not None:
         )
         
         st.session_state["unique_visit_df"] = unique_visit_df
-        # st.write(unique_visit_df)
+        st.write(unique_visit_df)
         
-        
-        # -------------------------------------------------
-        # Step 1：CRF → SDTM Mapping
-        # -------------------------------------------------
-        st.markdown("## Step 1｜CRF → SDTM Mapping")
-
-        step1_cache_key = make_step1_cache_key(file_bytes)
-
-        if (
-            st.session_state.get("step1_cache_key") == step1_cache_key
-            and st.session_state.get("step1_result") is not None
-        ):
-            result = st.session_state["step1_result"]
-        else:
-            result = process_uploaded_excel(
-                file_bytes=file_bytes,
-                all_sheets=all_sheets
-            )
-            st.session_state["step1_cache_key"] = step1_cache_key
-            st.session_state["step1_result"] = result
-
-        missing_sheets = result["missing_sheets"]
-        mapping_df = result["mapping_df"]
-        detail_df = result["detail_df"]
-        sheet_errors = result["sheet_errors"]
-        unparsed_records = result["unparsed_records"]
-        ct_mapping_df = result.get("ct_mapping_df", pd.DataFrame())
-        ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
-
-        if missing_sheets:
-            st.warning(f"SoA 有但 Excel 沒有的 Sheets：{missing_sheets}")
-
-       
-        st.markdown("### 整份檔案要呈現的 SDTM Domains / Variables")
-        if mapping_df.empty:
-            st.warning("目前沒有從各 CRF sheet 的 SDTM IG Target 抓到可解析的 SDTM Domain / Variable")
-        else:
-            summary_df = summarize_sdtm_mapping(mapping_df)
-            st.dataframe(summary_df, use_container_width=True)
-
-        st.markdown("### SDTM Mapping 明細")
-        if detail_df.empty:
-            st.info("目前沒有可顯示的明細")
-        else:
-            st.dataframe(detail_df, use_container_width=True)
-
-        if sheet_errors:
-            clean_sheets = sorted(set(sheet_errors))
-            st.markdown("### 無法處理的 Sheets")
-            st.warning(f"header 偵測失敗，無法自動判斷 header row: {clean_sheets}")
-
-        if unparsed_records:
-            st.markdown("### 無法解析的 SDTM IG Target 值")
-            st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
-
-
-
-
     
         
     except Exception as e:
