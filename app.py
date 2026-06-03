@@ -880,10 +880,7 @@ if uploaded_file is not None:
             medrt_version = st.text_input("MED-RT", value="", key="medrt_version")
 
 
-
-
         # Load Config
-        # 檢查是否需要 reload（關鍵)
         if (
             not st.session_state.get("config_loaded")
             or st.session_state.get("config_version") != version
@@ -893,19 +890,19 @@ if uploaded_file is not None:
 
             cfg_df = standardize_domains_config(raw_cfg_df)
     
-            # ✅ 存 config
+            # 存 config
             st.session_state["config_df"] = cfg_df
 
-            # ✅ 建 mapping（CT mapping會用）
+            # 建 mapping（CT mapping會用）
             st.session_state["var_to_ctcode"] = dict(
                 zip(cfg_df["Variable"], cfg_df["CTcode"])
             )
 
-            # ✅ 記錄版本
+            # 記錄版本
             st.session_state["config_version"] = version
             st.session_state["config_loaded"] = True
-
-        
+            
+            st.write(var_to_ctcode)
 
 
         # 呼叫SoA
@@ -993,20 +990,6 @@ if uploaded_file is not None:
                 ascending=[True, True, True, True]
             ).reset_index(drop=True)
 
-            
-            """ 先不開篩選功能 (太慢了)
-            gb = GridOptionsBuilder.from_dataframe(sorted_detail_df)
-            gb.configure_default_column(filter=True, sortable=True)
-    
-            grid_options = gb.build()
-
-            AgGrid(
-                sorted_detail_df,
-                gridOptions=grid_options,
-                enable_enterprise_modules=False,
-                fit_columns_on_grid_load=True
-            )
-            """ 
             st.dataframe(sorted_detail_df, use_container_width=True)
 
 
