@@ -180,12 +180,11 @@ def build_soa_visit_list(
         manual_header_row_excel=manual_folder_header
     )
 
-    abbr_col = find_abbreviation_column(folder_df.columns)
-    full_term_col = find_full_term_column(folder_df.columns)
-
+    abbr_col = find_column(folder_df.columns, ["ABBREVIATION", "ABB"])
     if abbr_col is None:
         raise ValueError("Folder 分頁中找不到 Abbreviation 欄位")
 
+    full_term_col = find_column(folder_df.columns, ["FULL", "TERM"])
     if full_term_col is None:
         raise ValueError("Folder 分頁中找不到 Full Term 欄位")
 
