@@ -806,7 +806,9 @@ if uploaded_file is not None:
 
 
         # Detail（CRF → SDTM）
-        with st.expander("🔍 SDTM Mapping 明細（CRF → SDTM）"):
+        st.markdown("### 📊 SDTM Varialbe Mapping (Detail)")
+        
+        st.write(detail_df.columns)
 
             if detail_df.empty:
                 st.info("目前沒有可顯示的明細")
@@ -826,17 +828,16 @@ if uploaded_file is not None:
 
 
         # 錯誤 / Debug
-        with st.expander("⚠️ Debug / Error 檢查"):
-
-            if sheet_errors:
-                st.warning(f"無法處理的 Sheets（header偵測失敗）：{sorted(set(sheet_errors))}")
-
-            if unparsed_records:
-                st.markdown("#### 無法解析的 SDTM IG Target")
-                st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
-
-            if ct_mapping_sheet_errors:
-                st.warning(f"CT Mapping 無法處理的 Sheets：{sorted(set(ct_mapping_sheet_errors))}")
+        st.markdown("### ⚠️ Debug / Error 檢查")
+        if sheet_errors:
+            st.warning(f"無法處理的 Sheets（header偵測失敗）：{sorted(set(sheet_errors))}")
+        
+        if unparsed_records:
+            st.markdown("#### 無法解析的 SDTM IG Target")
+            st.dataframe(pd.DataFrame(unparsed_records), use_container_width=True)
+        
+        if ct_mapping_sheet_errors:
+            st.warning(f"CT Mapping 無法處理的 Sheets：{sorted(set(ct_mapping_sheet_errors))}")
 
     
         
