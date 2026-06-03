@@ -50,7 +50,7 @@ def parse_soa_basic(soa_df):
             value = row[visit]
 
             # ✅ 有值就代表該 dataset 在該 visit 出現
-            if pd.notna(value) and str(value).strip() != "":
+            if pd.notna(value) and str(value).strip() == "X":
                 
                 records.append({
                     "dataset": dataset,
@@ -124,12 +124,12 @@ if uploaded_file is not None:
         soa_df = pd.read_excel(
             BytesIO(file_bytes),
             sheet_name="SoA",
-            header=(manual_soa_header - 1) if use_manual_soa_header else 1
+            header=(manual_soa_header - 1) if use_manual_soa_header else 1  # 不是手填的話defult是第2列
         )
 
         soa_map_df = parse_soa_basic(soa_df)
         st.write(soa_map_df)
-        st.write(soa_df.columns)
+
         
         # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
