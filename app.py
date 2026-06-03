@@ -228,6 +228,27 @@ def build_step1_context(file_bytes, all_sheets):
 
 
 
+# =================================================================================================================
+# 匯入Config
+# =================================================================================================================
+def load_domains_config(version):
+    if version == "Version 3.3":
+        path = "config/v33/domains.sas7bdat"
+    else:
+        path = "config/v34/domains.sas7bdat"
+
+    if not HAS_PYREADSTAT:
+        raise ImportError("目前環境尚未安裝 pyreadstat，請先在 requirements.txt 加入 pyreadstat")
+
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"找不到 config 檔：{path}")
+
+    cfg_df, _ = pyreadstat.read_sas7bdat(path)
+    cfg_df = normalize_columns(cfg_df)
+
+    return cfg_df, path
+    # End=========================================================
+
 
 # =================================================================================================================
 # 特定使用
@@ -873,9 +894,6 @@ if uploaded_file is not None:
         # st.write(unique_visit_df)
 
 
-
-
-        # Version Control
         
         
         # -------------------------------------------------
