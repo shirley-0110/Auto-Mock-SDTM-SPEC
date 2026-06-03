@@ -757,6 +757,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
             "CRF Variable",
             "SDTM Domain",
             "SDTM Variable",
+            "CTcode",
             "Assign Value",
             "SDTM IG Target Raw",
             "Option Displayed Value Raw",
@@ -900,9 +901,6 @@ if uploaded_file is not None:
             # 記錄版本
             st.session_state["config_version"] = version
             st.session_state["config_loaded"] = True
-            
-            st.write(st.session_state["var_to_ctcode"])
-
         
         
         # -------------------------------------------------
