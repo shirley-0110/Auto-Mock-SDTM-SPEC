@@ -568,7 +568,8 @@ def process_uploaded_excel(file_bytes, all_sheets):
     
     # CT mapping
     ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
-        domain_df_map
+        domain_df_map,
+        st.session_state["var_to_ctcode"]
     )
 
     return {
@@ -658,7 +659,7 @@ def split_option_displayed_values(value):
 
 
 # 處理CRF -> SDTM CT Mapping
-def build_ct_mapping_seed(domain_df_map):
+def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
     """
     從已讀入的 CRF Domain DataFrames 建立 CT Mapping Seed
 
@@ -721,6 +722,7 @@ def build_ct_mapping_seed(domain_df_map):
                             "CRF Variable": source_var,
                             "SDTM Domain": rec["SDTM Domain"],
                             "SDTM Variable": rec["SDTM Variable"],
+                            "CTcode": ctcode,
                             "Assign Value": rec["Assign Value"],
                             "SDTM IG Target Raw": raw_target,
                             "Option Displayed Value Raw": raw_option,
