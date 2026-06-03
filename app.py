@@ -99,7 +99,7 @@ if uploaded_file is not None:
 
         # parse
         soa_map_df = parse_soa_basic(soa_df)
-        print(soa_map_df.head())
+        st.write(soa_map_df)
 
 
         # -------------------------------------------------
