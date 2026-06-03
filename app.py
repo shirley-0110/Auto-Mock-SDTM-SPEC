@@ -22,45 +22,225 @@ except Exception:
 
 
 
-# =========================================================
+# =========================================================================================================================================================
 # 基本工具函式
-# =========================================================
+# =========================================================================================================================================================
+def normalize_text(x):
+    if pd.isna(x):
+        return ""
+    x = str(x) #統一資料型態
+    x = x.replace("\n", " ") #移除換行
+    x = x.replace("\r", " ")
+    x = x.replace("\xa0", " ")
+    x = re.sub(r"\s+", " ", x) #壓縮多於空白
+    return x.strip().upper()
+    # End=========================================================
+
+def normalize_columns(df):
+    cols = []
+    for c in df.columns:
+        c = str(c)
+        c = c.replace("\n", " ")
+        c = c.replace("\r", " ")
+        c = c.replace("\xa0", " ")
+        c = re.sub(r"\s+", " ", c).strip()
+        cols.append(c)
+    df.columns = cols
+    return df
+    # End=========================================================
 
 
-def parse_soa_basic(soa_df):
+def find_column(columns, required_keywords):
+    for col in columns:
+        upper_col = normalize_text(col)
+        if all(k.upper() in upper_col for k in required_keywords):
+            return col
+    return None
+    # End=========================================================
 
+
+def row_contains_keywords(row_values, keyword_groups):
+    cells = [normalize_text(v) for v in row_values]
+
+    for cell in cells:
+        for group in keyword_groups:
+            if all(k.upper() in cell for k in group):
+                return True
+    return False
+    # End=========================================================
+
+
+def detect_header_row(file_bytes, sheet_name, keyword_groups, max_scan_rows=30):
+    raw_df = pd.read_excel(
+        BytesIO(file_bytes),
+        sheet_name=sheet_name,
+        header=None,
+        nrows=max_scan_rows,
+        dtype=str
+    )
+
+    for idx, row in raw_df.iterrows():
+        if row_contains_keywords(row.tolist(), keyword_groups):
+            return idx
+
+    return None
+    # End=========================================================
+
+
+def read_sheet_with_detected_header(
+    file_bytes,
+    sheet_name,
+    keyword_groups,
+    manual_header_row_excel=None,
+    max_scan_rows=30
+):
+    if manual_header_row_excel is not None:
+        header_row_zero_based = manual_header_row_excel - 1
+    else:
+        header_row_zero_based = detect_header_row(
+            file_bytes=file_bytes,
+            sheet_name=sheet_name,
+            keyword_groups=keyword_groups,
+            max_scan_rows=max_scan_rows
+        )
+
+    if header_row_zero_based is None:
+        raise ValueError(f"無法自動判斷 {sheet_name} 的 header row")
+
+    df = pd.read_excel(
+        BytesIO(file_bytes),
+        sheet_name=sheet_name,
+        header=header_row_zero_based
+    )
+    df = normalize_columns(df)
+
+    return df, header_row_zero_based + 1
+    # End=========================================================
+
+
+
+
+def build_soa_visit_list(
+    file_bytes,
+    manual_soa_header=None,
+    manual_folder_header=None
+):
+    """
+    從 SoA + Folder 建立 SoA List:
+      CRF Dataset / Abbreviation / Visit
+
+    規則：
+      - SoA 的 row = Source CRF Sheet (Form OID)
+      - SoA 的 visit 欄位只要 cell = X，就輸出一列
+      - Folder 的 Abbreviation -> Full Term 對出 Visit
+    """
+    # -----------------------------
+    # 1) 讀 SoA
+    # -----------------------------
+    soa_df, _ = read_sheet_with_detected_header(
+        file_bytes=file_bytes,
+        sheet_name="SoA",
+        keyword_groups=[["FORM", "OID"]],
+        manual_header_row_excel=manual_soa_header
+    )
+
+    form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
+    if form_oid_col is None:
+        raise ValueError("SoA 分頁中找不到 Form OID 欄位")
+
+    # SoA 所有欄位
+    soa_columns = [str(c).strip() for c in soa_df.columns if str(c).strip()]
+
+    # 這些欄位不是 visit abbreviation
+    non_visit_headers = {
+        "FORM OID",
+        "FORMOID",
+        "FORM",
+        "CRF NAME",
+        "FORM NAME",
+        "DESCRIPTION",
+        "SEQ",
+        "ORDER"
+    }
+
+    visit_cols = []
+    for idx, col in enumerate(soa_columns):
+        col_up = normalize_text(col)
+        
+        if col_up not in non_visit_headers:
+            visit_cols.append((col, idx))
+
+    # -----------------------------
+    # 2) 讀 Folder
+    # -----------------------------
+    folder_df, _ = read_sheet_with_detected_header(
+        file_bytes=file_bytes,
+        sheet_name="Folder",
+        keyword_groups=[["ABBREVIATION"], ["FULL", "TERM"]],
+        manual_header_row_excel=manual_folder_header
+    )
+
+    abbr_col = find_abbreviation_column(folder_df.columns)
+    full_term_col = find_full_term_column(folder_df.columns)
+
+    if abbr_col is None:
+        raise ValueError("Folder 分頁中找不到 Abbreviation 欄位")
+
+    if full_term_col is None:
+        raise ValueError("Folder 分頁中找不到 Full Term 欄位")
+
+    folder_work = folder_df[[abbr_col, full_term_col]].copy()
+    folder_work.columns = ["Abbreviation", "Visit"]
+
+    folder_work["Abbreviation"] = (
+        folder_work["Abbreviation"].fillna("").astype(str).str.strip().str.upper()
+    )
+    folder_work["Visit"] = (
+        folder_work["Visit"].fillna("").astype(str).str.strip()
+    )
+
+    folder_work = folder_work[
+        (folder_work["Abbreviation"] != "") &
+        (folder_work["Visit"] != "")
+    ].drop_duplicates(subset=["Abbreviation"], keep="first")
+
+    folder_lookup = dict(zip(folder_work["Abbreviation"], folder_work["Visit"]))
+
+    # -----------------------------
+    # 3) 展開 SoA List
+    # -----------------------------
     records = []
-    cols = list(soa_df.columns)
-
-
-    dataset_col = cols[0]   # Form OID
-    form_name_col = cols[1] # CRF Name
-    visit_cols = cols[2:]   # 後面全部視為 visit
 
     for _, row in soa_df.iterrows():
+        source_sheet = str(row.get(form_oid_col, "")).strip().upper()
 
-        dataset = str(row[dataset_col]).strip()
-
-        # 跳過空行
-        if dataset == "" or dataset.lower() == "nan":
+        if not source_sheet:
             continue
 
-        for visit in visit_cols:
-
-            value = row[visit]
+        for col, col_idx in visit_cols:
+            abbr = normalize_text(col)
+            abbr = re.sub(r'[\*\^]+', '', abbr).strip()
+            cell_val = str(row.get(col, "")).strip().upper()
 
             # 只抓 ticked X
-            if pd.notna(value) and str(value).strip().upper() == "X":
+            if cell_val == "X":
+                visit_name = folder_lookup.get(abbr, "")
 
-                raw_visit = str(visit).strip()
-                abbr = re.sub(r'[\*\^]+', '', raw_visit).strip()
-                
                 records.append({
-                    "CRF Dataset": dataset,
-                    "Abbreviation": abbr
+                    "Source CRF Sheet": source_sheet,
+                    "Abbreviation": abbr,
+                    "Visit": visit_name,
+                    "visit_order": col_idx
                 })
 
-    return pd.DataFrame(records)
+    if records:
+        out_df = pd.DataFrame(records).drop_duplicates().reset_index(drop=True)
+    else:
+        out_df = pd.DataFrame(columns=[
+            "Source CRF Sheet", "Abbreviation", "Visit"
+        ])
+
+    return out_df
     # End=========================================================
 
 
@@ -130,9 +310,22 @@ if uploaded_file is not None:
             header=(manual_soa_header - 1) if use_manual_soa_header else 1  # 不是手填的話defult是第2列
         )
 
-        soa_map_df = parse_soa_basic(soa_df)
-        st.write(soa_map_df)
+        soa_df, _ = read_sheet_with_detected_header(
+            file_bytes=file_bytes,
+            sheet_name="SoA",
+            keyword_groups=[["FORM", "OID"]],
+            manual_header_row_excel=manual_soa_header
+        )
+        
+        st.write(soa_df)
 
+
+
+
+
+
+
+        
         
         # -------------------------------------------------
         # Step 1：CRF → SDTM Mapping
