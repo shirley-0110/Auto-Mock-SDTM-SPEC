@@ -771,6 +771,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
             "SDTM Domain",
             "SDTM Variable",
             "CTcode",
+            "Assign Value",
             "Option Displayed Value",
             "ORIVAL Normalized"
         ])
