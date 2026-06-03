@@ -361,8 +361,14 @@ if uploaded_file is not None:
             manual_folder_header=None
         )
         
-        unique_visit_df = (
-            soa_df[["Abbreviation", "Visit", "Visit_order"]]
+        unique_visit_df = (           
+            soa_df
+            .loc[
+                (soa_df["Visit"].notna()) &
+                (soa_df["Visit"].str.strip() != "") &
+                (soa_df["CRF Dataset"] != soa_df["Abbreviation"])
+            ]
+            [["Abbreviation", "Visit", "Visit_order"]]
             .drop_duplicates()
             .sort_values("Visit_order")
             .reset_index(drop=True)
