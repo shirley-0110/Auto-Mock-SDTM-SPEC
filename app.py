@@ -1366,7 +1366,7 @@ if uploaded_file is not None:
             define_df = build_define_sheet(
                 protocol_no=protocol_no,
                 protocol_title=protocol_title,
-                version=version
+                sdtm_version=version
             )
             st.dataframe(define_df, use_container_width=True)
 
