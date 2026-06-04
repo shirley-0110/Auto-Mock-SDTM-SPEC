@@ -1413,6 +1413,107 @@ def apply_codelist_rules(merged_df):
 
 
 
+def apply_origin_rules(df):
+    """
+    只在非 Collected 時調整 Origin / Source
+
+    規則：
+      - STUDYID -> Protocol
+      - DOMAIN -> Assigned
+      - USUBJID -> Derived
+      - AESEQ -> Derived
+      - {XX}SEQ / {XX}DY / {XX}STDY / {XX}ENDY / {XX}ENTPT / {XX}STTPT -> Derived
+      - EPOCH（除了 TA）-> Derived
+      - Codelist = AEDICT_F -> Origin = Assigned, Source = Vendor
+      - 其他 Origin in [Protocol, Derived, Assigned] -> Source = Sponsor
+      - Collected 完全不動
+    """
+
+    df = df.copy()
+
+    # 保底欄位
+    for col in ["Dataset", "Variable", "Origin", "Source", "Pages", "Method", "Codelist"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df["Dataset"] = df["Dataset"].astype(str).str.upper().str.strip()
+    df["Variable"] = df["Variable"].astype(str).str.upper().str.strip()
+    df["Origin"] = df["Origin"].astype(str).str.strip()
+    df["Codelist"] = df["Codelist"].astype(str).str.upper().str.strip()
+
+    # -------------------------------------------------
+    # 0. 只處理非 Collected
+    # -------------------------------------------------
+    mask_non_collected = df["Origin"].str.upper() != "COLLECTED"
+
+    # -------------------------------------------------
+    # 1. Codelist = AEDICT_F -> Assigned + Vendor
+    #    （這條優先，因為它同時影響 Origin / Source）
+    # -------------------------------------------------
+    mask_aedict = mask_non_collected & (df["Codelist"] == "AEDICT_F")
+    df.loc[mask_aedict, "Origin"] = "Assigned"
+    df.loc[mask_aedict, "Source"] = "Vendor"
+
+    # -------------------------------------------------
+    # 2. 強制覆寫 Origin（僅限非 Collected 且非 AEDICT_F）
+    # -------------------------------------------------
+    mask_target = mask_non_collected & ~mask_aedict
+
+    # 固定變數
+    df.loc[mask_target & (df["Variable"] == "STUDYID"), "Origin"] = "Protocol"
+    df.loc[mask_target & (df["Variable"] == "DOMAIN"), "Origin"] = "Assigned"
+    df.loc[mask_target & (df["Variable"] == "USUBJID"), "Origin"] = "Derived"
+    df.loc[mask_target & (df["Variable"] == "AESEQ"), "Origin"] = "Derived"
+
+    # Pattern: {XX}SEQ
+    mask_seq = (
+        mask_target &
+        df["Variable"].str.endswith("SEQ") &
+        (df["Variable"] != "AESEQ")  # AESEQ上面已明確指定，但其實同結果
+    )
+    df.loc[mask_seq, "Origin"] = "Derived"
+
+    # Pattern: {XX}DY
+    mask_dy = mask_target & df["Variable"].str.endswith("DY")
+    df.loc[mask_dy, "Origin"] = "Derived"
+
+    # Pattern: {XX}STDY
+    mask_stdy = mask_target & df["Variable"].str.endswith("STDY")
+    df.loc[mask_stdy, "Origin"] = "Derived"
+
+    # Pattern: {XX}ENDY
+    mask_endy = mask_target & df["Variable"].str.endswith("ENDY")
+    df.loc[mask_endy, "Origin"] = "Derived"
+
+    # Pattern: {XX}ENTPT
+    mask_entpt = mask_target & df["Variable"].str.endswith("ENTPT")
+    df.loc[mask_entpt, "Origin"] = "Derived"
+
+    # Pattern: {XX}STTPT
+    mask_sttpt = mask_target & df["Variable"].str.endswith("STTPT")
+    df.loc[mask_sttpt, "Origin"] = "Derived"
+
+    # EPOCH（除了 TA）
+    mask_epoch = mask_target & (df["Variable"] == "EPOCH") & (df["Dataset"] != "TA")
+    df.loc[mask_epoch, "Origin"] = "Derived"
+
+    # -------------------------------------------------
+    # 3. Source 規則
+    #    - AEDICT_F 已經先設成 Vendor
+    #    - 其他 Protocol / Derived / Assigned -> Sponsor
+    # -------------------------------------------------
+    mask_protocol = mask_target & (df["Origin"].str.upper() == "PROTOCOL")
+    mask_derived = mask_target & (df["Origin"].str.upper() == "DERIVED")
+    mask_assigned = mask_target & (df["Origin"].str.upper() == "ASSIGNED")
+
+    df.loc[mask_protocol, "Source"] = "Sponsor"
+    df.loc[mask_derived, "Source"] = "Sponsor"
+    df.loc[mask_assigned, "Source"] = "Sponsor"
+
+    return df
+    # End=========================================================
+
+    # End=========================================================
 
 
 
@@ -1503,6 +1604,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
             # Origin / Method / Source 先用穩定邏輯
             if assign_value:
                 origin = "Assigned"
+                source = "Sponsor"
             else:
                 origin = "Collected"
                 source = "Investigator"
@@ -1539,8 +1641,8 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
                 td_rows.append({
                     "Dataset": dataset,
                     "Variable": col,
-                    "Origin": "Assigned",
-                    "Source": "Protocol",
+                    "Origin": "Protocol",
+                    "Source": "Sponsor",
                     "Pages": "",
                     "Method": "",
                     "Comment": ""
@@ -1723,7 +1825,8 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     })
 
     merged = apply_codelist_rules(merged)
-
+    merged = apply_origin_rules(merged)
+    
     # Data Type 轉換
     if "Data Type" in merged.columns:
         merged["Data Type"] = merged["Data Type"].apply(
