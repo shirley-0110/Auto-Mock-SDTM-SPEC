@@ -1353,6 +1353,36 @@ def apply_codelist_rules(merged_df):
         "DOMAIN_" + df.loc[mask_supp_rdomain, "Dataset"].str.replace("SUPP", "", regex=False)
     )
 
+    
+    # -------------------------------------------------
+    # Rule 7: 跨 domain Codelist 拆分
+    # -------------------------------------------------
+
+    cross_domain_targets = {"DOMAIN", "FREQ", "LOC", "METHOD", "NRIND", "UNIT", "ROUTE"}
+
+    # 統一格式
+    df["Dataset"] = df["Dataset"].astype(str).str.upper().str.strip()
+    df["Codelist"] = df["Codelist"].astype(str).str.upper().str.strip()
+
+    # 找每個 Codelist 對應到的 domain 數量
+    codelist_domain_count = (
+        df.groupby("Codelist")["Dataset"]
+        .nunique()
+    )
+
+    # 找出跨 domain 的 codelist
+    multi_domain_codelists = set(
+        codelist_domain_count[codelist_domain_count > 1].index
+    )
+
+    # 只針對指定清單 + 跨domain的處理
+    mask = df["Codelist"].isin(cross_domain_targets) & df["Codelist"].isin(multi_domain_codelists)
+
+    df.loc[mask, "Codelist"] = (
+        df.loc[mask, "Codelist"] + "_" + df.loc[mask, "Dataset"]
+    )
+
+
     return df
 
 
