@@ -884,10 +884,11 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
         ]
         return pd.DataFrame(columns=empty_cols), pd.DataFrame(columns=empty_cols)
 
-    seed = ct_seed_df.copy()
-    seed = normalize_columns(seed)
 
     # 統一 seed 欄名（如果 normalize_columns 後有大小寫差異）
+    seed = ct_seed_df.copy()
+    seed = normalize_columns(seed)
+    
     seed_col_map = {c: normalize_text(c) for c in seed.columns}
     rename_seed = {}
     for original, norm in seed_col_map.items():
@@ -914,87 +915,65 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
     seed["CT Code"] = seed["CT Code"].astype(str).str.strip().str.upper()
     seed["Original Value Normalized"] = seed["Original Value Normalized"].astype(str).str.strip().str.upper()
 
-    # 1) 主 mapping dictionary
+
+    # -------------------------------------------------
+    # Step 1：分流（核心設計）
+    # -------------------------------------------------
+    no_ct_mask = seed["CT Code"] == ""
+
+    # DERIVED（無 CTcode）
+    derived_df = seed[no_ct_mask].copy()
+    derived_df["CT Term"] = derived_df["Original Value"]
+    derived_df["Match Method"] = "DERIVED"
+
+    # 有 CTcode 才做 mapping
+    seed_ct = seed[~no_ct_mask].copy()
+
+    # -------------------------------------------------
+    # Step 2：DICT mapping
+    # -------------------------------------------------
     mapping_dict = standardize_ct_mapping_dict(mapping_dict_df)
 
-    mapping_dict["CT Code"] = mapping_dict["CT Code"].str.upper().str.strip()
+    mapping_dict["CT Code"] = mapping_dict["CT Code"].astype(str).str.strip().str.upper()
     mapping_dict["Original Value Normalized"] = mapping_dict["Original Value Normalized"].apply(normalize_text)
+    mapping_dict["CT Term"] = mapping_dict["CT Term"].astype(str).str.strip()
 
-    matched = seed.merge(
+    mapped = seed_ct.merge(
         mapping_dict[["CT Code", "Original Value Normalized", "CT Term"]],
         how="left",
         on=["CT Code", "Original Value Normalized"]
     )
 
-    matched["Match Method"] = matched["CT Term"].apply(
-        lambda x: "DICT" if pd.notna(x) and str(x).strip() != "" else ""
+    mapped["Match Method"] = mapped["CT Term"].apply(
+        lambda x: "DICT" if pd.notna(x) and str(x).strip() != "" else "UNMATCHED"
     )
 
-    # 2) fallback：CT alias exact match（optional）
-    if ct_alias_df is not None and not ct_alias_df.empty:
-        alias_df = ct_alias_df.copy()
-        alias_df = normalize_columns(alias_df)
+    # -------------------------------------------------
+    # Step 3：合併結果
+    # -------------------------------------------------
+    final_df = pd.concat([mapped, derived_df], ignore_index=True)
 
-        alias_col_map = {c: normalize_text(c) for c in alias_df.columns}
-        rename_alias = {}
-        for original, norm in alias_col_map.items():
-            if norm == "CTCODE":
-                rename_alias[original] = "CT Code"
-            elif norm == "ORIGINAL VALUE":
-                rename_alias[original] = "Original Value"
-            elif norm == "ORIGINAL VALUE NORMALIZED":
-                rename_alias[original] = "Original Value Normalized"
-            elif norm == "CT Term":
-                rename_alias[original] = "CT Term"
-            elif norm == "ALIAS SOURCE":
-                rename_alias[original] = "Alias Source"
+    # -------------------------------------------------
+    # Step 4：split matched / unmatched
+    # -------------------------------------------------
+    matched_df = final_df[final_df["Match Method"] != "UNMATCHED"].copy()
+    unmatched_df = final_df[final_df["Match Method"] == "UNMATCHED"].copy()
 
-        alias_df = alias_df.rename(columns=rename_alias)
+    # -------------------------------------------------
+    # Step 5：排序
+    # -------------------------------------------------
+    sort_cols = [
+        "SDTM Domain",
+        "SDTM Variable",
+        "CT Code",
+        "Original Value Normalized"
+    ]
 
-        required_alias_cols = ["CT Code", "Original Value Normalized", "CT Term"]
-        has_alias = all(c in alias_df.columns for c in required_alias_cols)
-
-        if has_alias:
-            alias_df["CT Code"] = alias_df["CT Code"].astype(str).str.strip().str.upper()
-            alias_df["Original Value Normalized"] = alias_df["Original Value Normalized"].astype(str).str.strip().str.upper()
-            alias_df["CT Term"] = alias_df["CT Term"].astype(str).str.strip()
-
-            alias_df = alias_df.drop_duplicates(subset=["CT Code", "Original Value Normalized"], keep="first")
-
-            need_fallback = matched["CT Term"].isna() | (matched["CT Term"].astype(str).str.strip() == "")
-            fallback_seed = matched.loc[need_fallback, required_seed_cols].copy()
-
-            if not fallback_seed.empty:
-                fallback_hit = fallback_seed.merge(
-                    alias_df[["CT Code", "Original Value Normalized", "CT Term"]],
-                    how="left",
-                    on=["CT Code", "Original Value Normalized"]
-                )
-
-                for idx, row in fallback_hit.iterrows():
-                    ctval = row["CT Term"]
-                    if pd.notna(ctval) and str(ctval).strip() != "":
-                        original_idx = fallback_seed.index[idx]
-                        matched.loc[original_idx, "CT Term"] = ctval
-                        matched.loc[original_idx, "Match Method"] = "ALIAS_EXACT"
-
-    # 3) split matched / unmatched
-    matched_mask = matched["CT Term"].notna() & (matched["CT Term"].astype(str).str.strip() != "")
-    matched_df = matched.loc[matched_mask].copy()
-    unmatched_df = matched.loc[~matched_mask].copy()
-
-    # 4) 排序
-    sort_cols = [c for c in [
-        "SDTM Domain", "SDTM Variable", "CT Code", "Original Value Normalized"
-    ] if c in matched_df.columns]
-
-    if not matched_df.empty:
-        matched_df = matched_df.sort_values(sort_cols).reset_index(drop=True)
-
-    if not unmatched_df.empty:
-        unmatched_df = unmatched_df.sort_values(sort_cols).reset_index(drop=True)
+    matched_df = matched_df.sort_values(sort_cols).reset_index(drop=True)
+    unmatched_df = unmatched_df.sort_values(sort_cols).reset_index(drop=True)
 
     return matched_df, unmatched_df
+
     # End=========================================================
 
 
