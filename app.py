@@ -1205,28 +1205,19 @@ def build_variables_sheet(detail_df, config_df):
       1. Step 1 detail_df（CRF -> SDTM Variable Mapping）
       2. 5T variable structure
       3. config_df 補 metadata
-
-    輸出欄位：
-      - Order
-      - Dataset
-      - Variable
-      - Label
-      - Data Type
-      - Codelist
-      - Origin
-      - Source/Pages
-      - Method
-      - Comment
     """
+    
+    # 輸出欄位：
+    final_cols = [
+        "Order", "Dataset", "Variable", "Label", "Data Type",
+        "Codelist", "Origin", "Source", "Pages", "Method", "Comment"
+    ]
 
     # -------------------------------------------------
     # 0. 保底
     # -------------------------------------------------
     if config_df is None or config_df.empty:
-        return pd.DataFrame(columns=[
-            "Order", "Dataset", "Variable", "Label", "Data Type",
-            "Codelist", "Origin", "Source/Pages", "Method", "Comment"
-        ])
+        return pd.DataFrame(columns=final_cols)
 
     cfg = config_df.copy()
 
@@ -1239,7 +1230,7 @@ def build_variables_sheet(detail_df, config_df):
     cfg["Variable"] = cfg["Variable"].astype(str).str.upper().str.strip()
 
     # -------------------------------------------------
-    # 1. 從 Step1 detail_df 取出有使用到的 SDTM variables
+    # 1. 從 SDTM Variable Mapping - Detail
     # -------------------------------------------------
     detail_rows = []
 
@@ -1266,20 +1257,16 @@ def build_variables_sheet(detail_df, config_df):
             # Origin / Method / Source 先用穩定邏輯
             if assign_value:
                 origin = "Assigned"
-                method = "Per SDTM IG Target assignment"
             else:
-                origin = "CRF"
-                method = ""
-
-            source_pages = ""
-            if crf_dataset or crf_variable:
-                source_pages = f"{crf_dataset} / {crf_variable}".strip(" /")
+                origin = "Collected"
+                source = "Investigator"
 
             detail_rows.append({
                 "Dataset": dataset,
                 "Variable": variable,
                 "Origin": origin,
-                "Source/Pages": source_pages,
+                "Source": source,
+                "Pages": "",
                 "Method": method,
                 "Comment": ""
             })
@@ -1335,7 +1322,7 @@ def build_variables_sheet(detail_df, config_df):
     if source_variables_df.empty:
         return pd.DataFrame(columns=[
             "Order", "Dataset", "Variable", "Label", "Data Type",
-            "Codelist", "Origin", "Source/Pages", "Method", "Comment"
+            "Codelist", "Origin", "Source", "Pages", "Method", "Comment"
         ])
 
     source_variables_df = source_variables_df.drop_duplicates(
@@ -1343,87 +1330,148 @@ def build_variables_sheet(detail_df, config_df):
         keep="first"
     ).reset_index(drop=True)
 
-    # -------------------------------------------------
-    # 4. 與 config merge（用 Dataset + Variable）
-    # -------------------------------------------------
-    merge_cols = ["Dataset", "Variable"]
 
-    cfg_keep_cols = [c for c in [
-        "Dataset", "Variable", "VarNum", "Variable Label", "Data Type", "CTcode"
-    ] if c in cfg.columns]
+    # -------------------------------------------------
+    # 4. Config 額外保留規則
+    # -------------------------------------------------
+    cfg_keep_mask = pd.Series(False, index=cfg.index)
 
-    cfg_for_merge = cfg[cfg_keep_cols].drop_duplicates(
-        subset=["Dataset", "Variable"],
-        keep="first"
+    # SV / SE 全保留
+    cfg_keep_mask = cfg_keep_mask | cfg["Dataset"].isin(["SV", "SE"])
+
+    # Core = REQUIRED / EXPECTED
+    if "Core" in cfg.columns:
+        cfg_keep_mask = cfg_keep_mask | cfg["Core"].astype(str).str.upper().isin(["REQUIRED", "EXPECTED"])
+
+    # Variable = EPOCH
+    cfg_keep_mask = cfg_keep_mask | (cfg["Variable"] == "EPOCH")
+
+    cfg_keep_df = cfg.loc[cfg_keep_mask, ["Dataset", "Variable"]].drop_duplicates().copy()
+    if not cfg_keep_df.empty:
+        cfg_keep_df["Origin"] = ""
+        cfg_keep_df["Source/Pages"] = ""
+        cfg_keep_df["Method"] = ""
+        cfg_keep_df["Comment"] = ""
+
+    # -------------------------------------------------
+    # 5. paired variables
+    # -------------------------------------------------
+    existing_pairs_source = pd.concat(
+        [base_df[["Dataset", "Variable"]], cfg_keep_df[["Dataset", "Variable"]]],
+        ignore_index=True
+    ).drop_duplicates()
+
+    pair_rows = []
+    existing_pairs_set = set(
+        zip(existing_pairs_source["Dataset"], existing_pairs_source["Variable"])
     )
 
-    merged = source_variables_df.merge(
-        cfg_for_merge,
+    for _, row in existing_pairs_source.iterrows():
+        dataset = row["Dataset"]
+        variable = row["Variable"]
+
+        for paired_var in get_paired_variables(variable):
+            pair_rows.append({
+                "Dataset": dataset,
+                "Variable": paired_var,
+                "Origin": "",
+                "Source/Pages": "",
+                "Method": "",
+                "Comment": ""
+            })
+
+    pair_df = pd.DataFrame(pair_rows)
+    if not pair_df.empty:
+        pair_df = pair_df.drop_duplicates(subset=["Dataset", "Variable"], keep="first")
+
+        # 只保留 config 裡真的存在的 paired vars
+        cfg_pair_key = set(zip(cfg["Dataset"], cfg["Variable"]))
+        pair_df = pair_df[
+            pair_df.apply(lambda r: (r["Dataset"], r["Variable"]) in cfg_pair_key, axis=1)
+        ].reset_index(drop=True)
+
+    # -------------------------------------------------
+    # 6. 合併全部 variables universe
+    # -------------------------------------------------
+    variables_universe = pd.concat(
+        [base_df, cfg_keep_df, pair_df],
+        ignore_index=True
+    )
+
+    if variables_universe.empty:
+        return pd.DataFrame(columns=final_cols)
+
+    variables_universe = variables_universe.drop_duplicates(
+        subset=["Dataset", "Variable"],
+        keep="first"
+    ).reset_index(drop=True)
+
+    # -------------------------------------------------
+    # 7. SUPPQUAL 特殊處理（先展開 config 再 merge）
+    # -------------------------------------------------
+    if target_supp_datasets is None:
+        target_supp_datasets = sorted(
+            variables_universe["Dataset"][variables_universe["Dataset"].astype(str).str.upper().str.startswith("SUPP")]
+            .dropna()
+            .astype(str)
+            .str.upper()
+            .unique()
+            .tolist()
+        )
+
+    expanded_cfg = expand_suppqual_variables(cfg, target_supp_datasets)
+
+    # -------------------------------------------------
+    # 8. merge config metadata
+    # -------------------------------------------------
+    cfg_cols = [c for c in [
+        "Dataset", "Variable", "Variable Label", "Data Type", "CTcode"
+    ] if c in expanded_cfg.columns]
+
+    cfg_meta = expanded_cfg[cfg_cols].drop_duplicates(subset=["Dataset", "Variable"], keep="first")
+
+    merged = variables_universe.merge(
+        cfg_meta,
         how="left",
         on=["Dataset", "Variable"]
     )
 
-    # -------------------------------------------------
-    # 5. rename 成最終欄位
-    # -------------------------------------------------
     merged = merged.rename(columns={
-        "VarNum": "Order",
         "Variable Label": "Label",
         "CTcode": "Codelist"
     })
 
     # -------------------------------------------------
-    # 6. 保底欄位
+    # 9. 保底欄位
     # -------------------------------------------------
-    final_cols = [
-        "Order", "Dataset", "Variable", "Label", "Data Type",
-        "Codelist", "Origin", "Source/Pages", "Method", "Comment"
-    ]
-
     for col in final_cols:
         if col not in merged.columns:
             merged[col] = ""
 
     # -------------------------------------------------
-    # 7. Order 規則
+    # 10. Order：各 dataset 內按 Variable 排序後重編
     # -------------------------------------------------
-    # 先用 config 的 VarNum；如果沒有，再依 Dataset/Variable 補流水號
-    merged["Order"] = pd.to_numeric(merged["Order"], errors="coerce")
-
     out_parts = []
+
     for dataset, grp in merged.groupby("Dataset", dropna=False):
         grp = grp.copy()
 
-        # 有 config order 的排前面
-        grp = grp.sort_values(
-            by=["Order", "Variable"],
-            na_position="last"
-        ).reset_index(drop=True)
+        grp["Variable"] = grp["Variable"].astype(str).str.upper().str.strip()
+        grp = grp.sort_values(by=["Variable"]).reset_index(drop=True)
+        grp["Order"] = range(1, len(grp) + 1)
 
-        # 沒有 Order 的補流水號（從現有最大值往後接）
-        existing_orders = grp["Order"].dropna().astype(int).tolist()
-        next_order = max(existing_orders) + 1 if existing_orders else 1
-
-        for idx in grp.index:
-            if pd.isna(grp.loc[idx, "Order"]):
-                grp.loc[idx, "Order"] = next_order
-                next_order += 1
-
-        grp["Order"] = grp["Order"].astype(int)
         out_parts.append(grp)
 
     final_df = pd.concat(out_parts, ignore_index=True)
 
     # -------------------------------------------------
-    # 8. 最終排序
+    # 11. 最終輸出
     # -------------------------------------------------
-    final_df = final_df.sort_values(
-        by=["Dataset", "Order", "Variable"]
-    ).reset_index(drop=True)
-
-    final_df = final_df[final_cols]
+    final_df = final_df[final_cols].copy()
+    final_df = final_df.sort_values(by=["Dataset", "Order", "Variable"]).reset_index(drop=True)
 
     return final_df
+
     # End=========================================================
 
 
