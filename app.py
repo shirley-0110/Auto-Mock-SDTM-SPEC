@@ -1460,7 +1460,8 @@ def apply_origin_rules(df):
     mask_assigned_vars = (
         mask_target &
         ( df["Variable"].str.endswith(tuple(assigned_patterns)) |
-         df["Variable"].isin(["DOMAIN", "RDOMAIN", "VISITNUM", "VISIT", "IDVAR", "IDVARVAL", "COREF", "COEVAL", "AGEU", "ARMCD", "ARM", "ACTARMCD", "ACTARM", "ARMNRS", "ACTARMUD"])
+         df["Variable"].isin(["DOMAIN", "RDOMAIN", "VISITNUM", "VISIT", "IDVAR", "IDVARVAL", "QNAM", "QLABEL", "QORIG", "QEVAL", "COREF", "COEVAL", 
+                              "AGEU", "ARMCD", "ARM", "ACTARMCD", "ACTARM", "ARMNRS", "ACTARMUD", "ETCD", "SVPRESP"])
         )
     )
     df.loc[mask_assigned_vars, "Origin"] = "Assigned"
@@ -1470,7 +1471,7 @@ def apply_origin_rules(df):
     mask_derived_vars = (
         mask_target &
         ( df["Variable"].str.endswith(tuple(derived_patterns)) |
-         df["Variable"].isin(["USUBJID", "EPOCH", "RFSTDTC", "RFENDTC", "RFXSTDTC", "RFXENDTC", "RFPENDTC", "DTHFL", "DSDTC"])
+         df["Variable"].isin(["USUBJID", "EPOCH", "RFSTDTC", "RFENDTC", "RFXSTDTC", "RFXENDTC", "RFPENDTC", "DTHFL", "DSDTC", "SESTDTC", "SEENDTC"])
         )
     )
     df.loc[mask_derived_vars, "Origin"] = "Derived"
