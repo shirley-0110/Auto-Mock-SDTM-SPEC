@@ -1267,7 +1267,7 @@ def build_variables_sheet(detail_df, config_df):
                 "Origin": origin,
                 "Source": source,
                 "Pages": "",
-                "Method": method,
+                "Method": "",
                 "Comment": ""
             })
 
