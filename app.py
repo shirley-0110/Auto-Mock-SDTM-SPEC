@@ -1499,7 +1499,7 @@ if uploaded_file is not None:
             st.markdown("### 2.2 Datasets")
             datasets_spec_df = build_datasets_sheet(
                 mapping_df=mapping_df,
-                config_df=cfg_df,
+                config_df=st.session_state["config_df"],
                 sdtm_version=version
             )
             st.dataframe(datasets_spec_df, use_container_width=True)
