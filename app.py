@@ -722,7 +722,10 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                         assign_val = rec.get("Assign Value", "")
                         assign_val = "" if pd.isna(assign_val) else str(assign_val).strip()
 
-                        is_ct = bool(str(ctcode).strip())
+
+                        if not ctcode:
+                            continue
+
 
                         # Assign Value 優先；否則用 option_tokens
                         if assign_val:
@@ -976,6 +979,28 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 
 
 
+
+
+
+# =================================================================================================================
+# Step 2 - Mock SDTM SPEC
+# =================================================================================================================
+def build_define(protocol_no, protocol_title, sdtm_version):
+
+    define_records = [
+        ["StudyName", protocol_no],
+        ["StudyDescription", protocol_title],
+        ["ProtocolName", protocol_no],
+        ["StandardName", "SDTM-IG"],
+        ["StandardVersion", sdtm_version],
+        ["Language", "en"]
+    ]
+
+    define_df = pd.DataFrame(define_records, columns=["Attribute", "Value"])
+
+    return define_df
+
+    # End=========================================================
 
 
 
@@ -1286,7 +1311,7 @@ if uploaded_file is not None:
                         use_container_width=True
                     )
 
-                    # ✅ ✅ ✅ Bonus：開發者直接匯出用
+                    # 開發者直接匯出用
                     st.download_button(
                         label="⬇️ 下載 Unmatched CT（用來補 mapping）",
                         data=unmatched_ct_df.to_csv(index=False),
@@ -1316,7 +1341,19 @@ if uploaded_file is not None:
         if ct_mapping_sheet_errors:
             st.warning(f"CT Mapping 無法處理的 Sheets：{sorted(set(ct_mapping_sheet_errors))}")
 
-    
+
+        
+        # -------------------------------------------------
+        # Step 2 開關：執行 / 重新整理
+        # -------------------------------------------------
+        def trigger_step2():
+            st.session_state["run_step2"] = True
+
+        st.button(
+            "▶ 執行 / 重新整理 Step 2：SPEC Generator",
+            type="primary",
+            on_click=trigger_step2
+        )
         
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
