@@ -1416,17 +1416,6 @@ def apply_codelist_rules(merged_df):
 def apply_origin_rules(df):
     """
     只在非 Collected 時調整 Origin / Source
-
-    規則：
-      - STUDYID -> Protocol
-      - DOMAIN -> Assigned
-      - USUBJID -> Derived
-      - AESEQ -> Derived
-      - {XX}SEQ / {XX}DY / {XX}STDY / {XX}ENDY / {XX}ENTPT / {XX}STTPT -> Derived
-      - EPOCH（除了 TA）-> Derived
-      - Codelist = AEDICT_F -> Origin = Assigned, Source = Vendor
-      - 其他 Origin in [Protocol, Derived, Assigned] -> Source = Sponsor
-      - Collected 完全不動
     """
 
     df = df.copy()
@@ -1463,35 +1452,14 @@ def apply_origin_rules(df):
     df.loc[mask_target & (df["Variable"] == "STUDYID"), "Origin"] = "Protocol"
     df.loc[mask_target & (df["Variable"] == "DOMAIN"), "Origin"] = "Assigned"
     df.loc[mask_target & (df["Variable"] == "USUBJID"), "Origin"] = "Derived"
-    df.loc[mask_target & (df["Variable"] == "AESEQ"), "Origin"] = "Derived"
 
-    # Pattern: {XX}SEQ
-    mask_seq = (
+
+    derived_patterns = ["SEQ", "DY", "STDY", "ENDY", "ENTPT", "STTPT"]
+    mask_pattern = (
         mask_target &
-        df["Variable"].str.endswith("SEQ") &
-        (df["Variable"] != "AESEQ")  # AESEQ上面已明確指定，但其實同結果
+        df["Variable"].str.endswith(tuple(derived_patterns))
     )
-    df.loc[mask_seq, "Origin"] = "Derived"
-
-    # Pattern: {XX}DY
-    mask_dy = mask_target & df["Variable"].str.endswith("DY")
-    df.loc[mask_dy, "Origin"] = "Derived"
-
-    # Pattern: {XX}STDY
-    mask_stdy = mask_target & df["Variable"].str.endswith("STDY")
-    df.loc[mask_stdy, "Origin"] = "Derived"
-
-    # Pattern: {XX}ENDY
-    mask_endy = mask_target & df["Variable"].str.endswith("ENDY")
-    df.loc[mask_endy, "Origin"] = "Derived"
-
-    # Pattern: {XX}ENTPT
-    mask_entpt = mask_target & df["Variable"].str.endswith("ENTPT")
-    df.loc[mask_entpt, "Origin"] = "Derived"
-
-    # Pattern: {XX}STTPT
-    mask_sttpt = mask_target & df["Variable"].str.endswith("STTPT")
-    df.loc[mask_sttpt, "Origin"] = "Derived"
+    df.loc[mask_pattern, "Origin"] = "Derived"
 
     # EPOCH（除了 TA）
     mask_epoch = mask_target & (df["Variable"] == "EPOCH") & (df["Dataset"] != "TA")
