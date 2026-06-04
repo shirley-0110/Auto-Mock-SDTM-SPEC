@@ -1397,7 +1397,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     # 輸出欄位：
     final_cols = [
         "Order", "Dataset", "Variable", "Label", "Data Type",
-        "CT Code" "Codelist", "Origin", "Source", "Pages", "Method", "Comment"
+        "CT Code", "Codelist", "Origin", "Source", "Pages", "Method", "Comment"
     ]
 
 
