@@ -986,7 +986,7 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 # Step 2 - Mock SDTM SPEC
 # =================================================================================================================
 def build_define_sheet(protocol_no, protocol_title, sdtm_version):
-
+    std_ver = sdtm_version.replace("Version", "").strip()
     define_records = [
         ["StudyName", protocol_no],
         ["StudyDescription", protocol_title],
@@ -1364,9 +1364,9 @@ if uploaded_file is not None:
             # 2.1 Define
             st.markdown("### 2.1 Define")
             define_df = build_define_sheet(
-                version=version,
                 protocol_no=protocol_no,
-                protocol_title=protocol_title
+                protocol_title=protocol_title,
+                version=version
             )
             st.dataframe(define_df, use_container_width=True)
 
