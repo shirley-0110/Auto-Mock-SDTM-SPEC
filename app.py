@@ -1571,7 +1571,7 @@ if uploaded_file is not None:
 
             st.markdown("### 2.6 Trial Design (5T)")
 
-            ta_df, te_df, ti_df, ts_df, tv_df = build_trial_design_sheets(
+            td_dict = build_trial_design_sheets(
                 protocol_no=protocol_no,
                 protocol_title=protocol_title,
                 sdtm_version=version,
@@ -1581,6 +1581,13 @@ if uploaded_file is not None:
                 unii_version=unii_version,
                 unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame())
             )
+            
+            ta_df = td_dict.get("TA", pd.DataFrame())
+            te_df = td_dict.get("TE", pd.DataFrame())
+            ti_df = td_dict.get("TI", pd.DataFrame())
+            ts_df = td_dict.get("TS", pd.DataFrame())
+            tv_df = td_dict.get("TV", pd.DataFrame())
+
             with st.expander("TA / TE / TI / TS / TV 基本欄位骨架", expanded=False):
                 st.markdown("#### TA")
                 st.dataframe(ta_df, use_container_width=True)
@@ -1592,7 +1599,7 @@ if uploaded_file is not None:
                 st.dataframe(ti_df, use_container_width=True)
                 
                 st.markdown("#### TS")
-                st.dataframe(ts_df, use_container_width=True)
+                st.dataframe(ts_df, use_container_width=True, height=500)
                 
                 st.markdown("#### TV")
                 st.dataframe(tv_df, use_container_width=True)
