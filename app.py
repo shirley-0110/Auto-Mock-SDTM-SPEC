@@ -1286,7 +1286,7 @@ def build_define_sheet(protocol_no, protocol_title, sdtm_version):
 
 
 
-def build_variables_sheet(detail_df, config_df):
+def build_variables_sheet(detail_df, config_df, td_dict=None):
     """
     Variables Sheet
     來源：
@@ -1318,6 +1318,10 @@ def build_variables_sheet(detail_df, config_df):
 
     cfg["Dataset"] = cfg["Dataset"].astype(str).str.upper().str.strip()
     cfg["Variable"] = cfg["Variable"].astype(str).str.upper().str.strip()
+
+    if "Core" in cfg.columns:
+        cfg["Core"] = cfg["Core"].astype(str).str.upper().str.strip()
+
 
     # -------------------------------------------------
     # 1. 從 SDTM Variable Mapping - Detail
@@ -1372,33 +1376,23 @@ def build_variables_sheet(detail_df, config_df):
     # -------------------------------------------------
     # 2. 加入 5T variables
     # -------------------------------------------------
-    td_dict = build_trial_design_sheets(
-        protocol_no=protocol_no,
-        protocol_title=protocol_title,
-        sdtm_version=version,
-        sdtm_ct=sdtm_ct,
-        snomed_version=snomed_version,
-        medrt_version=medrt_version,
-        unii_version=unii_version,
-        unique_visit_df=unique_visit_df
-    )
-
-
     td_rows = []
-    for dataset, df in td_dict.items():
-        if df is None or df.empty:
-            continue
+    
+    if td_dict is not None:
+        for dataset, df in td_dict.items():
+            if df is None or df.empty:
+                continue
 
-        for col in df.columns:
-            td_rows.append({
-                "Dataset": dataset,
-                "Variable": col,
-                "Origin": "Assigned",
-                "Source": "Protocol",
-                "Pages": "",
-                "Method": "",
-                "Comment": ""
-            })
+            for col in df.columns:
+                td_rows.append({
+                    "Dataset": dataset,
+                    "Variable": col,
+                    "Origin": "Assigned",
+                    "Source": "Protocol",
+                    "Pages": "",
+                    "Method": "",
+                    "Comment": ""
+                })
 
     td_variables_df = pd.DataFrame(td_rows)
 
@@ -1409,35 +1403,45 @@ def build_variables_sheet(detail_df, config_df):
         [detail_variables_df, td_variables_df],
         ignore_index=True
     )
-
     if source_variables_df.empty:
-        return pd.DataFrame(columns=[
-            "Order", "Dataset", "Variable", "Label", "Data Type",
-            "Codelist", "Origin", "Source", "Pages", "Method", "Comment"
+        source_variables_df = pd.DataFrame(columns=[
+            "Dataset", "Variable", "Origin", "Source", "Pages", "Method", "Comment"
         ])
-
-    source_variables_df = source_variables_df.drop_duplicates(
-        subset=["Dataset", "Variable"],
-        keep="first"
-    ).reset_index(drop=True)
-
+    else:
+        source_variables_df = source_variables_df.drop_duplicates(
+            subset=["Dataset", "Variable"],
+            keep="first"
+        ).reset_index(drop=True)
 
     # -------------------------------------------------
-    # 4. Config 額外保留規則
+    # 4. 先定義 target datasets
     # -------------------------------------------------
-    cfg_keep_mask = pd.Series(False, index=cfg.index)
+    target_datasets = set(source_variables_df["Dataset"].dropna().astype(str).str.upper().tolist())
+    target_datasets.update(["SV", "SE"])  # 強制留SV/SE
+
+    # 先把 config 限縮到 target datasets + SUPPQUAL
+    cfg_target = cfg[
+        cfg["Dataset"].isin(target_datasets) | (cfg["Dataset"] == "SUPPQUAL")
+    ].copy()
+
+
+    
+    # -------------------------------------------------
+    # 5. Config 額外保留規則
+    # -------------------------------------------------
+    cfg_keep_mask = pd.Series(False, index=cfg_target.index)
 
     # SV / SE 全保留
-    cfg_keep_mask = cfg_keep_mask | cfg["Dataset"].isin(["SV", "SE"])
+    cfg_keep_mask = cfg_keep_mask | cfg_target["Dataset"].isin(["SV", "SE"])
 
     # Core = REQUIRED / EXPECTED
-    if "Core" in cfg.columns:
-        cfg_keep_mask = cfg_keep_mask | cfg["Core"].astype(str).str.upper().isin(["REQUIRED", "EXPECTED"])
+    if "Core" in cfg_target.columns:
+        cfg_keep_mask = cfg_keep_mask | cfg_target["Core"].astype(str).str.upper().isin(["REQUIRED", "EXPECTED"])
 
     # Variable = EPOCH
-    cfg_keep_mask = cfg_keep_mask | (cfg["Variable"] == "EPOCH")
+    cfg_keep_mask = cfg_keep_mask | (cfg_target["Variable"] == "EPOCH")
 
-    cfg_keep_df = cfg.loc[cfg_keep_mask, ["Dataset", "Variable"]].drop_duplicates().copy()
+    cfg_keep_df = cfg_target.loc[cfg_keep_mask, ["Dataset", "Variable"]].drop_duplicates().copy()
     if not cfg_keep_df.empty:
         cfg_keep_df["Origin"] = ""
         cfg_keep_df["Source"] = ""
@@ -1445,9 +1449,8 @@ def build_variables_sheet(detail_df, config_df):
         cfg_keep_df["Method"] = ""
         cfg_keep_df["Comment"] = ""
 
-    # -------------------------------------------------
-    # 5. paired variables
-    # -------------------------------------------------
+
+    # Paired variables
     existing_pairs_source = pd.concat(
         [source_variables_df[["Dataset", "Variable"]], cfg_keep_df[["Dataset", "Variable"]]],
         ignore_index=True
@@ -1478,7 +1481,7 @@ def build_variables_sheet(detail_df, config_df):
         pair_df = pair_df.drop_duplicates(subset=["Dataset", "Variable"], keep="first")
 
         # 只保留 config 裡真的存在的 paired vars
-        cfg_pair_key = set(zip(cfg["Dataset"], cfg["Variable"]))
+        cfg_pair_key = set(zip(cfg_target["Dataset"], cfg_target["Variable"]))
         pair_df = pair_df[
             pair_df.apply(lambda r: (r["Dataset"], r["Variable"]) in cfg_pair_key, axis=1)
         ].reset_index(drop=True)
@@ -1512,13 +1515,13 @@ def build_variables_sheet(detail_df, config_df):
             .tolist()
         )
 
-    expanded_cfg = expand_suppqual_variables(cfg, target_supp_datasets)
+    expanded_cfg = expand_suppqual_variables(cfg_target, target_supp_datasets)
 
     # -------------------------------------------------
     # 8. merge config metadata
     # -------------------------------------------------
     cfg_cols = [c for c in [
-        "Dataset", "Variable", "Variable Label", "Data Type", "CTcode"
+        "Dataset", "Variable", "Variable Label", "Data Type", "CT Code"
     ] if c in expanded_cfg.columns]
 
     cfg_meta = expanded_cfg[cfg_cols].drop_duplicates(subset=["Dataset", "Variable"], keep="first")
@@ -1531,7 +1534,7 @@ def build_variables_sheet(detail_df, config_df):
 
     merged = merged.rename(columns={
         "Variable Label": "Label",
-        "CTcode": "Codelist"
+        "CT Code": "Codelist"
     })
 
     # -------------------------------------------------
@@ -1964,17 +1967,31 @@ if uploaded_file is not None:
             st.dataframe(define_df, use_container_width=True)
 
 
+            # 先產出5T
+            td_dict = build_trial_design_sheets(
+                protocol_no=protocol_no,
+                protocol_title=protocol_title,
+                sdtm_version=version,
+                sdtm_ct=sdtm_ct,
+                snomed_version=snomed_version,
+                medrt_version=medrt_version,
+                unii_version=unii_version,
+                unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame())
+            )
+            
+            
             # 2.2 Datasets
             st.markdown("### 2.2 Datasets")
             
             # 2.3 Variables
             st.markdown("### 2.3 Variables")
-
+            
             variables_spec_df = build_variables_sheet(
                 detail_df=detail_df,
-                config_df=st.session_state["config_df"]
+                config_df=st.session_state["config_df"],
+                td_dict=td_dict
             )
-
+            
             st.dataframe(variables_spec_df, use_container_width=True)
 
             # 2.4 Codelists
@@ -1995,17 +2012,6 @@ if uploaded_file is not None:
             
             # 2.6 Trial Design
             st.markdown("### 2.6 Trial Design (5T)")
-
-            td_dict = build_trial_design_sheets(
-                protocol_no=protocol_no,
-                protocol_title=protocol_title,
-                sdtm_version=version,
-                sdtm_ct=sdtm_ct,
-                snomed_version=snomed_version,
-                medrt_version=medrt_version,
-                unii_version=unii_version,
-                unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame())
-            )
             
             ta_df = td_dict.get("TA", pd.DataFrame())
             te_df = td_dict.get("TE", pd.DataFrame())
