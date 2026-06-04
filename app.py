@@ -2133,10 +2133,11 @@ if uploaded_file is not None:
                 detail_df=detail_df,
                 config_df=st.session_state["config_df"],
                 td_dict=td_dict
-            )
+            )       
+
+            variables_view_df = variables_spec_df.drop(columns=["CT Code"])
            
-            
-            st.dataframe(variables_spec_df, use_container_width=True)
+            st.dataframe(variables_view_df, use_container_width=True)
 
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
