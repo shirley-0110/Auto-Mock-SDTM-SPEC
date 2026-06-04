@@ -1442,7 +1442,7 @@ def apply_origin_rules(df):
     df.loc[mask_aedict, "Origin"] = "Assigned"
     df.loc[mask_aedict, "Source"] = "Vendor"
 
-    mask_epoch = mask_non_collected & (df["Variable"] == "EPOCH") & (df["Dataset"] = "TA")
+    mask_epoch = mask_non_collected & (df["Variable"] == "EPOCH") & (df["Dataset"] == "TA")
     df.loc[mask_epoch, "Origin"] = "Assigned"
 
     # -------------------------------------------------
@@ -1475,9 +1475,6 @@ def apply_origin_rules(df):
     )
     df.loc[mask_derived_vars, "Origin"] = "Derived"
 
-    # EPOCH（除了 TA）
-    mask_epoch = mask_target & (df["Variable"] == "EPOCH") & (df["Dataset"] != "TA")
-    df.loc[mask_epoch, "Origin"] = "Derived"
 
     # -------------------------------------------------
     # 3. Source 規則
