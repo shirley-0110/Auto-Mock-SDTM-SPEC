@@ -1135,6 +1135,8 @@ if uploaded_file is not None:
                 ct_mapping_dict_df = pd.read_excel(dict_path)
                 ct_mapping_dict_df = normalize_columns(ct_mapping_dict_df)
 
+                st.session_state["ct_mapping_dict_df"] = ct_mapping_dict_df
+
                 st.success("CT Mapping Dictionary 載入成功")
             except Exception as e:
                 st.warning(f"CT Mapping Dictionary 載入失敗：{e}")
