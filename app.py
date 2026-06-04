@@ -1428,6 +1428,33 @@ def build_variables_sheet(detail_df, config_df):
 
 
 
+def build_dictionaries_sheet(meddra_version="", cm_dictionary="WHO ATC/DDD", cm_version=""):
+    return pd.DataFrame([
+        {
+            "ID": "AEDICT_F",
+            "Name": "Adverse Event Dictionary",
+            "Data Type": "text",
+            "Dictionary": "MEDDRA",
+            "Version": meddra_version
+        },
+        {
+            "ID": "CMDICT_F",
+            "Name": "Concomitant Meds Dictionary",
+            "Data Type": "text",
+            "Dictionary": cm_dictionary,
+            "Version": cm_version
+        },
+        {
+            "ID": "ISO3166",
+            "Name": "Country Codes (ISO 3166)",
+            "Data Type": "text",
+            "Dictionary": "ISO 3166",
+            "Version": ""
+        }
+    ])
+    # End=========================================================
+
+
 
 
 
@@ -1796,7 +1823,9 @@ if uploaded_file is not None:
             st.dataframe(define_df, use_container_width=True)
 
 
-
+            # 2.2 Datasets
+            st.markdown("### 2.2 Datasets")
+            
             # 2.3 Variables
             st.markdown("### 2.3 Variables")
 
@@ -1807,7 +1836,23 @@ if uploaded_file is not None:
 
             st.dataframe(variables_spec_df, use_container_width=True)
 
+            # 2.4 Codelists
+            st.markdown("### 2.4 Codelists")
 
+            # 2.5 Codelists
+            st.markdown("### 2.5 Dictionaries")
+            dictionaries_df = st.data_editor(
+                build_dictionaries_sheet(
+                    meddra_version=meddra_version,
+                    cm_dictionary=cm_dictionary,
+                    cm_version=cm_version
+                ),
+                num_rows="dynamic",
+                use_container_width=True,
+                key="dictionaries_editor"
+            )
+            
+            # 2.6 Trial Design
             st.markdown("### 2.6 Trial Design (5T)")
 
             td_dict = build_trial_design_sheets(
@@ -1843,8 +1888,6 @@ if uploaded_file is not None:
                 st.markdown("#### TV")
                 st.dataframe(tv_df, use_container_width=True)
             
-
-
 
         
     except Exception as e:
