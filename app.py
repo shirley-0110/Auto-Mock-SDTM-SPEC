@@ -1448,12 +1448,12 @@ def apply_origin_rules(df):
     mask_target = mask_non_collected & ~mask_aedict
     
     mask_protocol_vars = mask_target & (
-        df["Variable"].isin(["STUDYID", "ECTRT", "ECDOSE", "ECDOSU", "ECDOSFRM"])
+        df["Variable"].isin(["STUDYID", "ECTRT", "ECDOSE", "ECDOSU", "ECDOSFRM", "EXTRT", "EXDOSE", "EXDOSU", "EXDOSFRM"])
     )
     df.loc[mask_protocol_vars, "Origin"] = "Protocol"
 
     
-    assigned_patterns = ["TPTNUM"]
+    assigned_patterns = ["TPTNUM", "TEST", "TESTCD"]
     mask_assigned_vars = (
         mask_target &
         ( df["Variable"].str.endswith(tuple(assigned_patterns)) |
