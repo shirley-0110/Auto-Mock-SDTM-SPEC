@@ -1521,7 +1521,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     # 8. merge config metadata
     # -------------------------------------------------
     cfg_cols = [c for c in [
-        "Dataset", "Variable", "Variable Label", "Data Type", "CT Code"
+        "Dataset", "Variable", "VarNum", "Variable Label", "Data Type", "CT Code"
     ] if c in expanded_cfg.columns]
 
     cfg_meta = expanded_cfg[cfg_cols].drop_duplicates(subset=["Dataset", "Variable"], keep="first")
@@ -1552,8 +1552,8 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     for dataset, grp in merged.groupby("Dataset", dropna=False):
         grp = grp.copy()
 
-        grp["Variable"] = grp["Variable"].astype(str).str.upper().str.strip()
-        grp = grp.sort_values(by=["Variable"]).reset_index(drop=True)
+        grp["VarNum"] = pd.to_numeric(grp["VarNum"], errors="coerce")
+        grp = grp.sort_values(by=["VarNum"]).reset_index(drop=True)
         grp["Order"] = range(1, len(grp) + 1)
 
         out_parts.append(grp)
