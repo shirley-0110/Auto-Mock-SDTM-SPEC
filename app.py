@@ -744,7 +744,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                                 "SDTM Domain": str(rec["SDTM Domain"]).strip(),
                                 "SDTM Variable": sdtm_var,
                                 "CT Code": ctcode,
-                                "Original Variable": orival
+                                "Original Variable": orival,
                                 "Original Variable Normalized": normalize_text(orival)
                             })
 
