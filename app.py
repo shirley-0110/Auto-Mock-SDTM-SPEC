@@ -798,7 +798,7 @@ def standardize_ct_mapping_dict(df):
     rename_map = {
         "ID": "CTcode",
         "ORIVAL": "ORIVAL Normalized",
-        "CTVAL": "CTVAL",
+        "CTVAL": "CT Term",
         "ACTIVE": "Active",
         "NOTE": "Notes"
     }
@@ -812,14 +812,14 @@ def standardize_ct_mapping_dict(df):
 
     df = df.rename(columns=new_cols)
 
-    required_cols = ["CTcode", "ORIVAL Normalized", "CTVAL"]
+    required_cols = ["CTcode", "ORIVAL Normalized", "CT Term"]
     for c in required_cols:
         if c not in df.columns:
             raise ValueError(f"CT Mapping Dictionary 缺少必要欄位: {c}")
 
     df["CTcode"] = df["CTcode"].astype(str).str.strip().str.upper()
     df["ORIVAL Normalized"] = df["ORIVAL Normalized"].astype(str).str.strip().str.upper()
-    df["CTVAL"] = df["CTVAL"].astype(str).str.strip()
+    df["CT Term"] = df["CT Term"].astype(str).str.strip()
 
     if "Active" in df.columns:
         df["Active"] = df["Active"].astype(str).str.strip().str.upper()
@@ -828,7 +828,7 @@ def standardize_ct_mapping_dict(df):
     df = df[
         (df["CTcode"] != "") &
         (df["ORIVAL Normalized"] != "") &
-        (df["CTVAL"] != "")
+        (df["CT Term"] != "")
     ].drop_duplicates(subset=["CTcode", "ORIVAL Normalized"], keep="first")
 
     return df
@@ -856,14 +856,14 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
         必要欄位:
         - CTcode
         - ORIVAL Normalized
-        - CTVAL
+        - CT Term
 
     ct_alias_df : DataFrame, optional
         CT 主檔整理出的 alias 表，用來 fallback
         建議欄位:
         - CTcode
         - ORIVAL Normalized
-        - CTVAL
+        - CT Term
         - Alias Source   (optional)
 
     Returns
@@ -875,7 +875,7 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
     if ct_seed_df is None or ct_seed_df.empty:
         empty_cols = [
             "SDTM Domain", "SDTM Variable", "CTcode", "ORIVAL Normalized",
-            "CTVAL", "Match Method"
+            "CT Term", "Match Method"
         ]
         return pd.DataFrame(columns=empty_cols), pd.DataFrame(columns=empty_cols)
 
@@ -914,12 +914,12 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
     mapping_dict["ORIVAL Normalized"] = mapping_dict["ORIVAL Normalized"].apply(normalize_text)
 
     matched = seed.merge(
-        mapping_dict[["CTcode", "ORIVAL Normalized", "CTVAL"]],
+        mapping_dict[["CTcode", "ORIVAL Normalized", "CT Term"]],
         how="left",
         on=["CTcode", "ORIVAL Normalized"]
     )
 
-    matched["Match Method"] = matched["CTVAL"].apply(
+    matched["Match Method"] = matched["CT Term"].apply(
         lambda x: "DICT" if pd.notna(x) and str(x).strip() != "" else ""
     )
 
@@ -935,42 +935,42 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
                 rename_alias[original] = "CTcode"
             elif norm == "ORIVAL NORMALIZED":
                 rename_alias[original] = "ORIVAL Normalized"
-            elif norm == "CTVAL":
-                rename_alias[original] = "CTVAL"
+            elif norm == "CT Term":
+                rename_alias[original] = "CT Term"
             elif norm == "ALIAS SOURCE":
                 rename_alias[original] = "Alias Source"
 
         alias_df = alias_df.rename(columns=rename_alias)
 
-        required_alias_cols = ["CTcode", "ORIVAL Normalized", "CTVAL"]
+        required_alias_cols = ["CTcode", "ORIVAL Normalized", "CT Term"]
         has_alias = all(c in alias_df.columns for c in required_alias_cols)
 
         if has_alias:
             alias_df["CTcode"] = alias_df["CTcode"].astype(str).str.strip().str.upper()
             alias_df["ORIVAL Normalized"] = alias_df["ORIVAL Normalized"].astype(str).str.strip().str.upper()
-            alias_df["CTVAL"] = alias_df["CTVAL"].astype(str).str.strip()
+            alias_df["CT Term"] = alias_df["CT Term"].astype(str).str.strip()
 
             alias_df = alias_df.drop_duplicates(subset=["CTcode", "ORIVAL Normalized"], keep="first")
 
-            need_fallback = matched["CTVAL"].isna() | (matched["CTVAL"].astype(str).str.strip() == "")
+            need_fallback = matched["CT Term"].isna() | (matched["CT Term"].astype(str).str.strip() == "")
             fallback_seed = matched.loc[need_fallback, required_seed_cols].copy()
 
             if not fallback_seed.empty:
                 fallback_hit = fallback_seed.merge(
-                    alias_df[["CTcode", "ORIVAL Normalized", "CTVAL"]],
+                    alias_df[["CTcode", "ORIVAL Normalized", "CT Term"]],
                     how="left",
                     on=["CTcode", "ORIVAL Normalized"]
                 )
 
                 for idx, row in fallback_hit.iterrows():
-                    ctval = row["CTVAL"]
+                    ctval = row["CT Term"]
                     if pd.notna(ctval) and str(ctval).strip() != "":
                         original_idx = fallback_seed.index[idx]
-                        matched.loc[original_idx, "CTVAL"] = ctval
+                        matched.loc[original_idx, "CT Term"] = ctval
                         matched.loc[original_idx, "Match Method"] = "ALIAS_EXACT"
 
     # 3) split matched / unmatched
-    matched_mask = matched["CTVAL"].notna() & (matched["CTVAL"].astype(str).str.strip() != "")
+    matched_mask = matched["CT Term"].notna() & (matched["CT Term"].astype(str).str.strip() != "")
     matched_df = matched.loc[matched_mask].copy()
     unmatched_df = matched.loc[~matched_mask].copy()
 
@@ -1236,16 +1236,6 @@ if uploaded_file is not None:
 
 
 
-        # CT Seed
-        st.markdown("### 🧩 CT Mapping Seed (Option level)")
-        if ct_mapping_df.empty:
-            st.info("目前沒有 CT Mapping Seed")
-        else:
-            st.dataframe(ct_mapping_df, use_container_width=True)
-
-
-
-
         # CT Mapping Result
         st.markdown("### 🧩 CT Mapping Result")
 
@@ -1267,16 +1257,14 @@ if uploaded_file is not None:
             with tab1:
 
                 if matched_ct_df.empty:
-                    st.info("目前沒有 matched CT mapping")
+                    st.info("目前沒有 Matched CT Mapping")
                 else:
                     display_cols = [
                         "SDTM Domain",
                         "SDTM Variable",
                         "CTcode",
-                        "ORIVAL",
                         "ORIVAL Normalized",
-                        "CTVAL",
-                        "Match Method"
+                        "CT Term",
                     ]
 
                     display_cols = [c for c in display_cols if c in matched_ct_df.columns]
@@ -1293,16 +1281,15 @@ if uploaded_file is not None:
             with tab2:
     
                 if unmatched_ct_df.empty:
-                    st.success("🎉 所有 ORIVAL 都已成功 mapping")
+                    st.success("🎉 所有 CRF Term 都已成功 Mapping")
                 else:
 
-                    st.warning("以下 ORIVAL 尚未對應 CTVAL，建議加入 CT Mapping Dictionary")
+                    st.warning("以下 CRF Term 尚未對應 CT Term，建議加入 CT Mapping Dictionary")
 
                     display_cols = [
                         "SDTM Domain",
                         "SDTM Variable",
                         "CTcode",
-                        "ORIVAL",
                         "ORIVAL Normalized"
                     ]
 
