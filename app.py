@@ -1272,7 +1272,8 @@ if uploaded_file is not None:
                         "SDTM Domain",
                         "SDTM Variable",
                         "CT Code",
-                        "ORIVAL Normalized",
+                        "Original Value",
+                        "Original Value Normalized",
                         "CT Term",
                     ]
 
@@ -1299,7 +1300,7 @@ if uploaded_file is not None:
                         "SDTM Domain",
                         "SDTM Variable",
                         "CT Code",
-                        "ORIVAL Normalized"
+                        "Original Value"
                     ]
 
                     display_cols = [c for c in display_cols if c in unmatched_ct_df.columns]
