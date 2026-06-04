@@ -2133,6 +2133,16 @@ if uploaded_file is not None:
                 config_df=st.session_state["config_df"],
                 td_dict=td_dict
             )
+
+
+            st.dataframe(
+                variables_spec_df[
+                    ["Dataset", "Variable", "CT Code", "Codelist"]
+                ],
+                use_container_width=True
+            )
+
+            
             
             st.dataframe(variables_spec_df, use_container_width=True)
 
