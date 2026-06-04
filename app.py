@@ -1232,7 +1232,7 @@ if uploaded_file is not None:
 
 
         # CT Seed
-        st.markdown("###🧩 CT Mapping Seed (Option level)")
+        st.markdown("### 🧩 CT Mapping Seed (Option level)")
         if ct_mapping_df.empty:
             st.info("目前沒有 CT Mapping Seed")
         else:
@@ -1242,44 +1242,87 @@ if uploaded_file is not None:
 
         st.markdown("### 🧩 CT Mapping Result")
 
-        matched_ct_df, unmatched_ct_df = build_ct_mapping(
-            ct_mapping_df,
-            ct_mapping_dict_df,   # 你之後載入的字典
-            ct_alias_df=None      # 之後若有 CT alias 再接
-        )
 
-        tab1, tab2 = st.tabs(["Matched", "Unmatched"])
+        # -------------------------------------------------
+        # CT Mapping Result
+        # -------------------------------------------------
+        st.markdown("### 🧩 CT Mapping Result")
 
-        with tab1:
-            if matched_ct_df.empty:
-                st.info("目前沒有 matched CT mapping")
-            else:
-                st.dataframe(
-                    matched_ct_df[
-                        [
-                            "SDTM Domain", "SDTM Variable", "CTcode",
-                            "Option Displayed Value", "ORIVAL",
-                            "ORIVAL Normalized", "CTVAL", "Match Method"
-                        ]
-                    ],
-                    use_container_width=True
-                )
+        # ✅ 確保 dictionary 已載入
+        if "ct_mapping_dict_df" in st.session_state:
 
-        with tab2:
-            if unmatched_ct_df.empty:
-                st.success("目前沒有 unmatched 資料")
-            else:
-                st.warning("以下 ORIVAL 尚未對應到 CTVAL，建議加入 CT Mapping Dictionary")
-                st.dataframe(
-                    unmatched_ct_df[
-                        [
-                            "SDTM Domain", "SDTM Variable", "CTcode",
-                            "Option Displayed Value", "ORIVAL",
-                            "ORIVAL Normalized"
-                        ]
-                    ],
-                    use_container_width=True
-                )
+            mapping_dict_df = st.session_state["ct_mapping_dict_df"]
+
+            matched_ct_df, unmatched_ct_df = build_ct_mapping(
+                ct_mapping_df,
+                mapping_dict_df
+            )
+
+            tab1, tab2 = st.tabs(["✅ Matched", "❌ Unmatched"])
+
+            # -------------------------------------------------
+            # ✅ Matched
+            # -------------------------------------------------
+            with tab1:
+
+                if matched_ct_df.empty:
+                    st.info("目前沒有 matched CT mapping")
+                else:
+                    display_cols = [
+                        "SDTM Domain",
+                        "SDTM Variable",
+                        "CTcode",
+                        "ORIVAL",
+                        "ORIVAL Normalized",
+                        "CTVAL",
+                        "Match Method"
+                    ]
+
+                    display_cols = [c for c in display_cols if c in matched_ct_df.columns]
+
+                    st.dataframe(
+                        matched_ct_df[display_cols],
+                        use_container_width=True
+                    )
+
+
+            # -------------------------------------------------
+            # ❌ Unmatched（超重要）
+            # -------------------------------------------------
+            with tab2:
+    
+                if unmatched_ct_df.empty:
+                    st.success("🎉 所有 ORIVAL 都已成功 mapping")
+                else:
+
+                    st.warning("以下 ORIVAL 尚未對應 CTVAL，建議加入 CT Mapping Dictionary")
+
+                    display_cols = [
+                        "SDTM Domain",
+                        "SDTM Variable",
+                        "CTcode",
+                        "ORIVAL",
+                        "ORIVAL Normalized"
+                    ]
+
+                    display_cols = [c for c in display_cols if c in unmatched_ct_df.columns]
+
+                    st.dataframe(
+                        unmatched_ct_df[display_cols],
+                        use_container_width=True
+                    )
+
+                    # ✅ ✅ ✅ Bonus：給開發者直接匯出用
+                    st.download_button(
+                        label="⬇️ 下載 Unmatched CT（用來補 mapping）",
+                        data=unmatched_ct_df.to_csv(index=False),
+                        file_name="ct_mapping_unmatched.csv",
+                        mime="text/csv"
+                    )
+
+        else:
+            st.info("尚未載入 CT Mapping Dictionary")
+
 
 
         
