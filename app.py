@@ -985,7 +985,7 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 # =================================================================================================================
 # Step 2 - Mock SDTM SPEC
 # =================================================================================================================
-def build_define(protocol_no, protocol_title, sdtm_version):
+def build_define_sheet(protocol_no, protocol_title, sdtm_version):
 
     define_records = [
         ["StudyName", protocol_no],
@@ -1354,6 +1354,23 @@ if uploaded_file is not None:
             type="primary",
             on_click=trigger_step2
         )
+
+        # -------------------------------------------------
+        # Step 2：SPEC Generator
+        # -------------------------------------------------
+        if st.session_state.get("run_step2", False):
+            st.markdown("## Step 2｜SPEC Generator")
+
+            # 2.1 Define
+            st.markdown("### 2.1 Define")
+            define_df = build_define_sheet(
+                version=version,
+                protocol_no=protocol_no,
+                protocol_title=protocol_title
+            )
+            st.dataframe(define_df, use_container_width=True)
+
+
         
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
