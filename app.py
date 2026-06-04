@@ -1198,6 +1198,221 @@ def build_define_sheet(protocol_no, protocol_title, sdtm_version):
 
 
 
+def build_variables_sheet(detail_df, config_df):
+    """
+    Variables Sheet
+    來源：
+      1. Step 1 detail_df（CRF -> SDTM Variable Mapping）
+      2. 5T variable structure
+      3. config_df 補 metadata
+
+    輸出欄位：
+      - Order
+      - Dataset
+      - Variable
+      - Label
+      - Data Type
+      - Codelist
+      - Origin
+      - Source/Pages
+      - Method
+      - Comment
+    """
+
+    # -------------------------------------------------
+    # 0. 保底
+    # -------------------------------------------------
+    if config_df is None or config_df.empty:
+        return pd.DataFrame(columns=[
+            "Order", "Dataset", "Variable", "Label", "Data Type",
+            "Codelist", "Origin", "Source/Pages", "Method", "Comment"
+        ])
+
+    cfg = config_df.copy()
+
+    # config 欄位保底
+    for col in ["Dataset", "Variable"]:
+        if col not in cfg.columns:
+            raise ValueError(f"config_df 缺少必要欄位: {col}")
+
+    cfg["Dataset"] = cfg["Dataset"].astype(str).str.upper().str.strip()
+    cfg["Variable"] = cfg["Variable"].astype(str).str.upper().str.strip()
+
+    # -------------------------------------------------
+    # 1. 從 Step1 detail_df 取出有使用到的 SDTM variables
+    # -------------------------------------------------
+    detail_rows = []
+
+    if detail_df is not None and not detail_df.empty:
+
+        work = detail_df.copy()
+
+        # 欄位保底
+        for col in ["SDTM Domain", "SDTM Variable"]:
+            if col not in work.columns:
+                raise ValueError(f"detail_df 缺少必要欄位: {col}")
+
+        for _, row in work.iterrows():
+
+            dataset = str(row.get("SDTM Domain", "")).strip().upper()
+            variable = str(row.get("SDTM Variable", "")).strip().upper()
+            crf_dataset = str(row.get("CRF Dataset", "")).strip()
+            crf_variable = str(row.get("CRF Variable", "")).strip()
+            assign_value = str(row.get("Assign Value", "")).strip()
+
+            if not dataset or not variable:
+                continue
+
+            # Origin / Method / Source 先用穩定邏輯
+            if assign_value:
+                origin = "Assigned"
+                method = "Per SDTM IG Target assignment"
+            else:
+                origin = "CRF"
+                method = ""
+
+            source_pages = ""
+            if crf_dataset or crf_variable:
+                source_pages = f"{crf_dataset} / {crf_variable}".strip(" /")
+
+            detail_rows.append({
+                "Dataset": dataset,
+                "Variable": variable,
+                "Origin": origin,
+                "Source/Pages": source_pages,
+                "Method": method,
+                "Comment": ""
+            })
+
+    detail_variables_df = pd.DataFrame(detail_rows)
+
+    if not detail_variables_df.empty:
+        detail_variables_df = detail_variables_df.drop_duplicates(
+            subset=["Dataset", "Variable"],
+            keep="first"
+        ).reset_index(drop=True)
+
+    # -------------------------------------------------
+    # 2. 加入 5T variables
+    # -------------------------------------------------
+    td_map = get_trial_design_variable_map()
+
+    td_rows = []
+    for dataset, var_list in td_map.items():
+        for var in var_list:
+            td_rows.append({
+                "Dataset": dataset,
+                "Variable": var,
+                "Origin": "Assigned",
+                "Source/Pages": "Protocol",
+                "Method": "",
+                "Comment": ""
+            })
+
+    td_variables_df = pd.DataFrame(td_rows)
+
+    # -------------------------------------------------
+    # 3. 合併來源 variables（Step1 + 5T）
+    # -------------------------------------------------
+    source_variables_df = pd.concat(
+        [detail_variables_df, td_variables_df],
+        ignore_index=True
+    )
+
+    if source_variables_df.empty:
+        return pd.DataFrame(columns=[
+            "Order", "Dataset", "Variable", "Label", "Data Type",
+            "Codelist", "Origin", "Source/Pages", "Method", "Comment"
+        ])
+
+    source_variables_df = source_variables_df.drop_duplicates(
+        subset=["Dataset", "Variable"],
+        keep="first"
+    ).reset_index(drop=True)
+
+    # -------------------------------------------------
+    # 4. 與 config merge（用 Dataset + Variable）
+    # -------------------------------------------------
+    merge_cols = ["Dataset", "Variable"]
+
+    cfg_keep_cols = [c for c in [
+        "Dataset", "Variable", "VarNum", "Variable Label", "Data Type", "CTcode"
+    ] if c in cfg.columns]
+
+    cfg_for_merge = cfg[cfg_keep_cols].drop_duplicates(
+        subset=["Dataset", "Variable"],
+        keep="first"
+    )
+
+    merged = source_variables_df.merge(
+        cfg_for_merge,
+        how="left",
+        on=["Dataset", "Variable"]
+    )
+
+    # -------------------------------------------------
+    # 5. rename 成最終欄位
+    # -------------------------------------------------
+    merged = merged.rename(columns={
+        "VarNum": "Order",
+        "Variable Label": "Label",
+        "CTcode": "Codelist"
+    })
+
+    # -------------------------------------------------
+    # 6. 保底欄位
+    # -------------------------------------------------
+    final_cols = [
+        "Order", "Dataset", "Variable", "Label", "Data Type",
+        "Codelist", "Origin", "Source/Pages", "Method", "Comment"
+    ]
+
+    for col in final_cols:
+        if col not in merged.columns:
+            merged[col] = ""
+
+    # -------------------------------------------------
+    # 7. Order 規則
+    # -------------------------------------------------
+    # 先用 config 的 VarNum；如果沒有，再依 Dataset/Variable 補流水號
+    merged["Order"] = pd.to_numeric(merged["Order"], errors="coerce")
+
+    out_parts = []
+    for dataset, grp in merged.groupby("Dataset", dropna=False):
+        grp = grp.copy()
+
+        # 有 config order 的排前面
+        grp = grp.sort_values(
+            by=["Order", "Variable"],
+            na_position="last"
+        ).reset_index(drop=True)
+
+        # 沒有 Order 的補流水號（從現有最大值往後接）
+        existing_orders = grp["Order"].dropna().astype(int).tolist()
+        next_order = max(existing_orders) + 1 if existing_orders else 1
+
+        for idx in grp.index:
+            if pd.isna(grp.loc[idx, "Order"]):
+                grp.loc[idx, "Order"] = next_order
+                next_order += 1
+
+        grp["Order"] = grp["Order"].astype(int)
+        out_parts.append(grp)
+
+    final_df = pd.concat(out_parts, ignore_index=True)
+
+    # -------------------------------------------------
+    # 8. 最終排序
+    # -------------------------------------------------
+    final_df = final_df.sort_values(
+        by=["Dataset", "Order", "Variable"]
+    ).reset_index(drop=True)
+
+    final_df = final_df[final_cols]
+
+    return final_df
+    # End=========================================================
+
 
 
 
@@ -1568,6 +1783,16 @@ if uploaded_file is not None:
             st.dataframe(define_df, use_container_width=True)
 
 
+
+            # 2.3 Variables
+            st.markdown("### 2.3 Variables")
+
+            variables_spec_df = build_variables_sheet(
+                detail_df=detail_df,
+                config_df=st.session_state["config_df"]
+            )
+
+            st.dataframe(variables_spec_df, use_container_width=True)
 
 
             st.markdown("### 2.6 Trial Design (5T)")
