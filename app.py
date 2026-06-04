@@ -1572,8 +1572,10 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     # Data Type 轉換
     if "Data Type" in merged.columns:
         merged["Data Type"] = merged["Data Type"].apply(
-            lambda x: "integer" if str(x).strip() == "1"
-            else ("text" if str(x).strip() == "2" else str(x).strip())
+            lambda x: "integer" if pd.notna(x) and int(float(x)) == 1
+            else ("text" if pd.notna(x) and int(float(x)) == 2
+                  else str(x).strip())
+
         )
 
 
