@@ -992,7 +992,7 @@ def build_define_sheet(protocol_no, protocol_title, sdtm_version):
         ["StudyDescription", protocol_title],
         ["ProtocolName", protocol_no],
         ["StandardName", "SDTM-IG"],
-        ["StandardVersion", sdtm_version],
+        ["StandardVersion", std_ver],
         ["Language", "en"]
     ]
 
