@@ -1445,10 +1445,13 @@ def apply_origin_rules(df):
     mask_epoch = mask_non_collected & (df["Variable"] == "EPOCH") & (df["Dataset"] == "TA")
     df.loc[mask_epoch, "Origin"] = "Assigned"
 
+    mask_visitdy = mask_non_collected & (df["Variable"] == "VISITDY")
+    df.loc[mask_visitdy, "Origin"] = "Protocol"
+
     # -------------------------------------------------
     # 2. 強制覆寫 Origin（僅限非 Collected 且非 AEDICT_F）
     # -------------------------------------------------
-    mask_target = mask_non_collected & ~mask_aedict & ~mask_epoch
+    mask_target = mask_non_collected & ~mask_aedict & ~mask_epoch & ~mask_visitdy
     
     mask_protocol_vars = mask_target & (
         df["Variable"].isin(["STUDYID", "ECTRT", "ECDOSE", "ECDOSU", "ECDOSFRM", "EXTRT", "EXDOSE", "EXDOSU", "EXDOSFRM"])
@@ -1461,7 +1464,7 @@ def apply_origin_rules(df):
         mask_target &
         ( df["Variable"].str.endswith(tuple(assigned_patterns)) |
          df["Variable"].isin(["DOMAIN", "RDOMAIN", "VISITNUM", "VISIT", "IDVAR", "IDVARVAL", "QNAM", "QLABEL", "QORIG", "QEVAL", "COREF", "COEVAL", 
-                              "AGEU", "ARMCD", "ARM", "ACTARMCD", "ACTARM", "ARMNRS", "ACTARMUD", "ETCD", "SVPRESP"])
+                              "AGEU", "ARMCD", "ARM", "ACTARMCD", "ACTARM", "ARMNRS", "ACTARMUD", "ETCD", "SVPRESP", "TAETORD", "TSPARMCD", "TSPARM", "TSVALCD", "TSVCDREF", "TSVCDVER"])
         )
     )
     df.loc[mask_assigned_vars, "Origin"] = "Assigned"
