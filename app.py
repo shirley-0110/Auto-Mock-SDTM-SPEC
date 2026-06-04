@@ -1177,6 +1177,9 @@ def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct
     # End=========================================================
 
 
+# ----------------------------------------
+# Helper小工具
+# ----------------------------------------
 def get_paired_variables(variable):
     """
     給一個 variable name，回傳應保留的 paired variables
@@ -1262,6 +1265,100 @@ def expand_suppqual_variables(config_df, target_supp_datasets):
 
     return out.reset_index(drop=True)
     # End=========================================================
+
+
+
+def apply_codelist_rules(merged_df):
+    """
+    只在 Codelist 原本為空時，依規則補值
+    """
+
+    df = merged_df.copy()
+
+    # 保底
+    if "Dataset" not in df.columns:
+        df["Dataset"] = ""
+    if "Variable" not in df.columns:
+        df["Variable"] = ""
+    if "Codelist" not in df.columns:
+        df["Codelist"] = ""
+
+    df["Dataset"] = df["Dataset"].astype(str).str.upper().str.strip()
+    df["Variable"] = df["Variable"].astype(str).str.upper().str.strip()
+    df["Codelist"] = df["Codelist"].fillna("").astype(str).str.strip()
+
+    # 只處理目前還沒有 Codelist 的列
+    missing_mask = df["Codelist"] == ""
+
+    # -------------------------------------------------
+    # Rule 1: Codelist = Variable
+    # - DOMAIN
+    # - CO.RDOMAIN
+    # - XXTEST
+    # - XXTESTCD
+    # -------------------------------------------------
+    rule_var_as_codelist = (
+        (df["Variable"] == "DOMAIN") |
+        ((df["Dataset"] == "CO") & (df["Variable"] == "RDOMAIN")) |
+        (df["Variable"].str.endswith("TEST")) |
+        (df["Variable"].str.endswith("TESTCD"))
+    )
+
+    df.loc[missing_mask & rule_var_as_codelist, "Codelist"] = df.loc[
+        missing_mask & rule_var_as_codelist, "Variable"
+    ]
+
+    # -------------------------------------------------
+    # Rule 2: AE dictionary fields -> AEDICT_F
+    # -------------------------------------------------
+    ae_dict_vars = {
+        "AELLT", "AELLTCD", "AEDECOD", "AEPTCD",
+        "AEHLT", "AEHLTCD", "AEHLGT", "AEHLGTCD",
+        "AEBODSYS", "AEBDSYCD", "AESOC", "AESOCCD"
+    }
+
+    mask_ae_dict = missing_mask & df["Variable"].isin(ae_dict_vars)
+    df.loc[mask_ae_dict, "Codelist"] = "AEDICT_F"
+
+    # -------------------------------------------------
+    # Rule 3: ARMCD / ACTARMCD -> ARMCD
+    # -------------------------------------------------
+    mask_armcd = missing_mask & df["Variable"].isin(["ARMCD", "ACTARMCD"])
+    df.loc[mask_armcd, "Codelist"] = "ARMCD"
+
+    # -------------------------------------------------
+    # Rule 4: ARM / ACTARM -> ARM
+    # -------------------------------------------------
+    mask_arm = missing_mask & df["Variable"].isin(["ARM", "ACTARM"])
+    df.loc[mask_arm, "Codelist"] = "ARM"
+
+    # -------------------------------------------------
+    # Rule 5: COUNTRY -> ISO3166
+    # -------------------------------------------------
+    mask_country = missing_mask & (df["Variable"] == "COUNTRY")
+    df.loc[mask_country, "Codelist"] = "ISO3166"
+
+    # -------------------------------------------------
+    # Rule 6: SUPP-- 的 RDOMAIN -> DOMAIN_{XX}
+    # -------------------------------------------------
+    mask_supp_rdomain = (
+        missing_mask &
+        df["Dataset"].str.startswith("SUPP") &
+        (df["Variable"] == "RDOMAIN")
+    )
+
+    df.loc[mask_supp_rdomain, "Codelist"] = (
+        "DOMAIN_" + df.loc[mask_supp_rdomain, "Dataset"].str.replace("SUPP", "", regex=False)
+    )
+
+    return df
+
+
+
+
+
+
+
 
 
 
@@ -1568,6 +1665,8 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
         "Variable Label": "Label",
         "CT Code": "Codelist"
     })
+
+    merged = apply_codelist_rules(merged)
 
     # Data Type 轉換
     if "Data Type" in merged.columns:
