@@ -985,155 +985,164 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 # =================================================================================================================
 # Step 2 - Mock SDTM SPEC
 # =================================================================================================================
-def get_trial_design_definitions():
-    return {
-        "TA": {
-            "label": "Trial Arms",
-            "class": "Trial Design",
-            "structure": "One record per planned arm",
-            "key_variables": "STUDYID, ARMCD",
-            "variables": [
-                ("STUDYID", "Study Identifier", "text"),
-                ("DOMAIN", "Domain Abbreviation", "text"),
-                ("ARMCD", "Planned Arm Code", "text"),
-                ("ARM", "Description of Planned Arm", "text"),
-                ("TAETORD", "Planned Order of Elements Within Arm", "integer"),
-                ("ETCD", "Element Code", "text"),
-                ("ELEMENT", "Description of Element", "text"),
-                ("TABRANCH", "Branch", "text"),
-                ("TATRANS", "Transition Rule", "text"),
-                ("EPOCH", "Epoch", "text"),            
-            ]
-        },
-        "TE": {
-            "label": "Trial Elements",
-            "class": "Trial Design",
-            "structure": "One record per element",
-            "key_variables": "STUDYID, ETCD",
-            "variables": [
-                ("STUDYID", "Study Identifier", "text"),
-                ("DOMAIN", "Domain Abbreviation", "text"),
-                ("ETCD", "Element Code", "text"),
-                ("ELEMENT", "Description of Element", "text"),
-                ("TESTRL", "Rule for Start of Element", "text"),
-                ("TEENRL", "End Rule", "text"),
-                ("TEDUR", "Planned Duration of Element", "text"),
-            ]
-        },
-        "TI": {
-            "label": "Trial Inclusion/Exclusion Criteria",
-            "class": "Trial Design",
-            "structure": "One record per inclusion/exclusion criterion",
-            "key_variables": "STUDYID, IETESTCD",
-            "variables": [
-                ("STUDYID", "Study Identifier", "text"),
-                ("DOMAIN", "Domain Abbreviation", "text"),
-                ("IETESTCD", "Inclusion/Exclusion Criterion Short Name", "text"),
-                ("IETEST", "Inclusion/Exclusion Criterion", "text"),
-                ("IECAT", "Inclusion/Exclusion Category", "text"),
-                ("TIVERS", "Version", "text"), 
-            ]
-        },
-        "TS": {
-            "label": "Trial Summary",
-            "class": "Trial Design",
-            "structure": "One record per trial summary parameter",
-            "key_variables": "STUDYID, TSSEQ",
-            "variables": [
-                ("STUDYID", "Study Identifier", "text"),
-                ("DOMAIN", "Domain Abbreviation", "text"),
-                ("TSSEQ", "Sequence Number", "integer"),
-                ("TSPARMCD", "Trial Summary Parameter Short Name", "text"),
-                ("TSPARM", "Trial Summary Parameter", "text"),
-                ("TSVAL", "Parameter Value", "text"),
-                ("TSVALCD", "Parameter Value (Code)", "text"),
-                ("TSVCDREF", "Code Dictionary Reference", "text"),
-                ("TSVCDVER", "Code Dictionary Version", "text"), 
-                ("TSVALNF", "Null Flavor", "text"),
-            ]
-        },
-        "TV": {
-            "label": "Trial Visits",
-            "class": "Trial Design",
-            "structure": "One record per visit per arm",
-            "key_variables": "STUDYID, VISITNUM",
-            "variables": [
-                ("STUDYID", "Study Identifier", "text"),
-                ("DOMAIN", "Domain Abbreviation", "text"),
-                ("VISITNUM", "Visit Number", "float"),
-                ("VISIT", "Visit Name", "text"),
-                ("VISITDY", "Planned Study Day of Visit", "integer"),
-                ("ARMCD", "Planned Arm Code", "text"),
-                ("ARM", "Planned Arm", "text"), 
-                ("TVSTRL", "Start Rule", "text"), 
-                ("TVENRL", "End Rule", "text"),
+def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct, snomed_version, medrt_version, unii_version, unique_visit_df):
 
-            ]
-        }
+    # ----------------------------------------
+    # Normalize inputs
+    # ----------------------------------------
+    protocol_no = str(protocol_no or "").strip()
+    protocol_title = str(protocol_title or "").strip()
+    std_ver = str(sdtm_version).upper().replace("VERSION", "").strip()
+
+    sdtmver_map = {
+        "3.4": "2.0",
+        "3.3": "1.7"
     }
-    # End=========================================================
 
-def build_trial_design_datasets_spec(sdtm_version):
-    defs = get_trial_design_definitions()
-    std_ver = sdtm_version.replace("Version", "").strip()
+    # ----------------------------------------
+    # TS TSPARMCD list
+    # ----------------------------------------
+    tsparmcd_list = [
+        "ACTSUB","ADAPT","ADDON","AGEMAX","AGEMIN","DCUTDESC","DCUTDTC","EXTTIND",
+        "FCNTRY","HLTSUBJI","INDIC","INTMODEL","INTTYPE","LENGTH","NARMS","NCOHORT",
+        "OBJPRIM","OBJSEC","ONGOSIND","OUTMSPRI","PCLAS","PDPSTIND","PDSTIND",
+        "PIPIND","PLANSUB","RANDOM","RDIND","REGID","SDTIGVER","SDTMVER","SENDTC",
+        "SEXPOP","SPONSOR","SSTDTC","STOPRULE","STYPE","TBLIND","TCNTRL","TDIGRP",
+        "THERAREA","TINDTP","TITLE","TPHASE","TRT","TTYPE"
+    ]
 
-    rows = []
-    for domain in ["TA", "TE", "TI", "TS", "TV"]:
-        info = defs[domain]
-        rows.append({
-            "Dataset": domain,
-            "Label": info["label"],
-            "Class": info["class"],
-            "Structure": info["structure"],
-            "Key Variables": info["key_variables"],
-            "Standard": f"SDTMIG {std_ver}"
+    tsval_map = {
+        "SDTIGVER": std_ver,
+        "SDTMVER": sdtmver_map.get(std_ver, ""),
+        "TITLE": protocol_title
+    }
+
+
+    refver_map = {
+        "ADAPT":   ("CDISC CT", sdtm_ct),
+        "ADDON":   ("CDISC CT", sdtm_ct),
+        "EXTTIND": ("CDISC CT", sdtm_ct),
+        "HLTSUBJI": ("CDISC CT", sdtm_ct),
+        "INTMODEL": ("CDISC CT", sdtm_ct),
+        "INTTYPE": ("CDISC CT", sdtm_ct),
+        "ONGOSIND": ("CDISC CT", sdtm_ct),
+        "PDPSTIND": ("CDISC CT", sdtm_ct),
+        "PDSTIND": ("CDISC CT", sdtm_ct),
+        "PIPIND": ("CDISC CT", sdtm_ct),        
+        "RANDOM": ("CDISC CT", sdtm_ct),
+        "RDIND": ("CDISC CT", sdtm_ct),
+        "SEXPOP": ("CDISC CT", sdtm_ct),
+        "STYPE": ("CDISC CT", sdtm_ct),
+        "TBLIND": ("CDISC CT", sdtm_ct),
+        "TCNTRL": ("CDISC CT", sdtm_ct),
+        "TINDTP": ("CDISC CT", sdtm_ct),
+        "TPHASE": ("CDISC CT", sdtm_ct),
+        "TTYPE": ("CDISC CT", sdtm_ct),
+
+        "INDIC":   ("SNOMED", snomed_version),
+        "TDIGRP":  ("SNOMED", snomed_version),
+
+        "PCLAS":   ("MED-RT", medrt_version),
+
+        "TRT":     ("UNII", unii_version),
+
+        "SPONSOR": ("D-U-N-S NUMBER", ""),
+        "REGID":   ("ClinicalTrials.gov", ""),
+        "FCNTRY":  ("ISO 3166", "")
+    }
+
+    # ----------------------------------------
+    # 1. TA / TE / TI（建立空架構）
+    # ----------------------------------------
+    ta_df = pd.DataFrame(columns=[
+        "STUDYID","DOMAIN","ARMCD","ARM","TAETORD",
+        "ETCD","ELEMENT","TABRANCH","TATRANS","EPOCH"
+    ])
+
+    te_df = pd.DataFrame(columns=[
+        "STUDYID","DOMAIN","ETCD","ELEMENT",
+        "TESTRL","TEENRL","TEDUR"
+    ])
+
+    ti_df = pd.DataFrame(columns=[
+        "STUDYID","DOMAIN","IETESTCD","IETEST",
+        "IECAT","TIVERS"
+    ])
+
+    # ----------------------------------------
+    # 2. TS（展開 + 自動填值）
+    # ----------------------------------------
+    ts_rows = []
+
+    for i, tsparmcd in enumerate(tsparmcd_list, start=1):
+        
+        tsval = tsval_map.get(code, "")
+        tsvcdref, tsvcdver = refver_map.get(code, ("", ""))
+
+        ts_rows.append({
+            "STUDYID": protocol_no,
+            "DOMAIN": "TS",
+            "TSSEQ": "1",
+            "TSPARMCD": tsparmcd,
+            "TSPARM": "",
+            "TSVAL": tsval,
+            "TSVALCD": "",
+            "TSVCDREF": tsvcdref,
+            "TSVCDVER": tsvcdver
         })
 
-    return pd.DataFrame(rows)
+    ts_df = pd.DataFrame(ts_rows)
+
+    # ----------------------------------------
+    # 3. TV（用 SoA visit）
+    # ----------------------------------------
+    tv_cols = [
+        "STUDYID","DOMAIN","VISITNUM","VISIT",
+        "VISITDY","ARMCD","ARM","TVSTRL","TVENRL"
+    ]
+
+    tv_rows = []
+
+    if unique_visit_df is not None and not unique_visit_df.empty:
+
+        df = unique_visit_df.copy()
+
+        # 保底
+        if "Visit" not in df.columns:
+            df["Visit"] = ""
+
+        if "Visit_order" not in df.columns:
+            df["Visit_order"] = range(1, len(df) + 1)
+
+        df["Visit"] = df["Visit"].astype(str).str.strip()
+        df = df[df["Visit"] != ""]
+
+        df = df.sort_values("Visit_order").reset_index(drop=True)
+
+        for i, row in df.iterrows():
+            tv_rows.append({
+                "STUDYID": protocol_no,
+                "DOMAIN": "TV",
+                "VISITNUM": "",
+                "VISIT": row["Visit"],
+                "VISITDY": "",
+                "ARMCD": "",
+                "ARM": "",
+                "TVSTRL": "",
+                "TVENRL": ""
+            })
+
+    tv_df = pd.DataFrame(tv_rows, columns=tv_cols)
+
+
+    return {
+        "TA": ta_df,
+        "TE": te_df,
+        "TI": ti_df,
+        "TS": ts_df,
+        "TV": tv_df
+    }
     # End=========================================================
-
-
-
-
-
-def expand_suppqual_to_supp_datasets(config_df, detected_datasets):
-    if config_df.empty:
-        return config_df.copy()
-
-    cfg = config_df.copy()
-
-    if "Dataset" not in cfg.columns:
-        return cfg
-
-    suppqual_rows = cfg[cfg["Dataset"] == "SUPPQUAL"].copy()
-    if suppqual_rows.empty:
-        return cfg
-
-    detected_supp = [ds for ds in detected_datasets if str(ds).upper().startswith("SUPP")]
-
-    if not detected_supp:
-        return cfg
-
-    expanded_rows = [cfg]
-
-    for ds in detected_supp:
-        if ds == "SUPPQUAL":
-            continue
-
-        dup = suppqual_rows.copy()
-        dup["Dataset"] = ds
-
-        base_domain = ds[4:]  # SUPPAE -> AE
-        dup["Dataset Label"] = f"Supplemental Qualifiers for {base_domain}"
-
-        expanded_rows.append(dup)
-
-    expanded_cfg = pd.concat(expanded_rows, ignore_index=True)
-    expanded_cfg = expanded_cfg.drop_duplicates()
-
-    return expanded_cfg.reset_index(drop=True)
-    # End=========================================================
-
 
 
 
@@ -1151,74 +1160,11 @@ def build_define_sheet(protocol_no, protocol_title, sdtm_version):
     define_df = pd.DataFrame(define_records, columns=["Attribute", "Value"])
 
     return define_df
-
     # End=========================================================
 
 
 
 
-
-def build_datasets_sheet(mapping_df, config_df, sdtm_version):
-
-    # 1. 找出實際出現的 dataset
-    detected_datasets = []
-
-    if not mapping_df.empty:
-        detected_datasets = (
-            mapping_df["SDTM Domain"]
-            .dropna()
-            .astype(str)
-            .str.upper()
-            .unique()
-        )
-
-    # 2. filter config
-    if detected_datasets:
-        config_df = config_df[config_df["Dataset"].isin(detected_datasets)].copy()
-
-    # 3. expand SUPP
-    expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
-
-    # 4. 選欄位
-    ds_cols = [c for c in [
-        "Dataset", "Dataset Label", "Class", "Structure", "Key Variables"
-    ] if c in expanded_cfg.columns]
-
-    if ds_cols:
-        ds_df = expanded_cfg[ds_cols].drop_duplicates(subset=["Dataset"]).copy()
-    else:
-        ds_df = pd.DataFrame(columns=[
-            "Dataset", "Dataset Label", "Class", "Structure", "Key Variables"
-        ])
-
-    # 4.1 rename
-    ds_df = ds_df.rename(columns={
-        "Dataset Label": "Label"
-    })
-
-    # 4.2 保底欄位
-    for col in ["Label", "Class", "Structure", "Key Variables"]:
-        if col not in ds_df.columns:
-            ds_df[col] = ""
-
-    # 4.3 Standard
-    std_ver = str(sdtm_version).upper().replace("VERSION", "").strip()
-    ds_df["Standard"] = f"SDTMIG {std_ver}"
-
-    ds_df = ds_df[[
-        "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard"
-    ]].reset_index(drop=True)
-
-    # 5. Trial Design datasets
-    td_df = build_trial_design_datasets_spec(sdtm_version)
-
-    final_df = pd.concat([ds_df, td_df], ignore_index=True)
-
-    final_df = final_df.drop_duplicates(subset=["Dataset"], keep="first")
-    final_df = final_df.sort_values(by=["Dataset"]).reset_index(drop=True)
-
-    return final_df
-    # End=========================================================
 
 
 
@@ -1589,14 +1535,40 @@ if uploaded_file is not None:
             )
             st.dataframe(define_df, use_container_width=True)
 
-            # 2.2 Datasets
-            st.markdown("### 2.2 Datasets")
-            datasets_spec_df = build_datasets_sheet(
-                mapping_df=mapping_df,
-                config_df=st.session_state["config_df"],
-                sdtm_version=version
+
+
+
+            st.markdown("### 2.X Trial Design (5T)")
+
+            td_dict = build_trial_design_sheets(
+                protocol_no=protocol_no,
+                protocol_title=protocol_title,
+                sdtm_version=version,
+                sdtm_ct=sdtm_ct,
+                snomed_version=snomed_version,
+                medrt_version=medrt_version,
+                unii_version=unii_version,
+                unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame())
             )
-            st.dataframe(datasets_spec_df, use_container_width=True)
+            
+            tab_ta, tab_te, tab_ti, tab_ts, tab_tv = st.tabs(["TA", "TE", "TI", "TS", "TV"])
+
+            tab_map = {
+                "TA": tab_ta,
+                "TE": tab_te,
+                "TI": tab_ti,
+                "TS": tab_ts,
+                "TV": tab_tv
+            }
+
+            for domain, tab in tab_map.items():
+                with tab:
+                    df = td_dict.get(domain, pd.DataFrame())
+            
+                    if df.empty:
+                        st.info(f"{domain} 目前沒有資料")
+                    else:
+                        st.dataframe(df, use_container_width=True)
 
 
         
