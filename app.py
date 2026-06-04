@@ -1571,7 +1571,7 @@ if uploaded_file is not None:
 
             st.markdown("### 2.6 Trial Design (5T)")
 
-            td_dict = build_trial_design_sheets(
+            ta_df, te_df, ti_df, ts_df, tv_df = build_trial_design_sheets(
                 protocol_no=protocol_no,
                 protocol_title=protocol_title,
                 sdtm_version=version,
