@@ -1447,7 +1447,7 @@ def apply_origin_rules(df):
 
     mask_visitdy = mask_non_collected & (df["Variable"] == "VISITDY")
     df.loc[mask_visitdy, "Origin"] = "Protocol"
-    df.loc[mask_aedict, "Source"] = "Sponsor"
+    df.loc[mask_visitdy, "Source"] = "Sponsor"
 
     # -------------------------------------------------
     # 2. 強制覆寫 Origin（僅限非 Collected 且非 AEDICT_F）
