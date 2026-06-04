@@ -1177,6 +1177,94 @@ def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct
     # End=========================================================
 
 
+def get_paired_variables(variable):
+    """
+    給一個 variable name，回傳應保留的 paired variables
+    """
+    variable = str(variable or "").strip().upper()
+    paired = set()
+
+    if variable.endswith("DTC"):
+        paired.add(variable[:-3] + "DY")
+
+    if variable.endswith("STDTC"):
+        paired.add(variable[:-5] + "STDY")
+
+    if variable.endswith("ENDTC"):
+        paired.add(variable[:-5] + "ENDY")
+
+    if variable.endswith("STRTPT"):
+        paired.add(variable[:-6] + "STTPT")
+
+    if variable.endswith("ENRTPT"):
+        paired.add(variable[:-6] + "ENTPT")
+
+    if variable == "VISITNUM":
+        paired.update(["VISIT", "VISITDY"])
+
+    if variable.endswith("TPT"):
+        paired.add(variable + "NUM")
+
+    if variable.endswith("ORRES"):
+        base = variable[:-5]
+        paired.update([
+            base + "STRESC",
+            base + "STRESN",
+            base + "STAT"
+        ])
+
+    if variable.endswith("ORRESU"):
+        base = variable[:-6]
+        paired.add(base + "STRESU")
+
+    return paired
+    # End=========================================================
+
+
+
+def expand_suppqual_variables(config_df, target_supp_datasets):
+    """
+    config 只有 SUPPQUAL 時，複製成 SUPPxx variables
+    """
+    if config_df is None or config_df.empty:
+        return config_df.copy()
+
+    cfg = config_df.copy()
+
+    if "Dataset" not in cfg.columns:
+        return cfg
+
+    cfg["Dataset"] = cfg["Dataset"].astype(str).str.upper().str.strip()
+
+    suppqual_rows = cfg[cfg["Dataset"] == "SUPPQUAL"].copy()
+
+    if suppqual_rows.empty:
+        return cfg
+
+    expanded_parts = [cfg[cfg["Dataset"] != "SUPPQUAL"].copy()]
+
+    for ds in sorted(set(target_supp_datasets)):
+        ds = str(ds).strip().upper()
+        if not ds.startswith("SUPP"):
+            continue
+
+        dup = suppqual_rows.copy()
+        dup["Dataset"] = ds
+
+        if "Dataset Label" in dup.columns:
+            base_domain = ds[4:]   # SUPPAE -> AE
+            dup["Dataset Label"] = f"Supplemental Qualifiers for {base_domain}"
+
+        expanded_parts.append(dup)
+
+    out = pd.concat(expanded_parts, ignore_index=True)
+    out = out.drop_duplicates()
+
+    return out.reset_index(drop=True)
+    # End=========================================================
+
+
+
 
 def build_define_sheet(protocol_no, protocol_title, sdtm_version):
     std_ver = sdtm_version.replace("Version", "").strip()
