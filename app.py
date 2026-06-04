@@ -1446,24 +1446,24 @@ def apply_origin_rules(df):
     # 2. 強制覆寫 Origin（僅限非 Collected 且非 AEDICT_F）
     # -------------------------------------------------
     mask_target = mask_non_collected & ~mask_aedict
-
-    # 固定變數
-    df.loc[mask_target & (df["Variable"] == "STUDYID"), "Origin"] = "Protocol"
-    df.loc[mask_target & (df["Variable"] == "USUBJID"), "Origin"] = "Derived"
-
+    
+    mask_protocol_vars = mask_target & (
+        df["Variable"].isin(["STUDYID", "ECTRT", "ECDOSE", "ECDOSU", "ECDOSFRM"])
+    )
+    df.loc[mask_protocol_vars, "Origin"] = "Protocol"
+    
 
     mask_assigned_vars = mask_target & (
-        df["Variable"].isin(["DOMAIN", "RDOMAIN", "VISITNUM", "VISIT", "IDVAR", "IDVARVAL", "COREF", "COEVAL"])
+        df["Variable"].isin(["DOMAIN", "RDOMAIN", "VISITNUM", "VISIT", "IDVAR", "IDVARVAL", "COREF", "COEVAL", "AGEU", "ARMCD", "ARM", "ACTARMCD", "ACTARM", "ARMNRS", "ACTARMUD"])
     )
     df.loc[mask_assigned_vars, "Origin"] = "Assigned"
 
-    
 
-    derived_patterns = ["SEQ", "DY", "STDY", "ENDY", "ENTPT", "STTPT"]
+    derived_patterns = ["SEQ", "DY", "STDY", "ENDY", "ENTPT", "STTPT", "STRESC", "STRESN", "STRESU"]
     mask_pattern = (
         mask_target &
         ( df["Variable"].str.endswith(tuple(derived_patterns)) |
-         df["Variable"].isin(["RFSTDTC", "RFENDTC", "RFXSTDTC", "RFXENDTC"])
+         df["Variable"].isin(["USUBJID", "RFSTDTC", "RFENDTC", "RFXSTDTC", "RFXENDTC", "RFPENDTC", "DTHFL", "DSDTC"])
         )
     )
     df.loc[mask_pattern, "Origin"] = "Derived"
