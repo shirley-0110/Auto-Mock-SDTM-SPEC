@@ -1383,8 +1383,32 @@ def apply_codelist_rules(merged_df):
     )
 
 
-    return df
+    # -------------------------------------------------
+    # Rule 8: STENRF 特殊規則（XXSTRTPT / XXENRTPT）
+    # -------------------------------------------------
 
+    df["Variable"] = df["Variable"].astype(str).str.upper().str.strip()
+    df["Dataset"] = df["Dataset"].astype(str).str.upper().str.strip()
+
+    mask_strtpt = df["Variable"].str.endswith("STRTPT")
+    mask_enrtpt = df["Variable"].str.endswith("ENRTPT")
+
+    # STRTPT → STENRF_{XX}_START
+    df.loc[mask_strtpt, "Codelist"] = (
+        "STENRF_" +
+        df.loc[mask_strtpt, "Variable"].str.replace("STRTPT", "", regex=False) +
+        "_START"
+    )
+
+    # ENRTPT → STENRF_{XX}_END
+    df.loc[mask_enrtpt, "Codelist"] = (
+        "STENRF_" +
+        df.loc[mask_enrtpt, "Variable"].str.replace("ENRTPT", "", regex=False) +
+        "_END"
+    )
+
+    return df
+    # End=========================================================
 
 
 
