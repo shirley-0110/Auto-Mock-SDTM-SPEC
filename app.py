@@ -1298,7 +1298,7 @@ def build_variables_sheet(detail_df, config_df):
     td_dict = build_trial_design_sheets(
         protocol_no=protocol_no,
         protocol_title=protocol_title,
-        sdtm_version=sdtm_version,
+        sdtm_version=version,
         sdtm_ct=sdtm_ct,
         snomed_version=snomed_version,
         medrt_version=medrt_version,
