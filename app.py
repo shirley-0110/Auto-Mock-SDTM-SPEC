@@ -1295,14 +1295,27 @@ def build_variables_sheet(detail_df, config_df):
     # -------------------------------------------------
     # 2. 加入 5T variables
     # -------------------------------------------------
-    td_map = get_trial_design_variable_map()
+    td_dict = build_trial_design_sheets(
+        protocol_no=protocol_no,
+        protocol_title=protocol_title,
+        sdtm_version=sdtm_version,
+        sdtm_ct=sdtm_ct,
+        snomed_version=snomed_version,
+        medrt_version=medrt_version,
+        unii_version=unii_version,
+        unique_visit_df=unique_visit_df
+    )
+
 
     td_rows = []
-    for dataset, var_list in td_map.items():
-        for var in var_list:
+    for dataset, df in td_dict.items():
+        if df is None or df.empty:
+            continue
+
+        for col in df.columns:
             td_rows.append({
                 "Dataset": dataset,
-                "Variable": var,
+                "Variable": col,
                 "Origin": "Assigned",
                 "Source/Pages": "Protocol",
                 "Method": "",
