@@ -940,9 +940,9 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
             if norm == "CTCODE":
                 rename_alias[original] = "CT Code"
             elif norm == "ORIGINAL VARIABLE":
-                rename_seed[original] = "Original Variable"
+                rename_alias[original] = "Original Variable"
             elif norm == "ORIGINAL VARIABLE NORMALIZED":
-                rename_seed[original] = "Original Variable Normalized"
+                rename_alias[original] = "Original Variable Normalized"
             elif norm == "CT Term":
                 rename_alias[original] = "CT Term"
             elif norm == "ALIAS SOURCE":
