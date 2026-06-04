@@ -1052,17 +1052,31 @@ def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct
     }
 
     # ----------------------------------------
-    # 1. TA / TE / TI（建立空架構）
+    # 1. TA / TE 建立空架構）
     # ----------------------------------------
-    ta_df = pd.DataFrame(columns=[
-        "STUDYID","DOMAIN","ARMCD","ARM","TAETORD",
-        "ETCD","ELEMENT","TABRANCH","TATRANS","EPOCH"
-    ])
+    ta_df = pd.DataFrame([{
+        "STUDYID": protocol_no,
+        "DOMAIN": "TA",
+        "ARMCD": "",
+        "ARM": "",
+        "TAETORD": "",
+        "ETCD": "",
+        "ELEMENT": "",
+        "TABRANCH": "",
+        "TATRANS": "",
+        "EPOCH": ""
+    }])
 
-    te_df = pd.DataFrame(columns=[
-        "STUDYID","DOMAIN","ETCD","ELEMENT",
-        "TESTRL","TEENRL","TEDUR"
-    ])
+    te_df = pd.DataFrame([{
+        "STUDYID": protocol_no,
+        "DOMAIN": "TE",
+        "ETCD": "",
+        "ELEMENT": "",
+        "TESTRL": "",
+        "TEENRL": "",
+        "TEDUR": ""
+    }])
+
 
     ti_df = pd.DataFrame(columns=[
         "STUDYID","DOMAIN","IETESTCD","IETEST",
@@ -1070,7 +1084,24 @@ def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct
     ])
 
     # ----------------------------------------
-    # 2. TS（展開 + 自動填值）
+    # TI
+    # ----------------------------------------
+    ti_rows = []
+
+    categories = ["INCLUSION", "EXCLUSION"]
+    for i, cat in enumerate(categories, start=1):
+        
+        ti_rows.append({
+            "STUDYID": protocol_no,
+            "DOMAIN": "TI",
+            "IETESTCD": "",
+            "IETEST": "",
+            "IECAT": cat,
+            "TIVERS": ""
+        })
+
+    # ----------------------------------------
+    # TS（展開 + 自動填值）
     # ----------------------------------------
     ts_rows = []
 
@@ -1094,7 +1125,7 @@ def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct
     ts_df = pd.DataFrame(ts_rows)
 
     # ----------------------------------------
-    # 3. TV（用 SoA visit）
+    # TV（用 SoA visit）
     # ----------------------------------------
     tv_cols = [
         "STUDYID","DOMAIN","VISITNUM","VISIT",
@@ -1538,7 +1569,7 @@ if uploaded_file is not None:
 
 
 
-            st.markdown("### 2.X Trial Design (5T)")
+            st.markdown("### 2.6 Trial Design (5T)")
 
             td_dict = build_trial_design_sheets(
                 protocol_no=protocol_no,
@@ -1550,25 +1581,22 @@ if uploaded_file is not None:
                 unii_version=unii_version,
                 unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame())
             )
+            with st.expander("TA / TE / TI / TS / TV 基本欄位骨架", expanded=False):
             
-            tab_ta, tab_te, tab_ti, tab_ts, tab_tv = st.tabs(["TA", "TE", "TI", "TS", "TV"])
+                tab_ta, tab_te, tab_ti, tab_ts, tab_tv = st.tabs(["TA", "TE", "TI", "TS", "TV"])
 
-            tab_map = {
-                "TA": tab_ta,
-                "TE": tab_te,
-                "TI": tab_ti,
-                "TS": tab_ts,
-                "TV": tab_tv
-            }
+                tab_map = {
+                    "TA": tab_ta,
+                    "TE": tab_te,
+                    "TI": tab_ti,
+                    "TS": tab_ts,
+                    "TV": tab_tv
+                }
 
-            for domain, tab in tab_map.items():
-                with tab:
-                    df = td_dict.get(domain, pd.DataFrame())
-            
-                    if df.empty:
-                        st.info(f"{domain} 目前沒有資料")
-                    else:
-                        st.dataframe(df, use_container_width=True)
+                for domain, tab in tab_map.items():
+                    with tab:
+                        df = td_dict.get(domain, pd.DataFrame())
+                        st.dataframe(df, use_container_width=True, height=350)
 
 
         
