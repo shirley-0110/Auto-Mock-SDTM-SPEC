@@ -1280,7 +1280,9 @@ def apply_codelist_rules(merged_df):
         df["Dataset"] = ""
     if "Variable" not in df.columns:
         df["Variable"] = ""
-    if "Codelist" not in df.columns:
+    if "CT Code" in df.columns:
+        df["Codelist"] = df["CT Code"]
+    else:
         df["Codelist"] = ""
 
     df["Dataset"] = df["Dataset"].astype(str).str.upper().str.strip()
