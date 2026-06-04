@@ -1223,9 +1223,9 @@ if uploaded_file is not None:
             st.dataframe(sorted_detail_df, use_container_width=True)
 
 
-
-        # CT Mapping Result
+        # CT Mapping Result       
         st.markdown("### 🧩 CT Mapping List")
+        st.write(ct_mapping_df)
 
         # 確保 dictionary 已載入
         if "ct_mapping_dict_df" in st.session_state:
