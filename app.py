@@ -1437,7 +1437,6 @@ def apply_origin_rules(df):
 
     # -------------------------------------------------
     # 1. Codelist = AEDICT_F -> Assigned + Vendor
-    #    （這條優先，因為它同時影響 Origin / Source）
     # -------------------------------------------------
     mask_aedict = mask_non_collected & (df["Codelist"] == "AEDICT_F")
     df.loc[mask_aedict, "Origin"] = "Assigned"
@@ -1450,10 +1449,15 @@ def apply_origin_rules(df):
 
     # 固定變數
     df.loc[mask_target & (df["Variable"] == "STUDYID"), "Origin"] = "Protocol"
-    df.loc[mask_target & (df["Variable"] == "DOMAIN"), "Origin"] = "Assigned"
     df.loc[mask_target & (df["Variable"] == "USUBJID"), "Origin"] = "Derived"
 
 
+    mask_assigned_vars = mask_target & (
+        df["Variable"].isin(["DOMAIN", "RDOMAIN", "VISITNUM", "VISIT"])
+    )
+    df.loc[mask_assigned_vars, "Origin"] = "Assigned"
+
+    
     derived_patterns = ["SEQ", "DY", "STDY", "ENDY", "ENTPT", "STTPT"]
     mask_pattern = (
         mask_target &
