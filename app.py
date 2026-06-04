@@ -1582,21 +1582,22 @@ if uploaded_file is not None:
                 unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame())
             )
             with st.expander("TA / TE / TI / TS / TV 基本欄位骨架", expanded=False):
+                st.markdown("#### TA")
+                st.dataframe(ta_df, use_container_width=True)
+
+                st.markdown("#### TE")
+                st.dataframe(te_df, use_container_width=True)
+                
+                st.markdown("#### TI")
+                st.dataframe(ti_df, use_container_width=True)
+                
+                st.markdown("#### TS")
+                st.dataframe(ts_df, use_container_width=True)
+                
+                st.markdown("#### TV")
+                st.dataframe(tv_df, use_container_width=True)
             
-                tab_ta, tab_te, tab_ti, tab_ts, tab_tv = st.tabs(["TA", "TE", "TI", "TS", "TV"])
 
-                tab_map = {
-                    "TA": tab_ta,
-                    "TE": tab_te,
-                    "TI": tab_ti,
-                    "TS": tab_ts,
-                    "TV": tab_tv
-                }
-
-                for domain, tab in tab_map.items():
-                    with tab:
-                        df = td_dict.get(domain, pd.DataFrame())
-                        st.dataframe(df, use_container_width=True, height=350)
 
 
         
