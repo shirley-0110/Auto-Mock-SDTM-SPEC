@@ -1213,6 +1213,8 @@ def build_variables_sheet(detail_df, config_df):
         "Codelist", "Origin", "Source", "Pages", "Method", "Comment"
     ]
 
+    target_supp_datasets = None
+
     # -------------------------------------------------
     # 0. 保底
     # -------------------------------------------------
@@ -1304,7 +1306,8 @@ def build_variables_sheet(detail_df, config_df):
                 "Dataset": dataset,
                 "Variable": col,
                 "Origin": "Assigned",
-                "Source/Pages": "Protocol",
+                "Source": "Protocol",
+                "Pages": "",
                 "Method": "",
                 "Comment": ""
             })
@@ -1349,7 +1352,8 @@ def build_variables_sheet(detail_df, config_df):
     cfg_keep_df = cfg.loc[cfg_keep_mask, ["Dataset", "Variable"]].drop_duplicates().copy()
     if not cfg_keep_df.empty:
         cfg_keep_df["Origin"] = ""
-        cfg_keep_df["Source/Pages"] = ""
+        cfg_keep_df["Source"] = ""
+        cfg_keep_df["Pages"] = ""
         cfg_keep_df["Method"] = ""
         cfg_keep_df["Comment"] = ""
 
@@ -1357,7 +1361,7 @@ def build_variables_sheet(detail_df, config_df):
     # 5. paired variables
     # -------------------------------------------------
     existing_pairs_source = pd.concat(
-        [base_df[["Dataset", "Variable"]], cfg_keep_df[["Dataset", "Variable"]]],
+        [source_variables_df[["Dataset", "Variable"]], cfg_keep_df[["Dataset", "Variable"]]],
         ignore_index=True
     ).drop_duplicates()
 
@@ -1375,7 +1379,8 @@ def build_variables_sheet(detail_df, config_df):
                 "Dataset": dataset,
                 "Variable": paired_var,
                 "Origin": "",
-                "Source/Pages": "",
+                "Source": "",
+                "Pages": "",
                 "Method": "",
                 "Comment": ""
             })
@@ -1394,7 +1399,7 @@ def build_variables_sheet(detail_df, config_df):
     # 6. 合併全部 variables universe
     # -------------------------------------------------
     variables_universe = pd.concat(
-        [base_df, cfg_keep_df, pair_df],
+        [source_variables_df, cfg_keep_df, pair_df],
         ignore_index=True
     )
 
