@@ -281,6 +281,14 @@ def standardize_domains_config(cfg_df):
     if "Variable" in df.columns:
         df["Variable"] = df["Variable"].astype(str).str.upper().str.strip()
 
+    
+    # 特殊處理：STRTPT / ENRTPT → STENRF
+    if "CTcode" in df.columns:
+        df["CTcode"] = df["CTcode"].replace({
+            "STRTPT": "STENRF",
+            "ENRTPT": "STENRF"
+        })
+
     return df
     # End=========================================================
 
