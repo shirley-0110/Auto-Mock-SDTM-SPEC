@@ -788,11 +788,11 @@ def standardize_ct_mapping_dict(df):
     df = normalize_columns(df)
 
     rename_map = {
-        "CTCODE": "CTcode",
-        "ORIVAL NORMALIZED": "ORIVAL Normalized",
+        "ID": "CTcode",
+        "ORIVAL": "ORIVAL Normalized",
         "CTVAL": "CTVAL",
         "ACTIVE": "Active",
-        "NOTES": "Notes"
+        "NOTE": "Notes"
     }
 
     # 先把欄名 normalize 到大寫，再對映
