@@ -722,9 +722,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                         assign_val = rec.get("Assign Value", "")
                         assign_val = "" if pd.isna(assign_val) else str(assign_val).strip()
 
-
-                        if not ctcode:
-                            continue
+                        is_ct = bool(str(ctcode).strip())
 
                         # Assign Value 優先；否則用 option_tokens
                         if assign_val:
@@ -1225,7 +1223,6 @@ if uploaded_file is not None:
 
         # CT Mapping Result       
         st.markdown("### 🧩 CT Mapping List")
-        st.write(ct_mapping_df)
 
         # 確保 dictionary 已載入
         if "ct_mapping_dict_df" in st.session_state:
