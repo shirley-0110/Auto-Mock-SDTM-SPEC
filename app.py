@@ -1301,7 +1301,6 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
         "Codelist", "Origin", "Source", "Pages", "Method", "Comment"
     ]
 
-    target_supp_datasets = None
 
     # -------------------------------------------------
     # 0. 保底
@@ -1419,20 +1418,45 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     target_datasets = set(source_variables_df["Dataset"].dropna().astype(str).str.upper().tolist())
     target_datasets.update(["SV", "SE"])  # 強制留SV/SE
 
+    # 如果 CO / DS 已在 study 中，也讓強制保留規則可作用
+    if "CO" in cfg["Dataset"].values:
+        target_datasets.add("CO")
+    if "DS" in cfg["Dataset"].values:
+        target_datasets.add("DS")
+
+
     # 先把 config 限縮到 target datasets + SUPPQUAL
     cfg_target = cfg[
         cfg["Dataset"].isin(target_datasets) | (cfg["Dataset"] == "SUPPQUAL")
     ].copy()
 
 
+   # -------------------------------------------------
+    # 5. 先展開 SUPPQUAL -> SUPPxx
+    # -------------------------------------------------
+    target_supp_datasets = sorted(
+        source_variables_df["Dataset"][
+            source_variables_df["Dataset"].astype(str).str.upper().str.startswith("SUPP")
+        ]
+        .dropna()
+        .astype(str)
+        .str.upper()
+        .unique()
+        .tolist()
+    )
+
+    expanded_cfg = expand_suppqual_variables(cfg_target, target_supp_datasets)
+    # SUPPQUAL 本身不呈現
+    expanded_cfg = expanded_cfg[expanded_cfg["Dataset"] != "SUPPQUAL"].copy()
+
     
     # -------------------------------------------------
-    # 5. Config 額外保留規則
+    # 6. Config 額外保留規則
     # -------------------------------------------------
     cfg_keep_mask = pd.Series(False, index=cfg_target.index)
 
-    # SV / SE 全保留
-    cfg_keep_mask = cfg_keep_mask | cfg_target["Dataset"].isin(["SV", "SE"])
+    # SV / SE 保留 -> 但仍只看 target datasets 內的 expanded_cfg
+    cfg_keep_mask = cfg_keep_mask | expanded_cfg["Dataset"].isin(["SV", "SE"])
 
     # Core = REQUIRED / EXPECTED
     if "Core" in cfg_target.columns:
@@ -1441,7 +1465,23 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     # Variable = EPOCH
     cfg_keep_mask = cfg_keep_mask | (cfg_target["Variable"] == "EPOCH")
 
-    cfg_keep_df = cfg_target.loc[cfg_keep_mask, ["Dataset", "Variable"]].drop_duplicates().copy()
+    # 強制留下的 variables
+    force_keep_map = {
+        "CO": {"RDOMAIN", "IDVAR", "IDVARVAL", "COREF", "COEVAL"},
+        "DS": {"DSDTC"}
+    }
+
+    force_keep_mask = pd.Series(False, index=expanded_cfg.index)
+    for ds, vars_set in force_keep_map.items():
+        force_keep_mask = force_keep_mask | (
+            (expanded_cfg["Dataset"] == ds) &
+            (expanded_cfg["Variable"].isin(vars_set))
+        )
+        
+    cfg_keep_mask = cfg_keep_mask | force_keep_mask
+
+
+    cfg_keep_df = expanded_cfg.loc[cfg_keep_mask, ["Dataset", "Variable"]].drop_duplicates().copy()
     if not cfg_keep_df.empty:
         cfg_keep_df["Origin"] = ""
         cfg_keep_df["Source"] = ""
@@ -1487,7 +1527,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
         ].reset_index(drop=True)
 
     # -------------------------------------------------
-    # 6. 合併全部 variables universe
+    # 7. 合併全部 variables universe
     # -------------------------------------------------
     variables_universe = pd.concat(
         [source_variables_df, cfg_keep_df, pair_df],
@@ -1502,20 +1542,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
         keep="first"
     ).reset_index(drop=True)
 
-    # -------------------------------------------------
-    # 7. SUPPQUAL 特殊處理（先展開 config 再 merge）
-    # -------------------------------------------------
-    if target_supp_datasets is None:
-        target_supp_datasets = sorted(
-            variables_universe["Dataset"][variables_universe["Dataset"].astype(str).str.upper().str.startswith("SUPP")]
-            .dropna()
-            .astype(str)
-            .str.upper()
-            .unique()
-            .tolist()
-        )
 
-    expanded_cfg = expand_suppqual_variables(cfg_target, target_supp_datasets)
 
     # -------------------------------------------------
     # 8. merge config metadata
