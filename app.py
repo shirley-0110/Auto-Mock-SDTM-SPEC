@@ -902,6 +902,9 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
     # 1) 主 mapping dictionary
     mapping_dict = standardize_ct_mapping_dict(mapping_dict_df)
 
+    mapping_dict["CTcode"] = mapping_dict["CTcode"].str.upper().str.strip()
+    mapping_dict["ORIVAL Normalized"] = mapping_dict["ORIVAL Normalized"].apply(normalize_text)
+
     matched = seed.merge(
         mapping_dict[["CTcode", "ORIVAL Normalized", "CTVAL"]],
         how="left",
@@ -1129,7 +1132,7 @@ if uploaded_file is not None:
 
                 st.session_state["ct_mapping_dict_df"] = ct_mapping_dict_df
 
-                st.success("CT Mapping Dictionary 載入成功")
+                # st.success("CT Mapping Dictionary 載入成功")
             except Exception as e:
                 st.warning(f"CT Mapping Dictionary 載入失敗：{e}")
         else:
@@ -1234,15 +1237,11 @@ if uploaded_file is not None:
 
 
 
-        st.markdown("### 🧩 CT Mapping Result")
 
-
-        # -------------------------------------------------
         # CT Mapping Result
-        # -------------------------------------------------
         st.markdown("### 🧩 CT Mapping Result")
 
-        # ✅ 確保 dictionary 已載入
+        # 確保 dictionary 已載入
         if "ct_mapping_dict_df" in st.session_state:
 
             mapping_dict_df = st.session_state["ct_mapping_dict_df"]
@@ -1306,7 +1305,7 @@ if uploaded_file is not None:
                         use_container_width=True
                     )
 
-                    # ✅ ✅ ✅ Bonus：給開發者直接匯出用
+                    # ✅ ✅ ✅ Bonus：開發者直接匯出用
                     st.download_button(
                         label="⬇️ 下載 Unmatched CT（用來補 mapping）",
                         data=unmatched_ct_df.to_csv(index=False),
