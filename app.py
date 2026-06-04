@@ -1442,10 +1442,13 @@ def apply_origin_rules(df):
     df.loc[mask_aedict, "Origin"] = "Assigned"
     df.loc[mask_aedict, "Source"] = "Vendor"
 
+    mask_epoch = mask_non_collected & (df["Variable"] == "EPOCH") & (df["Dataset"] = "TA")
+    df.loc[mask_epoch, "Origin"] = "Assigned"
+
     # -------------------------------------------------
     # 2. 強制覆寫 Origin（僅限非 Collected 且非 AEDICT_F）
     # -------------------------------------------------
-    mask_target = mask_non_collected & ~mask_aedict
+    mask_target = mask_non_collected & ~mask_aedict & ~mask_epoch
     
     mask_protocol_vars = mask_target & (
         df["Variable"].isin(["STUDYID", "ECTRT", "ECDOSE", "ECDOSU", "ECDOSFRM", "EXTRT", "EXDOSE", "EXDOSU", "EXDOSFRM"])
@@ -1453,7 +1456,7 @@ def apply_origin_rules(df):
     df.loc[mask_protocol_vars, "Origin"] = "Protocol"
 
     
-    assigned_patterns = ["TPTNUM", "TEST", "TESTCD"]
+    assigned_patterns = ["TPTNUM", "CAT", "TEST", "TESTCD"]
     mask_assigned_vars = (
         mask_target &
         ( df["Variable"].str.endswith(tuple(assigned_patterns)) |
@@ -1467,7 +1470,7 @@ def apply_origin_rules(df):
     mask_derived_vars = (
         mask_target &
         ( df["Variable"].str.endswith(tuple(derived_patterns)) |
-         df["Variable"].isin(["USUBJID", "RFSTDTC", "RFENDTC", "RFXSTDTC", "RFXENDTC", "RFPENDTC", "DTHFL", "DSDTC"])
+         df["Variable"].isin(["USUBJID", "EPOCH", "RFSTDTC", "RFENDTC", "RFXSTDTC", "RFXENDTC", "RFPENDTC", "DTHFL", "DSDTC"])
         )
     )
     df.loc[mask_derived_vars, "Origin"] = "Derived"
