@@ -1569,6 +1569,14 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
         "CT Code": "Codelist"
     })
 
+    # Data Type 轉換
+    if "Data Type" in merged.columns:
+        merged["Data Type"] = merged["Data Type"].apply(
+            lambda x: "integer" if str(x).strip() == "1"
+            else ("text" if str(x).strip() == "2" else str(x).strip())
+        )
+
+
     # -------------------------------------------------
     # 9. 保底欄位
     # -------------------------------------------------
