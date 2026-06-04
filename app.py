@@ -1099,6 +1099,7 @@ def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct
             "IECAT": cat,
             "TIVERS": ""
         })
+    ti_df = pd.DataFrame(ti_rows)
 
     # ----------------------------------------
     # TS（展開 + 自動填值）
