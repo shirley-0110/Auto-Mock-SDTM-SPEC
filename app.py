@@ -1446,23 +1446,35 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     # -------------------------------------------------
     # 6. Config 額外保留規則
     # -------------------------------------------------
-    cfg_keep_mask = pd.Series(False, index=cfg_target.index)
+    cfg_keep_mask = pd.Series(False, index=expanded_cfg.index)
 
     # SV / SE 保留 -> 但仍只看 target datasets 內的 expanded_cfg
     cfg_keep_mask = cfg_keep_mask | expanded_cfg["Dataset"].isin(["SV", "SE"])
 
     # Core = REQUIRED / EXPECTED
-    if "Core" in cfg_target.columns:
-        cfg_keep_mask = cfg_keep_mask | cfg_target["Core"].astype(str).str.upper().isin(["REQUIRED", "EXPECTED"])
+    if "Core" in expanded_cfg.columns:
+        cfg_keep_mask = cfg_keep_mask | expanded_cfg["Core"].astype(str).str.upper().isin(["REQUIRED", "EXPECTED"])
 
     # Variable = EPOCH
-    cfg_keep_mask = cfg_keep_mask | (cfg_target["Variable"] == "EPOCH")
+    cfg_keep_mask = cfg_keep_mask | (expanded_cfg["Variable"] == "EPOCH")
 
     # 強制留下的 variables
-    force_keep_map = {
-        "CO": {"RDOMAIN", "IDVAR", "IDVARVAL", "COREF", "COEVAL"},
-        "DS": {"DSDTC"}
-    }
+    existing_domains = set(
+        source_variables_df["Dataset"]
+        .dropna()
+        .astype(str)
+        .str.upper()
+        .tolist()
+    )
+
+    force_keep_map = {}
+    
+    if "CO" in existing_domains:
+        force_keep_map["CO"] = {"RDOMAIN", "IDVAR", "IDVARVAL", "COREF", "COEVAL"}
+
+    if "DS" in existing_domains:
+        force_keep_map["DS"] = {"DSDTC"}
+
 
     force_keep_mask = pd.Series(False, index=expanded_cfg.index)
     for ds, vars_set in force_keep_map.items():
@@ -1513,8 +1525,8 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     if not pair_df.empty:
         pair_df = pair_df.drop_duplicates(subset=["Dataset", "Variable"], keep="first")
 
-        # 只保留 config 裡真的存在的 paired vars
-        cfg_pair_key = set(zip(cfg_target["Dataset"], cfg_target["Variable"]))
+        # 只保留 expanded_cfg 裡真的存在的 paired vars
+        cfg_pair_key = set(zip(expanded_cfg["Dataset"], expanded_cfg["Variable"]))
         pair_df = pair_df[
             pair_df.apply(lambda r: (r["Dataset"], r["Variable"]) in cfg_pair_key, axis=1)
         ].reset_index(drop=True)
