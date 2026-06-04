@@ -1129,7 +1129,7 @@ if uploaded_file is not None:
 
             # 建 mapping（CT mapping會用）
             st.session_state["var_to_ctcode"] = dict(
-                zip(cfg_df["Variable"], cfg_df["CTcode"])
+                zip(cfg_df["Variable"], cfg_df["CT Code"])
             )
 
             # 記錄版本
