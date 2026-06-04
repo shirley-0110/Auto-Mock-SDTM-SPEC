@@ -1663,7 +1663,6 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
     merged = merged.rename(columns={
         "Variable Label": "Label",
-        "CT Code": "Codelist"
     })
 
     merged = apply_codelist_rules(merged)
