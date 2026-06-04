@@ -985,22 +985,114 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 # =================================================================================================================
 # Step 2 - Mock SDTM SPEC
 # =================================================================================================================
-def build_define_sheet(protocol_no, protocol_title, sdtm_version):
-    std_ver = sdtm_version.replace("Version", "").strip()
-    define_records = [
-        ["StudyName", protocol_no],
-        ["StudyDescription", protocol_title],
-        ["ProtocolName", protocol_no],
-        ["StandardName", "SDTM-IG"],
-        ["StandardVersion", std_ver],
-        ["Language", "en"]
-    ]
+def get_trial_design_definitions():
+    return {
+        "TA": {
+            "label": "Trial Arms",
+            "class": "Trial Design",
+            "structure": "One record per planned arm",
+            "key_variables": "STUDYID, ARMCD",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("ARMCD", "Planned Arm Code", "text"),
+                ("ARM", "Description of Planned Arm", "text"),
+                ("TAETORD", "Planned Order of Elements Within Arm", "integer"),
+                ("ETCD", "Element Code", "text"),
+                ("ELEMENT", "Description of Element", "text"),
+                ("TABRANCH", "Branch", "text"),
+                ("TATRANS", "Transition Rule", "text"),
+                ("EPOCH", "Epoch", "text"),            
+            ]
+        },
+        "TE": {
+            "label": "Trial Elements",
+            "class": "Trial Design",
+            "structure": "One record per element",
+            "key_variables": "STUDYID, ETCD",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("ETCD", "Element Code", "text"),
+                ("ELEMENT", "Description of Element", "text"),
+                ("TESTRL", "Rule for Start of Element", "text"),
+                ("TEENRL", "End Rule", "text"),
+                ("TEDUR", "Planned Duration of Element", "text"),
+            ]
+        },
+        "TI": {
+            "label": "Trial Inclusion/Exclusion Criteria",
+            "class": "Trial Design",
+            "structure": "One record per inclusion/exclusion criterion",
+            "key_variables": "STUDYID, IETESTCD",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("IETESTCD", "Inclusion/Exclusion Criterion Short Name", "text"),
+                ("IETEST", "Inclusion/Exclusion Criterion", "text"),
+                ("IECAT", "Inclusion/Exclusion Category", "text"),
+                ("TIVERS", "Version", "text"), 
+            ]
+        },
+        "TS": {
+            "label": "Trial Summary",
+            "class": "Trial Design",
+            "structure": "One record per trial summary parameter",
+            "key_variables": "STUDYID, TSSEQ",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("TSSEQ", "Sequence Number", "integer"),
+                ("TSPARMCD", "Trial Summary Parameter Short Name", "text"),
+                ("TSPARM", "Trial Summary Parameter", "text"),
+                ("TSVAL", "Parameter Value", "text"),
+                ("TSVALCD", "Parameter Value (Code)", "text"),
+                ("TSVCDREF", "Code Dictionary Reference", "text"),
+                ("TSVCDVER", "Code Dictionary Version", "text"), 
+                ("TSVALNF", "Null Flavor", "text"),
+            ]
+        },
+        "TV": {
+            "label": "Trial Visits",
+            "class": "Trial Design",
+            "structure": "One record per visit per arm",
+            "key_variables": "STUDYID, VISITNUM",
+            "variables": [
+                ("STUDYID", "Study Identifier", "text"),
+                ("DOMAIN", "Domain Abbreviation", "text"),
+                ("VISITNUM", "Visit Number", "float"),
+                ("VISIT", "Visit Name", "text"),
+                ("VISITDY", "Planned Study Day of Visit", "integer"),
+                ("ARMCD", "Planned Arm Code", "text"),
+                ("ARM", "Planned Arm", "text"), 
+                ("TVSTRL", "Start Rule", "text"), 
+                ("TVENRL", "End Rule", "text"),
 
-    define_df = pd.DataFrame(define_records, columns=["Attribute", "Value"])
-
-    return define_df
-
+            ]
+        }
+    }
     # End=========================================================
+
+def build_trial_design_datasets_spec(sdtm_version):
+    defs = get_trial_design_definitions()
+    std_ver = sdtm_version.replace("Version", "").strip()
+
+    rows = []
+    for domain in ["TA", "TE", "TI", "TS", "TV"]:
+        info = defs[domain]
+        rows.append({
+            "Dataset": domain,
+            "Label": info["label"],
+            "Class": info["class"],
+            "Structure": info["structure"],
+            "Key Variables": info["key_variables"],
+            "Standard": f"SDTMIG {std_ver}"
+        })
+
+    return pd.DataFrame(rows)
+    # End=========================================================
+
+
 
 
 
@@ -1044,24 +1136,26 @@ def expand_suppqual_to_supp_datasets(config_df, detected_datasets):
 
 
 
-def build_trial_design_datasets_spec(sdtm_version):
-    defs = get_trial_design_definitions()
+
+def build_define_sheet(protocol_no, protocol_title, sdtm_version):
     std_ver = sdtm_version.replace("Version", "").strip()
+    define_records = [
+        ["StudyName", protocol_no],
+        ["StudyDescription", protocol_title],
+        ["ProtocolName", protocol_no],
+        ["StandardName", "SDTM-IG"],
+        ["StandardVersion", std_ver],
+        ["Language", "en"]
+    ]
 
-    rows = []
-    for domain in ["TA", "TE", "TI", "TS", "TV"]:
-        info = defs[domain]
-        rows.append({
-            "Dataset": domain,
-            "Label": info["label"],
-            "Class": info["class"],
-            "Structure": info["structure"],
-            "Key Variables": info["key_variables"],
-            "Standard": f"SDTMIG {std_ver}"
-        })
+    define_df = pd.DataFrame(define_records, columns=["Attribute", "Value"])
 
-    return pd.DataFrame(rows)
+    return define_df
+
     # End=========================================================
+
+
+
 
 
 def build_datasets_sheet(mapping_df, config_df, sdtm_version):
