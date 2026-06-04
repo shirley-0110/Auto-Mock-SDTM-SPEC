@@ -744,8 +744,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                                 "SDTM Domain": str(rec["SDTM Domain"]).strip(),
                                 "SDTM Variable": sdtm_var,
                                 "CT Code": ctcode,
-                                "Original Variable": orival,
-                                "Original Variable Normalized": normalize_text(orival)
+                                "Original Value": orival,
+                                "Original Value Normalized": normalize_text(orival)
                             })
 
                 except Exception:
@@ -764,8 +764,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     "SDTM Domain",
                     "SDTM Variable",
                     "CT Code",
-                    "Original Variable",
-                    "Original Variable Normalized"
+                    "Original Value",
+                    "Original Value Normalized"
                 ]
             )
             .sort_values(
@@ -773,8 +773,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     "SDTM Domain",
                     "SDTM Variable",
                     "CT Code",
-                    "Original Variable",
-                    "Original Variable Normalized"
+                    "Original Value",
+                    "Original Value Normalized"
                 ]
             )
             .reset_index(drop=True)
@@ -784,8 +784,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
             "SDTM Domain",
             "SDTM Variable",
             "CT Code",
-            "Original Variable",
-            "Original Variable Normalized"
+            "Original Value",
+            "Original Value Normalized"
         ])
 
     return ct_mapping_df, sorted(list(set(ct_mapping_sheet_errors)))
@@ -801,7 +801,7 @@ def standardize_ct_mapping_dict(df):
 
     rename_map = {
         "ID": "CT Code",
-        "ORIVAL": "Original Variable Normalized",
+        "ORIVAL": "Original Value Normalized",
         "CTVAL": "CT Term",
         "ACTIVE": "Active",
         "NOTE": "Notes"
@@ -816,13 +816,13 @@ def standardize_ct_mapping_dict(df):
 
     df = df.rename(columns=new_cols)
 
-    required_cols = ["CT Code", "Original Variable Normalized", "CT Term"]
+    required_cols = ["CT Code", "Original Value Normalized", "CT Term"]
     for c in required_cols:
         if c not in df.columns:
             raise ValueError(f"CT Mapping Dictionary 缺少必要欄位: {c}")
 
     df["CT Code"] = df["CT Code"].astype(str).str.strip().str.upper()
-    df["Original Variable Normalized"] = df["Original Variable Normalized"].astype(str).str.strip().str.upper()
+    df["Original Value Normalized"] = df["Original Value Normalized"].astype(str).str.strip().str.upper()
     df["CT Term"] = df["CT Term"].astype(str).str.strip()
 
     if "Active" in df.columns:
@@ -831,9 +831,9 @@ def standardize_ct_mapping_dict(df):
 
     df = df[
         (df["CT Code"] != "") &
-        (df["Original Variable Normalized"] != "") &
+        (df["Original Value Normalized"] != "") &
         (df["CT Term"] != "")
-    ].drop_duplicates(subset=["CT Code", "Original Variable Normalized"], keep="first")
+    ].drop_duplicates(subset=["CT Code", "Original Value Normalized"], keep="first")
 
     return df
     # End=========================================================
@@ -853,20 +853,21 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
         - SDTM Domain
         - SDTM Variable
         - CT Code
-        - Original Variable Normalized
+        - Original Value
+        - Original Value Normalized
 
     mapping_dict_df : DataFrame
         開發者維護的 CT Mapping Dictionary
         必要欄位:
         - CT Code
-        - Original Variable Normalized
+        - Original Value Normalized
         - CT Term
 
     ct_alias_df : DataFrame, optional
         CT 主檔整理出的 alias 表，用來 fallback
         建議欄位:
         - CT Code
-        - Original Variable Normalized
+        - Original Value Normalized
         - CT Term
         - Alias Source   (optional)
 
@@ -878,7 +879,7 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 
     if ct_seed_df is None or ct_seed_df.empty:
         empty_cols = [
-            "SDTM Domain", "SDTM Variable", "CT Code", "Original Variable", "Original Variable Normalized",
+            "SDTM Domain", "SDTM Variable", "CT Code", "Original Value", "Original Value Normalized",
             "CT Term", "Match Method"
         ]
         return pd.DataFrame(columns=empty_cols), pd.DataFrame(columns=empty_cols)
@@ -896,33 +897,33 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
             rename_seed[original] = "SDTM Variable"
         elif norm == "CTCODE":
             rename_seed[original] = "CT Code"
-        elif norm == "ORIGINAL VARIABLE":
-            rename_seed[original] = "Original Variable"
-        elif norm == "ORIGINAL VARIABLE NORMALIZED":
-            rename_seed[original] = "Original Variable Normalized"
+        elif norm == "ORIGINAL VALUE":
+            rename_seed[original] = "Original Value"
+        elif norm == "ORIGINAL VALUE NORMALIZED":
+            rename_seed[original] = "Original Value Normalized"
 
     seed = seed.rename(columns=rename_seed)
 
     required_seed_cols = [
-        "SDTM Domain", "SDTM Variable", "CT Code", "Original Variable", "Original Variable Normalized"
+        "SDTM Domain", "SDTM Variable", "CT Code", "Original Value", "Original Value Normalized"
     ]
     for c in required_seed_cols:
         if c not in seed.columns:
             raise ValueError(f"CT Seed 缺少必要欄位: {c}")
 
     seed["CT Code"] = seed["CT Code"].astype(str).str.strip().str.upper()
-    seed["Original Variable Normalized"] = seed["Original Variable Normalized"].astype(str).str.strip().str.upper()
+    seed["Original Value Normalized"] = seed["Original Value Normalized"].astype(str).str.strip().str.upper()
 
     # 1) 主 mapping dictionary
     mapping_dict = standardize_ct_mapping_dict(mapping_dict_df)
 
     mapping_dict["CT Code"] = mapping_dict["CT Code"].str.upper().str.strip()
-    mapping_dict["Original Variable Normalized"] = mapping_dict["Original Variable Normalized"].apply(normalize_text)
+    mapping_dict["Original Value Normalized"] = mapping_dict["Original Value Normalized"].apply(normalize_text)
 
     matched = seed.merge(
-        mapping_dict[["CT Code", "Original Variable Normalized", "CT Term"]],
+        mapping_dict[["CT Code", "Original Value Normalized", "CT Term"]],
         how="left",
-        on=["CT Code", "Original Variable Normalized"]
+        on=["CT Code", "Original Value Normalized"]
     )
 
     matched["Match Method"] = matched["CT Term"].apply(
@@ -939,10 +940,10 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
         for original, norm in alias_col_map.items():
             if norm == "CTCODE":
                 rename_alias[original] = "CT Code"
-            elif norm == "ORIGINAL VARIABLE":
-                rename_alias[original] = "Original Variable"
-            elif norm == "ORIGINAL VARIABLE NORMALIZED":
-                rename_alias[original] = "Original Variable Normalized"
+            elif norm == "ORIGINAL VALUE":
+                rename_alias[original] = "Original Value"
+            elif norm == "ORIGINAL VALUE NORMALIZED":
+                rename_alias[original] = "Original Value Normalized"
             elif norm == "CT Term":
                 rename_alias[original] = "CT Term"
             elif norm == "ALIAS SOURCE":
@@ -950,24 +951,24 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 
         alias_df = alias_df.rename(columns=rename_alias)
 
-        required_alias_cols = ["CT Code", "Original Variable Normalized", "CT Term"]
+        required_alias_cols = ["CT Code", "Original Value Normalized", "CT Term"]
         has_alias = all(c in alias_df.columns for c in required_alias_cols)
 
         if has_alias:
             alias_df["CT Code"] = alias_df["CT Code"].astype(str).str.strip().str.upper()
-            alias_df["Original Variable Normalized"] = alias_df["Original Variable Normalized"].astype(str).str.strip().str.upper()
+            alias_df["Original Value Normalized"] = alias_df["Original Value Normalized"].astype(str).str.strip().str.upper()
             alias_df["CT Term"] = alias_df["CT Term"].astype(str).str.strip()
 
-            alias_df = alias_df.drop_duplicates(subset=["CT Code", "Original Variable Normalized"], keep="first")
+            alias_df = alias_df.drop_duplicates(subset=["CT Code", "Original Value Normalized"], keep="first")
 
             need_fallback = matched["CT Term"].isna() | (matched["CT Term"].astype(str).str.strip() == "")
             fallback_seed = matched.loc[need_fallback, required_seed_cols].copy()
 
             if not fallback_seed.empty:
                 fallback_hit = fallback_seed.merge(
-                    alias_df[["CT Code", "Original Variable Normalized", "CT Term"]],
+                    alias_df[["CT Code", "Original Value Normalized", "CT Term"]],
                     how="left",
-                    on=["CT Code", "Original Variable Normalized"]
+                    on=["CT Code", "Original Value Normalized"]
                 )
 
                 for idx, row in fallback_hit.iterrows():
@@ -984,7 +985,7 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 
     # 4) 排序
     sort_cols = [c for c in [
-        "SDTM Domain", "SDTM Variable", "CT Code", "Original Variable Normalized"
+        "SDTM Domain", "SDTM Variable", "CT Code", "Original Value Normalized"
     ] if c in matched_df.columns]
 
     if not matched_df.empty:
