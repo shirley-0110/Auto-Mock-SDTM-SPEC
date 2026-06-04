@@ -1076,8 +1076,8 @@ def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct
 
     for i, tsparmcd in enumerate(tsparmcd_list, start=1):
         
-        tsval = tsval_map.get(code, "")
-        tsvcdref, tsvcdver = refver_map.get(code, ("", ""))
+        tsval = tsval_map.get(tsparmcd, "")
+        tsvcdref, tsvcdver = refver_map.get(tsparmcd, ("", ""))
 
         ts_rows.append({
             "STUDYID": protocol_no,
