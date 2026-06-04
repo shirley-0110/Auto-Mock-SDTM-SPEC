@@ -1447,6 +1447,7 @@ def apply_origin_rules(df):
 
     mask_visitdy = mask_non_collected & (df["Variable"] == "VISITDY")
     df.loc[mask_visitdy, "Origin"] = "Protocol"
+    df.loc[mask_aedict, "Source"] = "Sponsor"
 
     # -------------------------------------------------
     # 2. 強制覆寫 Origin（僅限非 Collected 且非 AEDICT_F）
@@ -1493,9 +1494,20 @@ def apply_origin_rules(df):
     df.loc[mask_derived, "Source"] = "Sponsor"
     df.loc[mask_assigned, "Source"] = "Sponsor"
 
-    return df
-    # End=========================================================
+    
+   # -------------------------------------------------
+    # Rule X: LB fallback（Origin 還是空 → Collected + Vendor）
+    # -------------------------------------------------
 
+    mask_lb_fallback = (
+        df["Dataset"].str.startswith("LB") &
+        (df["Origin"].astype(str).str.strip() == "")
+    )
+
+    df.loc[mask_lb_fallback, "Origin"] = "Collected"
+    df.loc[mask_lb_fallback, "Source"] = "Vendor"
+
+    return df
     # End=========================================================
 
 
