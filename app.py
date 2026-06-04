@@ -1418,13 +1418,6 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     target_datasets = set(source_variables_df["Dataset"].dropna().astype(str).str.upper().tolist())
     target_datasets.update(["SV", "SE"])  # 強制留SV/SE
 
-    # 如果 CO / DS 已在 study 中，也讓強制保留規則可作用
-    if "CO" in cfg["Dataset"].values:
-        target_datasets.add("CO")
-    if "DS" in cfg["Dataset"].values:
-        target_datasets.add("DS")
-
-
     # 先把 config 限縮到 target datasets + SUPPQUAL
     cfg_target = cfg[
         cfg["Dataset"].isin(target_datasets) | (cfg["Dataset"] == "SUPPQUAL")
