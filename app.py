@@ -841,8 +841,6 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
         - SDTM Domain
         - SDTM Variable
         - CTcode
-        - Option Displayed Value
-        - ORIVAL
         - ORIVAL Normalized
 
     mapping_dict_df : DataFrame
@@ -868,8 +866,7 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 
     if ct_seed_df is None or ct_seed_df.empty:
         empty_cols = [
-            "SDTM Domain", "SDTM Variable", "CTcode",
-            "Option Displayed Value", "ORIVAL", "ORIVAL Normalized",
+            "SDTM Domain", "SDTM Variable", "CTcode", "ORIVAL Normalized",
             "CTVAL", "Match Method"
         ]
         return pd.DataFrame(columns=empty_cols), pd.DataFrame(columns=empty_cols)
@@ -887,18 +884,13 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
             rename_seed[original] = "SDTM Variable"
         elif norm == "CTCODE":
             rename_seed[original] = "CTcode"
-        elif norm == "OPTION DISPLAYED VALUE":
-            rename_seed[original] = "Option Displayed Value"
-        elif norm == "ORIVAL":
-            rename_seed[original] = "ORIVAL"
         elif norm == "ORIVAL NORMALIZED":
             rename_seed[original] = "ORIVAL Normalized"
 
     seed = seed.rename(columns=rename_seed)
 
     required_seed_cols = [
-        "SDTM Domain", "SDTM Variable", "CTcode",
-        "Option Displayed Value", "ORIVAL", "ORIVAL Normalized"
+        "SDTM Domain", "SDTM Variable", "CTcode", "ORIVAL Normalized"
     ]
     for c in required_seed_cols:
         if c not in seed.columns:
@@ -973,7 +965,7 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 
     # 4) 排序
     sort_cols = [c for c in [
-        "SDTM Domain", "SDTM Variable", "CTcode", "ORIVAL Normalized", "Option Displayed Value"
+        "SDTM Domain", "SDTM Variable", "CTcode", "ORIVAL Normalized"
     ] if c in matched_df.columns]
 
     if not matched_df.empty:
