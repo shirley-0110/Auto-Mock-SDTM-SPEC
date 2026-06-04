@@ -1004,6 +1004,131 @@ def build_define_sheet(protocol_no, protocol_title, sdtm_version):
 
 
 
+def expand_suppqual_to_supp_datasets(config_df, detected_datasets):
+    if config_df.empty:
+        return config_df.copy()
+
+    cfg = config_df.copy()
+
+    if "Dataset" not in cfg.columns:
+        return cfg
+
+    suppqual_rows = cfg[cfg["Dataset"] == "SUPPQUAL"].copy()
+    if suppqual_rows.empty:
+        return cfg
+
+    detected_supp = [ds for ds in detected_datasets if str(ds).upper().startswith("SUPP")]
+
+    if not detected_supp:
+        return cfg
+
+    expanded_rows = [cfg]
+
+    for ds in detected_supp:
+        if ds == "SUPPQUAL":
+            continue
+
+        dup = suppqual_rows.copy()
+        dup["Dataset"] = ds
+
+        base_domain = ds[4:]  # SUPPAE -> AE
+        dup["Dataset Label"] = f"Supplemental Qualifiers for {base_domain}"
+
+        expanded_rows.append(dup)
+
+    expanded_cfg = pd.concat(expanded_rows, ignore_index=True)
+    expanded_cfg = expanded_cfg.drop_duplicates()
+
+    return expanded_cfg.reset_index(drop=True)
+    # End=========================================================
+
+
+
+def build_trial_design_datasets_spec(sdtm_version):
+    defs = get_trial_design_definitions()
+    std_ver = sdtm_version.replace("Version", "").strip()
+
+    rows = []
+    for domain in ["TA", "TE", "TI", "TS", "TV"]:
+        info = defs[domain]
+        rows.append({
+            "Dataset": domain,
+            "Label": info["label"],
+            "Class": info["class"],
+            "Structure": info["structure"],
+            "Key Variables": info["key_variables"],
+            "Standard": f"SDTMIG {std_ver}"
+        })
+
+    return pd.DataFrame(rows)
+    # End=========================================================
+
+
+def build_datasets_sheet(mapping_df, config_df, sdtm_version):
+
+    # 1. 找出實際出現的 dataset
+    detected_datasets = []
+
+    if not mapping_df.empty:
+        detected_datasets = (
+            mapping_df["SDTM Domain"]
+            .dropna()
+            .astype(str)
+            .str.upper()
+            .unique()
+        )
+
+    # 2. filter config
+    if detected_datasets:
+        config_df = config_df[config_df["Dataset"].isin(detected_datasets)].copy()
+
+    # 3. expand SUPP
+    expanded_cfg = expand_suppqual_to_supp_datasets(config_df, detected_datasets)
+
+    # 4. 選欄位
+    ds_cols = [c for c in [
+        "Dataset", "Dataset Label", "Class", "Structure", "Key Variables"
+    ] if c in expanded_cfg.columns]
+
+    if ds_cols:
+        ds_df = expanded_cfg[ds_cols].drop_duplicates(subset=["Dataset"]).copy()
+    else:
+        ds_df = pd.DataFrame(columns=[
+            "Dataset", "Dataset Label", "Class", "Structure", "Key Variables"
+        ])
+
+    # 4.1 rename
+    ds_df = ds_df.rename(columns={
+        "Dataset Label": "Label"
+    })
+
+    # 4.2 保底欄位
+    for col in ["Label", "Class", "Structure", "Key Variables"]:
+        if col not in ds_df.columns:
+            ds_df[col] = ""
+
+    # 4.3 Standard
+    std_ver = str(sdtm_version).upper().replace("VERSION", "").strip()
+    ds_df["Standard"] = f"SDTMIG {std_ver}"
+
+    ds_df = ds_df[[
+        "Dataset", "Label", "Class", "Structure", "Key Variables", "Standard"
+    ]].reset_index(drop=True)
+
+    # 5. Trial Design datasets
+    td_df = build_trial_design_datasets_spec(sdtm_version)
+
+    final_df = pd.concat([ds_df, td_df], ignore_index=True)
+
+    final_df = final_df.drop_duplicates(subset=["Dataset"], keep="first")
+    final_df = final_df.sort_values(by=["Dataset"]).reset_index(drop=True)
+
+    return final_df
+    # End=========================================================
+
+
+
+
 
 
 # =================================================================================================================
@@ -1369,6 +1494,15 @@ if uploaded_file is not None:
                 sdtm_version=version
             )
             st.dataframe(define_df, use_container_width=True)
+
+            # 2.2 Datasets
+            st.markdown("### 2.2 Datasets")
+            datasets_spec_df = build_datasets_sheet(
+                mapping_df=mapping_df,
+                config_df=cfg_df,
+                sdtm_version=version
+            )
+            st.dataframe(datasets_spec_df, use_container_width=True)
 
 
         
