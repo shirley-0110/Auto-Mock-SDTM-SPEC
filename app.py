@@ -1449,7 +1449,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     cfg_keep_mask = pd.Series(False, index=expanded_cfg.index)
 
     # SV / SE 保留 -> 但仍只看 target datasets 內的 expanded_cfg
-    cfg_keep_mask = cfg_keep_mask | expanded_cfg["Dataset"].isin(["SV", "SE"])
+    #cfg_keep_mask = cfg_keep_mask | expanded_cfg["Dataset"].isin(["SV", "SE"])
 
     # Core = REQUIRED / EXPECTED
     if "Core" in expanded_cfg.columns:
