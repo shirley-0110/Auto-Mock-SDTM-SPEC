@@ -1702,7 +1702,18 @@ def build_datasets_from_variables(variables_df, config_df, sdtm_version):
     cfg["Dataset"] = cfg["Dataset"].astype(str).str.upper().str.strip()
 
     config_cols = ["Dataset", "Label", "Class", "Structure", "Key Variables"]
-    cfg_meta = cfg[[c for c in config_cols if c in cfg.columns]].drop_duplicates("Dataset")
+    cfg_meta = cfg[[c for c in config_cols if c in cfg.columns]]
+
+    cfg_meta = (
+        cfg_meta
+        .groupby("Dataset", as_index=False)
+        .agg({
+            "Label": "first",
+            "Class": "first",
+            "Structure": "first",
+            "Key Variables": "first"
+        })
+    )   
 
     # 拿 SUPPQUAL template
     suppqual_meta = cfg_meta[cfg_meta["Dataset"] == "SUPPQUAL"]
@@ -1733,10 +1744,13 @@ def build_datasets_from_variables(variables_df, config_df, sdtm_version):
 
 
     # 5. Standard 欄位
-    dataset_df["Standard"] = f"SDTM IG {sdtm_version}"
+    dataset_df["Standard"] = f"SDTMIG {sdtm_version}"
 
 
     # 6. 排序
+    final_cols = ["Dataset", "Label", "Class", "Structure", "Key Variables", "Standard"]
+    dataset_df = dataset_df[[c for c in final_cols if c in dataset_df.columns]]
+
     dataset_df = dataset_df.sort_values("Dataset").reset_index(drop=True)
 
     return dataset_df
