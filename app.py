@@ -2146,6 +2146,16 @@ def build_codelist_sheet(variables_spec_df):
         .apply(lambda x: x.split("_")[0] if x else "")
     )
 
+    # SDTM Domain（取 "_" 第二段）
+    codelist_df["SDTM Domain"] = (
+        codelist_df["Codelist"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .apply(lambda x: x.split("_")[1] if "_" in x and len(x.split("_")) > 1 else "")
+    )
+
 
     # 排序
     codelist_df = codelist_df.sort_values("Codelist").reset_index(drop=True)
