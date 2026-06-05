@@ -2283,7 +2283,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=None, ts_df=None):
+def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=None, detail_df=None, ts_df=None):
 
     df = variables_spec_df.copy()
 
@@ -2513,10 +2513,10 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
             # 情況 2：沒 CT Code，但來自 CRF / Assign Value
             # 優先 Assign Value，再 Original Value
             # -------------------------------------------------
-            if not terms:
-                subset = map_df[
-                    (map_df["Dataset"] == dataset) &
-                    (map_df["Variable"] == variable)
+            elif ct_code == "":
+                subset = detail_df[
+                    (detail_df["Dataset"] == dataset) &
+                    (detail_df["Variable"] == variable)
                 ].copy()
 
                 assign_terms = (
@@ -2534,7 +2534,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                     terms = assign_terms
                 else:
                     option_terms = (
-                        subset["Original Value"]
+                        subset["CRF Option Value"]
                         .dropna()
                         .astype(str)
                         .str.strip()
@@ -3195,6 +3195,7 @@ if uploaded_file is not None:
                 variables_spec_df=variables_spec_df,
                 ct_master_df=st.session_state.get("ct_master_df"),
                 ct_mapping_df=ct_mapping_df,
+                detail_df=detail_df,
                 ts_df=ts_df
             )
             
