@@ -2440,6 +2440,7 @@ def get_latest_archive_txt():
             continue
 
         name = link_tag.get_text(strip=True)
+        print("RAW NAME:", repr(name))
         last_modified = cols[1].get_text(strip=True)
 
         m = pattern.match(name)
