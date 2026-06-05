@@ -48,6 +48,40 @@ def normalize_columns(df):
     # End=========================================================
 
 
+def normalize_date_text(x):
+    """
+    接受:
+      - 2025-09-26
+      - 2025/09/26
+      - 2025.09.26
+      - 20250926
+    回傳:
+      - 2025-09-26
+    """
+    if x is None:
+        return ""
+
+    s = str(x).strip()
+    if not s:
+        return ""
+
+    s = s.replace("/", "-").replace(".", "-")
+
+    parts = s.split("-")
+
+    if len(parts) == 3:
+        y, m, d = parts
+        m = m.zfill(2)
+        d = d.zfill(2)
+        return f"{y}-{m}-{d}"
+
+    if re.fullmatch(r"\d{8}", s):
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+
+    return s
+    # End=========================================================
+
+
 # =================================================================================================================
 # 匯入Excel各種工具
 # =================================================================================================================
@@ -979,7 +1013,129 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 
 
 
+# =================================================================================================================
+# 匯入SDTM Terminology
+# =================================================================================================================
+def load_ct_master_from_web(sdtm_ct=""):
 
+    """
+    1. 決定 URL（current / archive）
+    2. 下載
+    3. parse
+    4. normalize
+    """
+
+    # -------------------------------------------------
+    # version normalize
+    # -------------------------------------------------
+    filename = f"SDTM Terminology {sdtm_ct}.txt"
+    filename_encoded = filename.replace(" ", "%20")
+
+    # -------------------------------------------------
+    # URL build
+    # -------------------------------------------------
+    if version:
+        url = f"https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/{filename_encoded}"
+        source_type = "archive"
+    else:
+        url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM Terminology.txt"
+        source_type = "current"
+
+    # -------------------------------------------------
+    # download（含 fallback）
+    # -------------------------------------------------
+    try:
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+    except:
+        # fallback to latest
+        url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM Terminology.txt"
+        source_type = "fallback-current"
+
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+
+    # -------------------------------------------------
+    # read txt
+    # -------------------------------------------------
+    df = pd.read_csv(
+        io.StringIO(resp.text),
+        sep="\t",
+        dtype=str
+    )
+
+    df = normalize_columns(df)
+
+    # -------------------------------------------------
+    # 欄位標準化
+    # -------------------------------------------------
+    rename_map = {}
+
+    for col in df.columns:
+        ncol = normalize_text(col)
+
+        if ncol in ["CODELIST CODE", "CODE LIST CODE", "NCI CODELIST CODE"]:
+            rename_map[col] = "Codelist Code"
+
+        elif ncol in ["CODELIST NAME"]:
+            rename_map[col] = "Codelist Name"
+
+        elif ncol in ["CDISC SUBMISSION VALUE", "SUBMISSION VALUE"]:
+            rename_map[col] = "Submission Value"
+
+        elif ncol in ["CDISC SYNONYM(S)", "SYNONYM", "SYNONYMS"]:
+            rename_map[col] = "CDISC Synonym(s)"
+
+        elif ncol in ["NCI PREFERRED TERM"]:
+            rename_map[col] = "NCI Preferred Term"
+
+        elif ncol in ["NCI CODE", "NCI TERM CODE", "CODE"]:
+            rename_map[col] = "NCI Term Code"
+
+    df = df.rename(columns=rename_map)
+    df = df.loc[:, ~df.columns.duplicated()]
+
+    # -------------------------------------------------
+    # 保底欄位
+    # -------------------------------------------------
+    for c in ["Codelist Code", "Codelist Name", "Submission Value", "NCI Term Code"]:
+        if c not in df.columns:
+            df[c] = ""
+
+    # -------------------------------------------------
+    # ✅ 關鍵：clean + merge key
+    # -------------------------------------------------
+    df["Codelist Name"] = (
+        df["Codelist Name"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+
+    df["Submission Value"] = (
+        df["Submission Value"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # ✅ 讓你後面直接 merge 用
+    df["ID_Temp"] = df["Codelist Name"]
+
+    # -------------------------------------------------
+    # debug（建議保留）
+    # -------------------------------------------------
+    print("CT source:", source_type)
+    print("CT URL:", url)
+    print("CT columns:", df.columns.tolist())
+
+    return df.reset_index(drop=True), {
+        "download_url": url,
+        "source_type": source_type,
+        "status": "success"
+    }
+    # End=========================================================
 
 
 # =================================================================================================================
@@ -2151,17 +2307,6 @@ def build_codelist_sheet(variables_spec_df):
         .apply(lambda x: x.split("_")[0] if x else "")
     )
 
-    # SDTM Domain（取 "_" 第二段）
-    codelist_df["SDTM Domain"] = (
-        codelist_df["Codelist"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .str.upper()
-        .apply(lambda x: x.split("_")[1] if "_" in x and len(x.split("_")) > 1 else "")
-    )
-
-
     # 排序
     codelist_df = codelist_df.sort_values("Codelist").reset_index(drop=True)
 
@@ -2309,6 +2454,12 @@ if uploaded_file is not None:
 
         with r4_c3:
             medrt_version = st.text_input("MED-RT", value="", key="medrt_version")
+
+        
+        sdtm_ct = normalize_date_text(sdtm_ct)
+        snomed_version = normalize_date_text(snomed_version)
+        unii_version = normalize_date_text(unii_version)
+        medrt_version = normalize_date_text(medrt_version)
 
 
         # Load Config
@@ -2614,6 +2765,63 @@ if uploaded_file is not None:
 
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
+
+            # -------------------------------------------------
+            # SDTM CT version input
+            # -------------------------------------------------
+            ct_version = st.text_input(
+                "SDTM CT Version（可留空使用最新）",
+                value=""
+            )
+
+            # -------------------------------------------------
+            # Load button
+            # -------------------------------------------------
+            if st.button("Load SDTM CT Master"):
+        
+                try:
+                    ct_df, info = load_ct_master_from_web(ct_version)
+
+                    # ------------------------------
+                    # ✅ Success
+                    # ------------------------------
+                    if info["status"] == "success":
+    
+                        st.success("✅ SDTM Controlled Terminology 載入成功")
+
+                        # source 顯示（重要）
+                        if info["source_type"] == "archive":
+                            st.info("📦 使用 Archive 指定版本")
+        
+                        elif info["source_type"] == "current":
+                            st.info("📁 使用最新版本")
+
+                        elif info["source_type"] == "fallback-current":
+                            st.warning("⚠️ 找不到指定版本 → 自動 fallback 到最新版本")
+
+                        # 基本資訊
+                        st.write("🔹 URL:", info["download_url"])
+                        st.write("🔹 Total rows:", len(ct_df))
+
+                        # preview
+                        st.dataframe(ct_df.head(20), use_container_width=True)
+
+                        # 👉 存到 session（後面 merge 用）
+                        st.session_state["ct_master_df"] = ct_df
+                        st.session_state["ct_master_info"] = info
+
+                    else:
+                        st.warning("⚠️ CT loading returned unexpected status")
+                        st.write(info)
+
+                # ------------------------------
+                # ❌ Error
+                # ------------------------------
+                except Exception as e:
+
+                    st.error("❌ SDTM CT 載入失敗")
+                    st.write("Error message:", str(e))
+
             
             codelist_df = build_codelist_sheet(
                 variables_spec_df=variables_spec_df
