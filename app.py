@@ -2827,6 +2827,13 @@ if uploaded_file is not None:
                 unii_version=unii_version,
                 unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame())
             )
+            
+            ta_df = td_dict.get("TA", pd.DataFrame())
+            te_df = td_dict.get("TE", pd.DataFrame())
+            ti_df = td_dict.get("TI", pd.DataFrame())
+            ts_df = td_dict.get("TS", pd.DataFrame())
+            tv_df = td_dict.get("TV", pd.DataFrame())
+            
 
             # 先產出2.3的Variable List
             variables_spec_df = build_variables_sheet(
@@ -2861,6 +2868,7 @@ if uploaded_file is not None:
             codelist_df = build_codelist_sheet(
                 variables_spec_df=variables_spec_df,
                 ct_mapping_result_df=matched_ct_df,
+                ts_df=ts_df,
                 nci_ct_df=None   # 之後有再接
             )
             
@@ -2882,12 +2890,6 @@ if uploaded_file is not None:
             
             # 2.6 Trial Design
             st.markdown("### 2.6 Trial Design (5T)")
-            
-            ta_df = td_dict.get("TA", pd.DataFrame())
-            te_df = td_dict.get("TE", pd.DataFrame())
-            ti_df = td_dict.get("TI", pd.DataFrame())
-            ts_df = td_dict.get("TS", pd.DataFrame())
-            tv_df = td_dict.get("TV", pd.DataFrame())
 
             with st.expander("TA / TE / TI / TS / TV 基本欄位骨架", expanded=False):
                 st.markdown("#### TA")
