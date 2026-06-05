@@ -2104,17 +2104,16 @@ def build_codelist_sheet(variables_spec_df):
     df = variables_spec_df.copy()
 
     # 保底欄位
-    if "Codelist" not in df.columns:
-        df["Codelist"] = ""
+    for col in ["Dataset", "Variable", "Label", "CT Code", "Codelist"]:
+        if col not in df.columns:
+            df[col] = ""
 
-    df["Codelist"] = (
-        df["Codelist"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .str.upper()
-    )
-
+    df["Dataset"] = (df["Dataset"].fillna("").astype(str).str.strip().str.upper())
+    df["Variable"] = (df["Variable"].fillna("").astype(str).str.strip().str.upper())
+    df["Label"] = (df["Label"].fillna("").astype(str).str.strip())
+    df["CT Code"] = (df["CT Code"].fillna("").astype(str).str.strip().str.upper())
+    df["Codelist"] = (df["Codelist"].fillna("").astype(str).str.strip().str.upper())
+    
 
     # 只保留有 Codelist 的，移除 AEDICT_F 和 ISO3166
     df = df[
@@ -2123,12 +2122,18 @@ def build_codelist_sheet(variables_spec_df):
     ].copy()
 
 
+    # 先排序，決定代表列保留順序
+    df = df.sort_values(
+        by=["Codelist", "Dataset", "Variable"]
+    ).reset_index(drop=True)
+
     # 用 Codelist 去重
     codelist_df = (
-        df[["Codelist"]]
-        .drop_duplicates()
+        df[["Dataset", "Variable", "Label", "CT Code", "Codelist"]]
+        .drop_duplicates(subset=["Codelist"], keep="first")
         .reset_index(drop=True)
     )
+
 
     # 加 ID / ID_Temp
     # -------------------------------------------------
