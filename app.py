@@ -1028,7 +1028,7 @@ def load_ct_master_from_web(sdtm_ct=""):
     archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
     current_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
 
-    requested_version = str(sdtm_ct or "").strip()
+    requested_version = normalize_ct_version_text(sdtm_ct)
 
     # -------------------------------------------------
     # 1. 先抓 Archive 最新 txt
@@ -2866,6 +2866,23 @@ if uploaded_file is not None:
 
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
+
+            
+            st.markdown("#### 🔍 Debug: Latest Archive TXT")
+
+            try:
+                url, version, last_modified = get_latest_archive_txt()
+
+                st.success("✅ get_latest_archive_txt() 成功")
+
+                st.write("🔹 Version:", version or "❌ 空")
+                st.write("🔹 Last modified:", last_modified or "❌ 空")
+                st.markdown(f"🔹 URL: [{url}]({url})" if url else "❌ URL 空")
+
+            except Exception as e:
+                st.error("❌ get_latest_archive_txt() 失敗")
+                st.write(str(e))
+
 
             # Load CT Master
             if "ct_master_df" not in st.session_state:
