@@ -2885,13 +2885,13 @@ if uploaded_file is not None:
                 for row in rows:
                     cols = row.find_all("td")
 
-                    if len(cols) >= 2:
+                    if len(cols) < 3:
     
-                        link_tag = cols[0].find("a")
+                        link_tag = cols[1].find("a")
 
                         name = link_tag.get_text(strip=True) if link_tag else ""
                         href = link_tag.get("href", "") if link_tag else ""
-                        last_modified = cols[1].get_text(strip=True)
+                        last_modified = cols[2].get_text(strip=True)
 
                         debug_rows.append({
                             "Name": name,
