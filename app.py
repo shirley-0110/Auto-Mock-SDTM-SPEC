@@ -2873,21 +2873,42 @@ if uploaded_file is not None:
             st.markdown("#### 🔍 Debug: Archive HTML Tables")
 
             archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
-
+            
             try:
-                tables = pd.read_html(archive_index)
+                resp = requests.get(archive_index, timeout=30)
+                resp.raise_for_status()
 
-                st.success(f"✅ 成功抓到 {len(tables)} 張 table")
+                soup = BeautifulSoup(resp.text, "html.parser")
+                rows = soup.find_all("tr")
 
-                # 顯示每一張 table 的前幾列
-                for i, tbl in enumerate(tables):
-                    st.markdown(f"##### Table {i}")
-                    st.write("Columns:", list(tbl.columns))
-                    st.dataframe(tbl.head(20), use_container_width=True)
+                debug_rows = []
+
+                for row in rows:
+                    cols = row.find_all("td")
+
+                    if len(cols) >= 2:
+    
+                        link_tag = cols[0].find("a")
+
+                        name = link_tag.get_text(strip=True) if link_tag else ""
+                        href = link_tag.get("href", "") if link_tag else ""
+                        last_modified = cols[1].get_text(strip=True)
+
+                        debug_rows.append({
+                            "Name": name,
+                            "Href": href,
+                            "Last modified": last_modified
+                        })
+
+                df_debug = pd.DataFrame(debug_rows)
+
+                st.success(f"✅ 抓到 {len(df_debug)} 列")
+                st.dataframe(df_debug, use_container_width=True)
 
             except Exception as e:
-                st.error("❌ pd.read_html() 抓 Archive 失敗")
+                st.error("❌ BeautifulSoup debug 失敗")
                 st.write(str(e))
+
 
             st.markdown("#### 🔍 Debug: Latest Archive TXT")
 
