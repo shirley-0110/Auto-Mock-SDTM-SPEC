@@ -1039,48 +1039,58 @@ def load_ct_master_from_web(sdtm_ct=""):
 
     try:
         latest_archive_url, latest_archive_version, latest_archive_last_modified = get_latest_archive_txt()
-    except Exception:
-        latest_archive_url = ""
-        latest_archive_version = ""
-        latest_archive_last_modified = ""
+    except:
+        pass
 
     # -------------------------------------------------
-    # 2. 決定下載 URL
+    # 2. 如果有指定 version → 先檢查是否存在
     # -------------------------------------------------
     if requested_version:
+
         filename = f"SDTM Terminology {requested_version}.txt"
         url = archive_index + filename.replace(" ", "%20")
-        source_type = "archive"
-        resolved_version = requested_version
-        resolved_last_modified = ""
+
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+
+            # 核心：驗證是不是 CT 檔
+            if "Codelist" not in resp.text:
+                raise ValueError("Invalid CT file")
+
+            # 找得到
+            source_type = "archive"
+            resolved_version = requested_version
+            resolved_last_modified = ""
+
+        except:
+            # 找不到 → fallback latest archive
+            if latest_archive_url:
+                url = latest_archive_url
+                source_type = "fallback-latest-archive"
+                resolved_version = latest_archive_version
+                resolved_last_modified = latest_archive_last_modified
+
+                resp = requests.get(url, timeout=30)
+                resp.raise_for_status()
+
+            else:
+                # 最後 fallback current
+                url = current_url
+                source_type = "fallback-current"
+                resolved_version = ""
+                resolved_last_modified = ""
+
+                resp = requests.get(url, timeout=30)
+                resp.raise_for_status()
+
+    # -------------------------------------------------
+    # 3. 如果沒有指定 version → 直接用 latest archive
+    # -------------------------------------------------
     else:
         if latest_archive_url:
             url = latest_archive_url
             source_type = "latest-archive"
-            resolved_version = latest_archive_version
-            resolved_last_modified = latest_archive_last_modified
-        else:
-            url = current_url
-            source_type = "current"
-            resolved_version = ""
-            resolved_last_modified = ""
-
-    # -------------------------------------------------
-    # 3. 下載；指定版本失敗就 fallback 到最新 archive
-    # -------------------------------------------------
-    try:
-        resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
-
-        # ✅ 🔥 關鍵：驗證是不是 CT 檔
-        if "Codelist" not in resp.text:
-            raise ValueError("Invalid CT file")
-
-    except Exception:
-        # ✅ 找不到版本 → fallback 到最新 archive
-        if latest_archive_url:
-            url = latest_archive_url
-            source_type = "fallback-latest-archive"
             resolved_version = latest_archive_version
             resolved_last_modified = latest_archive_last_modified
 
@@ -1088,9 +1098,8 @@ def load_ct_master_from_web(sdtm_ct=""):
             resp.raise_for_status()
 
         else:
-            # 最後 fallback current
             url = current_url
-            source_type = "fallback-current"
+            source_type = "current"
             resolved_version = ""
             resolved_last_modified = ""
 
@@ -1100,17 +1109,9 @@ def load_ct_master_from_web(sdtm_ct=""):
     # -------------------------------------------------
     # 4. 讀 txt
     # -------------------------------------------------
-    df = pd.read_csv(
-        io.StringIO(resp.text),
-        sep="\t",
-        dtype=str
-    )
-
+    df = pd.read_csv(io.StringIO(resp.text), sep="\t", dtype=str)
     df = normalize_columns(df)
 
-    # -------------------------------------------------
-    # 5. 欄位標準化
-    # -------------------------------------------------
     rename_map = {}
 
     for col in df.columns:
@@ -1125,28 +1126,18 @@ def load_ct_master_from_web(sdtm_ct=""):
         elif ncol in ["CDISC SUBMISSION VALUE", "SUBMISSION VALUE"]:
             rename_map[col] = "Submission Value"
 
-        elif ncol in ["CDISC SYNONYM(S)", "CDISC SYNONYM", "SYNONYM", "SYNONYMS"]:
-            rename_map[col] = "CDISC Synonym(s)"
-
-        elif ncol in ["NCI PREFERRED TERM", "PREFERRED TERM"]:
-            rename_map[col] = "NCI Preferred Term"
-
         elif ncol in ["NCI CODE", "NCI TERM CODE", "CODE"]:
             rename_map[col] = "NCI Term Code"
 
     df = df.rename(columns=rename_map)
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # -------------------------------------------------
-    # 6. 保底欄位
-    # -------------------------------------------------
+    # 保底欄位
     for c in ["Codelist Code", "Codelist Name", "Submission Value", "NCI Term Code"]:
         if c not in df.columns:
             df[c] = ""
 
-    # -------------------------------------------------
-    # 7. clean + merge key
-    # -------------------------------------------------
+    # merge key
     df["Codelist Name"] = (
         df["Codelist Name"]
         .fillna("")
@@ -1172,6 +1163,7 @@ def load_ct_master_from_web(sdtm_ct=""):
         "resolved_last_modified": resolved_last_modified,
         "status": "success"
     }
+
     # End=========================================================
 
 
