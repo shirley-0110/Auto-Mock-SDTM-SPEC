@@ -1601,25 +1601,41 @@ def apply_method_rules(df):
     # 10. DSDTC
     df.loc[df["Variable"] == "DSDTC", "Method"] = "Equal to DSSTDTC"
 
-    # 11. {XX}STRESC
-    df.loc[df["Variable"].str.endswith("STRESC"), "Method"] = \
-        "Equal to {XX}ORRES"
 
-    # 12. {XX}STRESN
-    df.loc[df["Variable"].str.endswith("STRESN"), "Method"] = \
-        "Equal to numeric value of {XX}STRESC if {XX}STRESC contains numeric data"
+    # -------------------------------------------------
+    # STRES 系列（動態連動）
+    # -------------------------------------------------
+    # STRESC → ORRES
+    mask_stresc = df["Variable"].str.endswith("STRESC")
+    df.loc[mask_stresc, "Method"] = df.loc[mask_stresc, "Variable"].apply(
+        lambda x: f"Equal to {x.replace('STRESC','ORRES')}"
+    )
 
-    # 13. {XX}STRESU
-    df.loc[df["Variable"].str.endswith("STRESU"), "Method"] = \
-        "Equal to {XX}ORRESU"
+    # STRESN → STRESC
+    mask_stresn = df["Variable"].str.endswith("STRESN")
+    df.loc[mask_stresn, "Method"] = df.loc[mask_stresn, "Variable"].apply(
+        lambda x: (
+            f"Equal to numeric value of {x.replace('STRESN','STRESC')} "
+            f"if {x.replace('STRESN','STRESC')} contains numeric data"
+        )
+    )
 
-    # 14. {XX}STAT
-    df.loc[df["Variable"].str.endswith("STAT"), "Method"] = \
-        'Equal to "NOT DONE" if {XX}ORRES is null'
+    # STRESU → ORRESU
+    mask_stresu = df["Variable"].str.endswith("STRESU")
+    df.loc[mask_stresu, "Method"] = df.loc[mask_stresu, "Variable"].apply(
+        lambda x: f"Equal to {x.replace('STRESU','ORRESU')}"
+    )
 
-    # 15. {XX}LOBXFL
-    df.loc[df["Variable"].str.endswith("LOBXFL"), "Method"] = \
-        'Equal to "Y" for last non-missing value on or before first exposure (DM.RFSTDTC); null otherwise'
+    # STAT → ORRES null
+    mask_stat = df["Variable"].str.endswith("STAT")
+    df.loc[mask_stat, "Method"] = df.loc[mask_stat, "Variable"].apply(
+        lambda x: f'Equal to "NOT DONE" if {x.replace("STAT","ORRES")} is null'
+    )
+
+    # LOBXFL
+    mask_lobxfl = df["Variable"].str.endswith("LOBXFL")
+    df.loc[mask_lobxfl, "Method"] = \
+        'Equal to "Y" for last record with non-missing value on or before DM.RFSTDTC; null otherwise'
 
     # -------------------------------------------------
     # Comment rules
