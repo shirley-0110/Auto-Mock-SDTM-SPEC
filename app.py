@@ -2393,9 +2393,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None):
         # =================================================
 
         # --- 處理空值 fallback ---
-        codelist_df["CT Codelist Name"] = codelist_df["CT Codelist Name"].fillna("").astype(str).str.strip()
-
-        codelist_df["Name"] = codelist_df["CT Codelist Name"]
+        codelist_df["Name"] = codelist_df["Name"].fillna("").astype(str).str.strip()
 
         # 沒有 merge 到 → 用 Label
         codelist_df.loc[
