@@ -3142,7 +3142,8 @@ if uploaded_file is not None:
             st.markdown("### 2.3 Variables")           
             st.dataframe(variables_view_df, use_container_width=True)
             
-
+            st.dataframe(detail_df, use_container_width=True)
+            
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
 
