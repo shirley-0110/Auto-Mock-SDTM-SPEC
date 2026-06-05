@@ -1684,7 +1684,7 @@ def build_define_sheet(protocol_no, protocol_title, sdtm_version):
 
 
 
-def build_datasets_from_variables(variables_df, config_df):
+def build_datasets_from_variables(variables_df, config_df, sdtm_version):
 
     # 1. Dataset list
     dataset_df = (
@@ -1698,17 +1698,15 @@ def build_datasets_from_variables(variables_df, config_df):
 
 
     # 2. Config metadata
-    config_cols = [
-        "Dataset", "Label", "Class", "Structure", "Key Variables"
-    ]
+    cfg = config_df.copy()
+    cfg["Dataset"] = cfg["Dataset"].astype(str).str.upper().str.strip()
 
-    cfg_meta = config_df.copy()
+    config_cols = ["Dataset", "Label", "Class", "Structure", "Key Variables"]
+    cfg_meta = cfg[[c for c in config_cols if c in cfg.columns]].drop_duplicates("Dataset")
 
-    cfg_meta["Dataset"] = cfg_meta["Dataset"].astype(str).str.upper().str.strip()
+    # 拿 SUPPQUAL template
+    suppqual_meta = cfg_meta[cfg_meta["Dataset"] == "SUPPQUAL"]
 
-    cfg_meta = cfg_meta[[c for c in config_cols if c in cfg_meta.columns]]
-
-    cfg_meta = cfg_meta.drop_duplicates(subset=["Dataset"])
 
     # 3. Merge
     dataset_df = dataset_df.merge(
@@ -1717,7 +1715,28 @@ def build_datasets_from_variables(variables_df, config_df):
         how="left"
     )
 
-    # 4. 排序
+    # 4. SUPPxx 補值（從 SUPPQUAL 套）
+    if not suppqual_meta.empty:
+
+        supp_mask = dataset_df["Dataset"].str.startswith("SUPP")
+
+        for col in ["Label", "Class", "Structure", "Key Variables"]:
+            if col in suppqual_meta.columns:
+                dataset_df.loc[supp_mask, col] = dataset_df.loc[supp_mask, col].fillna(
+                    suppqual_meta.iloc[0][col]
+                )
+
+        # Label 特別處理（較好）
+        dataset_df.loc[supp_mask, "Label"] = dataset_df.loc[supp_mask, "Dataset"].apply(
+            lambda x: f"Supplemental Qualifiers for {x.replace('SUPP','')}"
+        )
+
+
+    # 5. Standard 欄位
+    dataset_df["Standard"] = f"SDTM IG {sdtm_version}"
+
+
+    # 6. 排序
     dataset_df = dataset_df.sort_values("Dataset").reset_index(drop=True)
 
     return dataset_df
@@ -2480,7 +2499,8 @@ if uploaded_file is not None:
             
             datasets_df = build_datasets_from_variables(
                 variables_spec_df,
-                st.session_state["config_df"]
+                st.session_state["config_df"],
+                version
             )
             
             st.dataframe(datasets_df, use_container_width=True)
