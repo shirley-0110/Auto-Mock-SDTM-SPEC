@@ -2455,7 +2455,6 @@ if uploaded_file is not None:
         with r4_c3:
             medrt_version = st.text_input("MED-RT", value="", key="medrt_version")
 
-        
         sdtm_ct = normalize_date_text(sdtm_ct)
         snomed_version = normalize_date_text(snomed_version)
         unii_version = normalize_date_text(unii_version)
@@ -2765,22 +2764,13 @@ if uploaded_file is not None:
 
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
-
-            # -------------------------------------------------
-            # SDTM CT version input
-            # -------------------------------------------------
-            ct_version = st.text_input(
-                "SDTM CT Version（可留空使用最新）",
-                value=""
-            )
-
             # -------------------------------------------------
             # Load button
             # -------------------------------------------------
             if st.button("Load SDTM CT Master"):
         
                 try:
-                    ct_df, info = load_ct_master_from_web(ct_version)
+                    ct_df, info = load_ct_master_from_web(sdtm_ct)
 
                     # ------------------------------
                     # ✅ Success
