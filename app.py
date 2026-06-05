@@ -2886,18 +2886,18 @@ if uploaded_file is not None:
                     cols = row.find_all("td")
 
                     if len(cols) < 3:
-    
-                        link_tag = cols[1].find("a")
-
-                        name = link_tag.get_text(strip=True) if link_tag else ""
-                        href = link_tag.get("href", "") if link_tag else ""
-                        last_modified = cols[2].get_text(strip=True)
-
-                        debug_rows.append({
-                            "Name": name,
-                            "Href": href,
-                            "Last modified": last_modified
-                        })
+                        continue
+                    
+                    link_tag = cols[1].find("a")
+                    name = link_tag.get_text(strip=True) if link_tag else ""
+                    href = link_tag.get("href", "") if link_tag else ""
+                    last_modified = cols[2].get_text(strip=True)
+                    
+                    debug_rows.append({
+                        "Name": name,
+                        "Href": href,
+                        "Last modified": last_modified
+                    })
 
                 df_debug = pd.DataFrame(debug_rows)
 
