@@ -3112,13 +3112,18 @@ if uploaded_file is not None:
 
 
             # -------------------------------------------------
-            # ❌ Unmatched（超重要）
+            # ❌ Unmatched
             # -------------------------------------------------
             with tab2:
     
                 if unmatched_ct_df.empty:
                     st.success("🎉 所有 CRF Term 都已成功 Mapping")
                 else:
+                    
+                    unmatched_ct_df_filtered = unmatched_ct_df[
+                        unmatched_ct_df["CT Code"].fillna("").str.strip() != "NY"
+                    ].copy()
+
                     st.warning("以下 CRF Term 尚未對應 CT Term，建議加入 CT Mapping Dictionary")
 
                     display_cols = [
@@ -3128,17 +3133,17 @@ if uploaded_file is not None:
                         "Original Value"
                     ]
 
-                    display_cols = [c for c in display_cols if c in unmatched_ct_df.columns]
+                    display_cols = [c for c in display_cols if c in unmatched_ct_df_filtered.columns]
 
                     st.dataframe(
-                        unmatched_ct_df[display_cols],
+                        unmatched_ct_df_filtered[display_cols],
                         use_container_width=True
                     )
 
                     # 開發者直接匯出用
                     st.download_button(
                         label="⬇️ 下載 Unmatched CT（通知開發者更新 Mapping Dictionary）",
-                        data=unmatched_ct_df.to_csv(index=False),
+                        data=unmatched_ct_df_filtered.to_csv(index=False),
                         file_name="ct_mapping_unmatched.csv",
                         mime="text/csv"
                     )
