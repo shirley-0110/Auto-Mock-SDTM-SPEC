@@ -2899,7 +2899,12 @@ if uploaded_file is not None:
 
 
             # Load CT Master
-            if "ct_master_df" not in st.session_state:
+            current_ct_key = st.session_state.get("sdtm_ct", "")
+
+            if (
+                "ct_master_df" not in st.session_state
+                or st.session_state.get("ct_version_key") != current_ct_key
+            ):          
                 
                 try:
                     ct_df, info = load_ct_master_from_web(
@@ -2908,6 +2913,7 @@ if uploaded_file is not None:
 
                     st.session_state["ct_master_df"] = ct_df
                     st.session_state["ct_master_info"] = info
+                    st.session_state["ct_version_key"] = current_ct_key
 
                 except Exception as e:
                     st.error("❌ SDTM CT 載入失敗")
