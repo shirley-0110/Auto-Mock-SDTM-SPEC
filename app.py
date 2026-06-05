@@ -2332,6 +2332,13 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None):
         .str.upper()
         .apply(lambda x: x.split("_")[0] if x else "")
     )
+    
+    # Override：ID = Y → ID_Temp = NY
+    codelist_df.loc[
+        codelist_df["ID"] == "Y",
+        "ID_Temp"
+    ] = "NY"
+
 
     # 排序
     codelist_df = codelist_df.sort_values("Codelist").reset_index(drop=True)
