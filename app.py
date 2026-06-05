@@ -1701,14 +1701,14 @@ def build_datasets_from_variables(variables_df, config_df, sdtm_version):
     cfg = config_df.copy()
     cfg["Dataset"] = cfg["Dataset"].astype(str).str.upper().str.strip()
 
-    config_cols = ["Dataset", "Label", "Class", "Structure", "Key Variables"]
+    config_cols = ["Dataset", "Dataset Label", "Class", "Structure", "Key Variables"]
     cfg_meta = cfg[[c for c in config_cols if c in cfg.columns]]
 
     cfg_meta = (
         cfg_meta
         .groupby("Dataset", as_index=False)
         .agg({
-            "Label": "first",
+            "Dataset Label": "first",
             "Class": "first",
             "Structure": "first",
             "Key Variables": "first"
