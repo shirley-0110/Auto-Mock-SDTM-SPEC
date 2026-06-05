@@ -2412,7 +2412,8 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None):
         # --- 特殊 override ---
         special_map = {
             "ARM": "Description of Arm",
-            "ARMCD": "Arm Code"
+            "ARMCD": "Arm Code",
+            "Y": "No Yes Response - Y subset"
         }
 
         codelist_df["Name"] = codelist_df.apply(
