@@ -2283,7 +2283,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df, ct_master_df=None):
+def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=None, ts_df=None):
 
     df = variables_spec_df.copy()
 
@@ -2304,7 +2304,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None):
         (df["Codelist"] != "") &
         (~df["Codelist"].isin(["AEDICT_F", "ISO3166"]))
     ].copy()
-
 
     # 先排序，決定代表列保留順序
     df = df.sort_values(
@@ -2431,6 +2430,191 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None):
             + " (" + codelist_df.loc[mask, "Dataset"] + ")"
         )
 
+
+        # =================================================
+        # 第二層：先把要呈現的 Term 展開出來
+        # =================================================
+        # ct_mapping_df 預期至少有：
+        # Dataset / Variable / CT Code / CT Term / Original Value / Assign Value
+        if ct_mapping_df is not None and not ct_mapping_df.empty:
+            map_df = ct_mapping_df.copy()
+            map_df.columns = [str(c).strip() for c in map_df.columns]
+
+            # 欄位名稱容錯（如果原始來源還是 SDTM Domain / SDTM Variable）
+            rename_map = {}
+            for c in map_df.columns:
+                cu = c.upper()
+                if cu == "SDTM DOMAIN":
+                    rename_map[c] = "Dataset"
+                elif cu == "SDTM VARIABLE":
+                    rename_map[c] = "Variable"
+            map_df = map_df.rename(columns=rename_map)
+
+            for col in ["Dataset", "Variable", "CT Code", "CT Term", "Original Value", "Assign Value"]:
+                if col not in map_df.columns:
+                    map_df[col] = ""
+
+            map_df["Dataset"] = map_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
+            map_df["Variable"] = map_df["Variable"].fillna("").astype(str).str.strip().str.upper()
+            map_df["CT Code"] = map_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+            map_df["CT Term"] = map_df["CT Term"].fillna("").astype(str).str.strip()
+            map_df["Original Value"] = map_df["Original Value"].fillna("").astype(str).str.strip()
+            map_df["Assign Value"] = map_df["Assign Value"].fillna("").astype(str).str.strip()
+        else:
+            map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "CT Term", "Original Value", "Assign Value"])
+
+        # TS 保底
+        if ts_df is not None and not ts_df.empty:
+            ts_work = ts_df.copy()
+            for col in ["TSPARM", "TSPARMCD"]:
+                if col not in ts_work.columns:
+                    ts_work[col] = ""
+            ts_work["TSPARM"] = ts_work["TSPARM"].fillna("").astype(str).str.strip()
+            ts_work["TSPARMCD"] = ts_work["TSPARMCD"].fillna("").astype(str).str.strip()
+        else:
+            ts_work = pd.DataFrame(columns=["TSPARM", "TSPARMCD"])
+
+        # term-level rows
+        expanded_rows = []
+
+        for _, row in codelist_df.iterrows():
+
+            dataset = row["Dataset"]
+            variable = row["Variable"]
+            label = row["Label"]
+            ct_code = row["CT Code"]
+            codelist = row["Codelist"]
+            id_ = row["ID"]
+            id_temp = row["ID_Temp"]
+            name = row["Name"]
+            nci_codelist_code = row["NCI Codelist Code"]
+            ct_codelist_name = row["CT Codelist Name"]
+
+            terms = []
+
+            # -------------------------------------------------
+            # 情況 1：有 CT Code → 用 CT Mapping List 展開 CT Term
+            # -------------------------------------------------
+            if ct_code != "":
+                terms = (
+                    map_df.loc[
+                        map_df["CT Code"] == ct_code,
+                        "CT Term"
+                    ]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .replace("", pd.NA)
+                    .dropna()
+                    .drop_duplicates()
+                    .tolist()
+                )
+
+            # -------------------------------------------------
+            # 情況 2：沒 CT Code，但來自 CRF / Assign Value
+            # 優先 Assign Value，再 Original Value
+            # -------------------------------------------------
+            if not terms:
+                subset = map_df[
+                    (map_df["Dataset"] == dataset) &
+                    (map_df["Variable"] == variable)
+                ].copy()
+
+                assign_terms = (
+                    subset["Assign Value"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .replace("", pd.NA)
+                    .dropna()
+                    .drop_duplicates()
+                    .tolist()
+                )
+
+                if assign_terms:
+                    terms = assign_terms
+                else:
+                    option_terms = (
+                        subset["Original Value"]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .replace("", pd.NA)
+                        .dropna()
+                        .drop_duplicates()
+                        .tolist()
+                    )
+                    terms = option_terms
+
+            # -------------------------------------------------
+            # 情況 3：特殊處理
+            # -------------------------------------------------
+            if not terms:
+
+                if id_temp == "DOMAIN":
+                    terms = [dataset]
+
+                elif id_temp == "TSPARM":
+                    terms = (
+                        ts_work["TSPARM"]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .replace("", pd.NA)
+                        .dropna()
+                        .drop_duplicates()
+                        .tolist()
+                    )
+
+                elif id_temp == "TSPARMCD":
+                    terms = (
+                        ts_work["TSPARMCD"]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .replace("", pd.NA)
+                        .dropna()
+                        .drop_duplicates()
+                        .tolist()
+                    )
+
+                elif id_temp == "ND":
+                    terms = ["NOT DONE"]
+
+                elif id_temp == "NY":
+                    terms = ["N", "Y"]
+
+                elif id_temp == "Y":
+                    terms = ["Y"]
+
+            # 如果還是沒有，就至少留一列空 term，避免整個 codelist 消失
+            if not terms:
+                terms = [""]
+
+            for term in terms:
+                expanded_rows.append({
+                    "Dataset": dataset,
+                    "Variable": variable,
+                    "Label": label,
+                    "CT Code": ct_code,
+                    "Codelist": codelist,
+                    "ID": id_,
+                    "ID_Temp": id_temp,
+                    "Name": name,
+                    "CT Codelist Name": ct_codelist_name,
+                    "NCI Codelist Code": nci_codelist_code,
+                    "Term": term
+                })
+
+        codelist_df = pd.DataFrame(expanded_rows)
+
+        # 排序 & 去重
+        codelist_df = (
+            codelist_df
+            .drop_duplicates()
+            .sort_values(by=["Codelist", "Term", "Dataset", "Variable"], na_position="last")
+            .reset_index(drop=True)
+        )
     
     return codelist_df
     # End=========================================================
@@ -3010,7 +3194,9 @@ if uploaded_file is not None:
             
             codelist_df = build_codelist_sheet(
                 variables_spec_df=variables_spec_df,
-                ct_master_df=st.session_state.get("ct_master_df")
+                ct_master_df=st.session_state.get("ct_master_df"),
+                ct_mapping_df=ct_mapping_df,
+                ts_df=ts_df
             )
             
             st.dataframe(codelist_df, use_container_width=True)
