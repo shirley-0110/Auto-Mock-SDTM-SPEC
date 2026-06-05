@@ -2097,6 +2097,211 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
+
+def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, nci_ct_df=None):
+    """
+    建立 2.4 Codelist Sheet
+
+    Parameters
+    ----------
+    variables_spec_df : DataFrame
+        來自 2.3 Variables，至少包含：
+        - Dataset
+        - Variable
+        - CT Code
+        - Codelist
+
+    ct_mapping_result_df : DataFrame, optional
+        Step 1 已經 matched 的 CT Mapping 結果，建議至少包含：
+        - CT Code
+        - CT Term
+
+    nci_ct_df : DataFrame, optional
+        SDTM CT Master（特定版本），建議至少包含：
+        - ID            或 CT Code / Codelist
+        - CT Term       或 Submission Value / Term
+        - NCI Codelist Code
+        - NCI Term Code
+    """
+
+    import pandas as pd
+
+    final_cols = [
+        "ID",
+        "ID_Temp",
+        "Codelist",
+        "CT Code",
+        "CT Term",
+        "NCI Codelist Code",
+        "NCI Term Code"
+    ]
+
+    # -------------------------------------------------
+    # 0. 保底
+    # -------------------------------------------------
+    if variables_spec_df is None or variables_spec_df.empty:
+        return pd.DataFrame(columns=final_cols)
+
+    df = variables_spec_df.copy()
+
+    for col in ["Codelist", "CT Code"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df["Codelist"] = df["Codelist"].fillna("").astype(str).str.strip().str.upper()
+    df["CT Code"] = df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+
+    # 只保留真的有 codelist / ct code 的
+    df = df[
+        (df["Codelist"] != "") | (df["CT Code"] != "")
+    ].copy()
+
+    if df.empty:
+        return pd.DataFrame(columns=final_cols)
+
+    # -------------------------------------------------
+    # 1. 先建立 dataset-level codelist list（去重）
+    # -------------------------------------------------
+    codelist_df = (
+        df[["Codelist", "CT Code"]]
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+
+    # -------------------------------------------------
+    # 2. 建立 ID / ID_Temp
+    # -------------------------------------------------
+    codelist_df["ID"] = codelist_df["Codelist"]
+
+    codelist_df["ID_Temp"] = (
+        codelist_df["Codelist"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .apply(lambda x: x.split("_")[0] if x else "")
+    )
+
+    # -------------------------------------------------
+    # 3. 從 Step 1 CT Mapping 結果抓 CT Term
+    #    用 CT Code merge（原始來源）
+    # -------------------------------------------------
+    codelist_df["CT Term"] = ""
+
+    if ct_mapping_result_df is not None and not ct_mapping_result_df.empty:
+
+        ct_df = ct_mapping_result_df.copy()
+
+        # 欄位保底
+        # 你前面如果輸出的是 "CT Term" 就直接用；
+        # 如果還是舊欄位 "CTVAL"，也一起支援
+        if "CT Term" not in ct_df.columns and "CTVAL" in ct_df.columns:
+            ct_df = ct_df.rename(columns={"CTVAL": "CT Term"})
+
+        if "CT Code" not in ct_df.columns and "CTcode" in ct_df.columns:
+            ct_df = ct_df.rename(columns={"CTcode": "CT Code"})
+
+        if "CT Code" in ct_df.columns and "CT Term" in ct_df.columns:
+            ct_df["CT Code"] = ct_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+            ct_df["CT Term"] = ct_df["CT Term"].fillna("").astype(str).str.strip()
+
+            ct_term_df = (
+                ct_df[["CT Code", "CT Term"]]
+                .drop_duplicates()
+            )
+
+            codelist_df = codelist_df.merge(
+                ct_term_df,
+                on="CT Code",
+                how="left",
+                suffixes=("", "_from_mapping")
+            )
+
+            # 如果 merge 到的 term 有值，就放回 CT Term
+            if "CT Term_from_mapping" in codelist_df.columns:
+                codelist_df["CT Term"] = codelist_df["CT Term_from_mapping"].fillna(codelist_df["CT Term"])
+                codelist_df = codelist_df.drop(columns=["CT Term_from_mapping"])
+
+    # -------------------------------------------------
+    # 4. 併 NCI CT Master（可選）
+    #    用 ID_Temp + CT Term 去找標準碼
+    # -------------------------------------------------
+    codelist_df["NCI Codelist Code"] = ""
+    codelist_df["NCI Term Code"] = ""
+
+    if nci_ct_df is not None and not nci_ct_df.empty:
+
+        nci = nci_ct_df.copy()
+
+        # -----------------------------
+        # 4.1 嘗試標準化欄位名稱
+        # -----------------------------
+        rename_map = {}
+
+        for col in nci.columns:
+            norm = str(col).strip().upper()
+
+            if norm in ["ID", "CT CODE", "CODELIST", "CODELIST SUBMISSION VALUE"]:
+                rename_map[col] = "ID_Temp"
+            elif norm in ["CT TERM", "TERM", "SUBMISSION VALUE", "CODED VALUE", "NCI TERM", "DECODE"]:
+                rename_map[col] = "CT Term"
+            elif norm in ["NCI CODELIST CODE", "NCI CODELIST", "CODELIST CODE"]:
+                rename_map[col] = "NCI Codelist Code"
+            elif norm in ["NCI TERM CODE", "TERM CODE", "NCI CODE"]:
+                rename_map[col] = "NCI Term Code"
+
+        nci = nci.rename(columns=rename_map)
+
+        # -----------------------------
+        # 4.2 欄位保底
+        # -----------------------------
+        for col in ["ID_Temp", "CT Term", "NCI Codelist Code", "NCI Term Code"]:
+            if col not in nci.columns:
+                nci[col] = ""
+
+        nci["ID_Temp"] = nci["ID_Temp"].fillna("").astype(str).str.strip().str.upper()
+        nci["CT Term"] = nci["CT Term"].fillna("").astype(str).str.strip()
+
+        nci_meta = (
+            nci[["ID_Temp", "CT Term", "NCI Codelist Code", "NCI Term Code"]]
+            .drop_duplicates()
+        )
+
+        codelist_df = codelist_df.merge(
+            nci_meta,
+            on=["ID_Temp", "CT Term"],
+            how="left",
+            suffixes=("", "_nci")
+        )
+
+        # 回填
+        if "NCI Codelist Code_nci" in codelist_df.columns:
+            codelist_df["NCI Codelist Code"] = codelist_df["NCI Codelist Code_nci"].fillna(codelist_df["NCI Codelist Code"])
+            codelist_df = codelist_df.drop(columns=["NCI Codelist Code_nci"])
+
+        if "NCI Term Code_nci" in codelist_df.columns:
+            codelist_df["NCI Term Code"] = codelist_df["NCI Term Code_nci"].fillna(codelist_df["NCI Term Code"])
+            codelist_df = codelist_df.drop(columns=["NCI Term Code_nci"])
+
+    # -------------------------------------------------
+    # 5. 最終整理
+    # -------------------------------------------------
+    for col in final_cols:
+        if col not in codelist_df.columns:
+            codelist_df[col] = ""
+
+    codelist_df = (
+        codelist_df[final_cols]
+        .drop_duplicates()
+        .sort_values(by=["Codelist", "CT Term"], na_position="last")
+        .reset_index(drop=True)
+    )
+
+    return codelist_df
+
+
+
+
 def build_dictionaries_sheet(meddra_version="", cm_dictionary="WHO ATC/DDD", cm_version=""):
     return pd.DataFrame([
         {
@@ -2533,6 +2738,15 @@ if uploaded_file is not None:
 
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
+            
+            codelist_df = build_codelist_sheet(
+                variables_spec_df=variables_spec_df,
+                ct_mapping_result_df=matched_ct_df,
+                nci_ct_df=None   # 之後有再接
+            )
+            
+            st.dataframe(codelist_df, use_container_width=True)
+
 
             # 2.5 Codelists
             st.markdown("### 2.5 Dictionaries")
