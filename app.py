@@ -1548,7 +1548,7 @@ def apply_method_rules(df):
     mask_stdy = df["Variable"].str.endswith("STDY")
     mask_endy = df["Variable"].str.endswith("ENDY")
     mask_dy = (
-        df["Variable"].str.endswith("DY") &
+        df["Variable"].str.endswith("DY") & (df["Variable"] != "VISITDY")
         ~mask_stdy &
         ~mask_endy
     )
