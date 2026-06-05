@@ -2619,7 +2619,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
             # ---------------------------------------------
             # 情況 2：沒 CT Code → 優先 Assign Value，再 CRF Option
             # ---------------------------------------------
-            if not terms:
+            elif ct_code == "":
                 subset = map_df[
                     (map_df["Dataset"] == dataset) &
                     (map_df["Variable"] == variable)
