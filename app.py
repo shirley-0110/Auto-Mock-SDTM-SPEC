@@ -3080,7 +3080,7 @@ if uploaded_file is not None:
                 mapping_dict_df
             )
 
-            tab1, tab2 = st.tabs(["✅ Matched", "❌ Unmatched"])
+            tab1, tab2, tab3 = st.tabs(["✅ Matched", "❌ Unmatched", "🟡 No CT Code"])
 
             # -------------------------------------------------
             # ✅ Matched
@@ -3090,6 +3090,10 @@ if uploaded_file is not None:
                 if matched_ct_df.empty:
                     st.info("目前沒有 Matched CT Mapping")
                 else:
+                    matched_ct_df_filtered = matched_ct_df[
+                        matched_ct_df["CT Code"].fillna("").str.strip() != ""
+                    ].copy()
+
                     display_cols = [
                         "SDTM Domain",
                         "SDTM Variable",
@@ -3099,10 +3103,10 @@ if uploaded_file is not None:
                         "CT Term",
                     ]
 
-                    display_cols = [c for c in display_cols if c in matched_ct_df.columns]
+                    display_cols = [c for c in display_cols if c in matched_ct_df_filtered.columns]
 
                     st.dataframe(
-                        matched_ct_df[display_cols],
+                        matched_ct_df_filtered[display_cols],
                         use_container_width=True
                     )
 
@@ -3115,7 +3119,6 @@ if uploaded_file is not None:
                 if unmatched_ct_df.empty:
                     st.success("🎉 所有 CRF Term 都已成功 Mapping")
                 else:
-
                     st.warning("以下 CRF Term 尚未對應 CT Term，建議加入 CT Mapping Dictionary")
 
                     display_cols = [
@@ -3134,11 +3137,45 @@ if uploaded_file is not None:
 
                     # 開發者直接匯出用
                     st.download_button(
-                        label="⬇️ 下載 Unmatched CT（用來補 mapping）",
+                        label="⬇️ 下載 Unmatched CT（通知開發者更新 Mapping Dictionary）",
                         data=unmatched_ct_df.to_csv(index=False),
                         file_name="ct_mapping_unmatched.csv",
                         mime="text/csv"
                     )
+                    
+            # -------------------------------------------------
+            # 🟡 No CT Code（新增🔥）
+            # -------------------------------------------------
+            with tab3:
+
+                if ct_mapping_df is None or ct_mapping_df.empty:
+                    st.info("沒有 CT Mapping 資料")
+                else:
+
+                    no_ct_df = ct_mapping_df[
+                        ct_mapping_df["CT Code"].fillna("").str.strip() == ""
+                    ].copy()
+
+                    if no_ct_df.empty:
+                        st.success("🎉 沒有 CT Code 為空的資料")
+                    else:
+                        st.warning("以下變數沒有 CT Code（將走 CRF Option / 特殊規則）")
+
+                        display_cols = [
+                            "SDTM Domain",
+                            "SDTM Variable",
+                            "Assign Value",
+                            "CRF Option Value",
+                            "Original Value"
+                        ]
+
+                        display_cols = [c for c in display_cols if c in no_ct_df.columns]
+
+                        st.dataframe(
+                            no_ct_df[display_cols],
+                            use_container_width=True
+                        )
+
 
         else:
             st.info("尚未載入 CT Mapping Dictionary")
