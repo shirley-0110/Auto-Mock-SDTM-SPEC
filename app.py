@@ -2430,27 +2430,24 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
             + " (" + codelist_df.loc[mask, "Dataset"] + ")"
         )
 
-
         # =================================================
-        # 第二層：先把要呈現的 Term 展開出來
+        # 4. 準備 CT Mapping（第二層用）
         # =================================================
-        # ct_mapping_df 預期至少有：
-        # Dataset / Variable / CT Code / CT Term / Original Value / Assign Value
         if ct_mapping_df is not None and not ct_mapping_df.empty:
             map_df = ct_mapping_df.copy()
             map_df.columns = [str(c).strip() for c in map_df.columns]
 
-            # 欄位名稱容錯（如果原始來源還是 SDTM Domain / SDTM Variable）
             rename_map = {}
             for c in map_df.columns:
-                cu = c.upper()
+                cu = c.upper().strip()
                 if cu == "SDTM DOMAIN":
                     rename_map[c] = "Dataset"
                 elif cu == "SDTM VARIABLE":
                     rename_map[c] = "Variable"
+
             map_df = map_df.rename(columns=rename_map)
 
-            for col in ["Dataset", "Variable", "CT Code", "CT Term", "Original Value", "Assign Value"]:
+            for col in ["Dataset", "Variable", "CT Code", "CT Term"]:
                 if col not in map_df.columns:
                     map_df[col] = ""
 
@@ -2458,23 +2455,85 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
             map_df["Variable"] = map_df["Variable"].fillna("").astype(str).str.strip().str.upper()
             map_df["CT Code"] = map_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
             map_df["CT Term"] = map_df["CT Term"].fillna("").astype(str).str.strip()
-            map_df["Original Value"] = map_df["Original Value"].fillna("").astype(str).str.strip()
-            map_df["Assign Value"] = map_df["Assign Value"].fillna("").astype(str).str.strip()
-        else:
-            map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "CT Term", "Original Value", "Assign Value"])
 
-        # TS 保底
+        else:
+            map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "CT Term"])
+
+        # =================================================
+        # 5. 準備 detail_df（第二層用：Assign / CRF Option）
+        # =================================================
+        if detail_df is not None and not detail_df.empty:
+            det_df = detail_df.copy()
+            det_df.columns = [str(c).strip() for c in det_df.columns]
+
+            rename_map = {}
+            for c in det_df.columns:
+                cu = c.upper().strip()
+                if cu == "SDTM DOMAIN":
+                    rename_map[c] = "Dataset"
+                elif cu == "SDTM VARIABLE":
+                    rename_map[c] = "Variable"
+
+            det_df = det_df.rename(columns=rename_map)
+    
+            if "Dataset" not in det_df.columns:
+                det_df["Dataset"] = ""
+            if "Variable" not in det_df.columns:
+                det_df["Variable"] = ""
+
+            det_df["Dataset"] = det_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
+            det_df["Variable"] = det_df["Variable"].fillna("").astype(str).str.strip().str.upper()
+
+            # 自動抓 Assign / Option 欄位
+            assign_col = None
+            option_col = None
+
+            for c in det_df.columns:
+                cu = c.upper()
+                if assign_col is None and "ASSIGN" in cu:
+                    assign_col = c
+
+                # 常見 option/value 命名
+                if option_col is None and (
+                    "OPTION" in cu or
+                    "ORIGINAL VALUE" in cu or
+                    cu == "VALUE"
+                ):
+                    option_col = c
+
+            if assign_col is None:
+                det_df["__ASSIGN__"] = ""
+                assign_col = "__ASSIGN__"
+
+            if option_col is None:
+                det_df["__OPTION__"] = ""
+                option_col = "__OPTION__"
+
+            det_df[assign_col] = det_df[assign_col].fillna("").astype(str).str.strip()
+            det_df[option_col] = det_df[option_col].fillna("").astype(str).str.strip()
+
+        else:
+            det_df = pd.DataFrame(columns=["Dataset", "Variable", "__ASSIGN__", "__OPTION__"])
+            assign_col = "__ASSIGN__"
+            option_col = "__OPTION__"
+
+        # =================================================
+        # 6. 準備 TS（第二層特殊處理）
+        # =================================================
         if ts_df is not None and not ts_df.empty:
             ts_work = ts_df.copy()
             for col in ["TSPARM", "TSPARMCD"]:
                 if col not in ts_work.columns:
                     ts_work[col] = ""
+
             ts_work["TSPARM"] = ts_work["TSPARM"].fillna("").astype(str).str.strip()
             ts_work["TSPARMCD"] = ts_work["TSPARMCD"].fillna("").astype(str).str.strip()
         else:
             ts_work = pd.DataFrame(columns=["TSPARM", "TSPARMCD"])
 
-        # term-level rows
+        # =================================================
+        # 7. 第二層：展開 Term
+        # =================================================
         expanded_rows = []
 
         for _, row in codelist_df.iterrows():
@@ -2491,9 +2550,9 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
 
             terms = []
 
-            # -------------------------------------------------
-            # 情況 1：有 CT Code → 用 CT Mapping List 展開 CT Term
-            # -------------------------------------------------
+            # ---------------------------------------------
+            # 情況 1：有 CT Code → 用 CT Mapping List 的 CT Term
+            # ---------------------------------------------
             if ct_code != "":
                 terms = (
                     map_df.loc[
@@ -2509,18 +2568,17 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                     .tolist()
                 )
 
-            # -------------------------------------------------
-            # 情況 2：沒 CT Code，但來自 CRF / Assign Value
-            # 優先 Assign Value，再 Original Value
-            # -------------------------------------------------
-            elif ct_code == "":
-                subset = detail_df[
-                    (detail_df["Dataset"] == dataset) &
-                    (detail_df["Variable"] == variable)
+            # ---------------------------------------------
+            # 情況 2：沒 CT Code → 優先 Assign Value，再 CRF Option
+            # ---------------------------------------------
+            if not terms:
+                subset = det_df[
+                    (det_df["Dataset"] == dataset) &
+                    (det_df["Variable"] == variable)
                 ].copy()
 
                 assign_terms = (
-                    subset["Assign Value"]
+                    subset[assign_col]
                     .dropna()
                     .astype(str)
                     .str.strip()
@@ -2534,7 +2592,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                     terms = assign_terms
                 else:
                     option_terms = (
-                        subset["CRF Option Value"]
+                        subset[option_col]
                         .dropna()
                         .astype(str)
                         .str.strip()
@@ -2545,9 +2603,9 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                     )
                     terms = option_terms
 
-            # -------------------------------------------------
+            # ---------------------------------------------
             # 情況 3：特殊處理
-            # -------------------------------------------------
+            # ---------------------------------------------
             if not terms:
 
                 if id_temp == "DOMAIN":
@@ -2583,14 +2641,14 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                 elif id_temp == "NY":
                     terms = ["N", "Y"]
 
-                elif id_temp == "Y":
+                elif id_ == "Y":
                     terms = ["Y"]
 
-            # 如果還是沒有，就至少留一列空 term，避免整個 codelist 消失
+            # 如果還是沒有，就至少保留一列空值
             if not terms:
                 terms = [""]
 
-            for term in terms:
+                for term in terms:
                 expanded_rows.append({
                     "Dataset": dataset,
                     "Variable": variable,
@@ -2603,18 +2661,19 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                     "NCI Codelist Code": nci_codelist_code,
                     "Term": term
                 })
-
+    
         codelist_df = pd.DataFrame(expanded_rows)
-
-        # 排序 & 去重
+    
+        # 排序 / 去重
         codelist_df = (
             codelist_df
             .drop_duplicates()
             .sort_values(by=["Codelist", "Term", "Dataset", "Variable"], na_position="last")
             .reset_index(drop=True)
         )
-    
+
     return codelist_df
+
     # End=========================================================
 
 
