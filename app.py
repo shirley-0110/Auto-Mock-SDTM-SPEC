@@ -1039,7 +1039,10 @@ def load_ct_master_from_web(sdtm_ct=""):
     latest_archive_last_modified = ""
 
     try:
-        tables = pd.read_html(archive_index)
+        latest_archive_txt_url, latest_archive_txt_version, latest_archive_last_modified = get_latest_archive_txt()
+    except:
+        pass
+
 
         # Apache index 通常第一張表就是檔案清單
         archive_df = tables[0].copy()
@@ -2444,6 +2447,59 @@ def parse_links_from_index(index_url):
     # End=========================================================
 
 
+def get_latest_archive_txt():
+
+    archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
+
+    resp = requests.get(archive_index)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    rows = soup.find_all("tr")
+
+    pattern = re.compile(r"SDTM Terminology (\d{4}-\d{2}-\d{2})\.txt")
+
+    results = []
+
+    for row in rows:
+        cols = row.find_all("td")
+
+        if len(cols) < 2:
+            continue
+
+        link_tag = cols[0].find("a")
+        if not link_tag:
+            continue
+
+        text = link_tag.get_text(strip=True)
+        last_modified = cols[1].get_text(strip=True)
+
+        m = pattern.search(text)
+        if m:
+            version = m.group(1)
+
+            results.append({
+                "name": text,
+                "version": version,
+                "last_modified": last_modified,
+                "url": archive_index + text.replace(" ", "%20")
+            })
+
+    if not results:
+        return "", "", ""
+
+    # 用 last_modified 排序
+    results = sorted(
+        results,
+        key=lambda x: x["last_modified"],
+        reverse=True
+    )
+
+    latest = results[0]
+
+    return latest["url"], latest["version"], latest["last_modified"]
+    # End=========================================================
 
 
 
