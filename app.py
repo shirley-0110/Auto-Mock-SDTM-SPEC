@@ -1127,13 +1127,13 @@ def load_ct_master_from_web(sdtm_ct=""):
             rename_map[col] = "Submission Value"
 
         elif ncol in ["NCI CODE", "NCI TERM CODE", "CODE"]:
-            rename_map[col] = "NCI Term Code"
+            rename_map[col] = "Code"
 
     df = df.rename(columns=rename_map)
     df = df.loc[:, ~df.columns.duplicated()]
 
     # 保底欄位
-    for c in ["Codelist Code", "Codelist Name", "Submission Value", "NCI Term Code"]:
+    for c in ["Codelist Code", "Codelist Name", "Submission Value", "Code"]:
         if c not in df.columns:
             df[c] = ""
 
@@ -2284,7 +2284,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df):
+def build_codelist_sheet(variables_spec_df, ct_master_df=None):
 
     df = variables_spec_df.copy()
 
@@ -2321,8 +2321,6 @@ def build_codelist_sheet(variables_spec_df):
 
 
     # 加 ID / ID_Temp
-    # -------------------------------------------------
-
     # ID = Codelist
     codelist_df["ID"] = codelist_df["Codelist"]
 
@@ -2339,6 +2337,58 @@ def build_codelist_sheet(variables_spec_df):
     # 排序
     codelist_df = codelist_df.sort_values("Codelist").reset_index(drop=True)
 
+
+
+    # =================================================
+    # 第一層 merge（Main Codelist Code）
+    # =================================================
+    if ct_master_df is not None and not ct_master_df.empty:
+
+        right = ct_master_df.copy()
+
+        # --- 標準化 ---
+        right["Submission Value"] = (
+            right["Submission Value"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+        right["Codelist Code"] = (
+            right["Codelist Code"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        # 只取 Main Code（最重要🔥）
+        right_main = right[
+            right["Codelist Code"] == ""
+        ].copy()
+
+        # --- merge ---
+        codelist_df = codelist_df.merge(
+            right_main[
+                ["Submission Value", "Code", "Codelist Name"]
+            ].drop_duplicates(),
+            left_on="ID_Temp",
+            right_on="Submission Value",
+            how="left"
+        )
+
+        # --- rename（只在 output 層） ---
+        codelist_df = codelist_df.rename(columns={
+            "Code": "NCI Codelist Code",
+            "Codelist Name": "CT Codelist Name"
+        })
+
+        codelist_df = codelist_df.drop(
+            columns=["Submission Value"],
+            errors="ignore"
+        )
+
+    
     return codelist_df
     # End=========================================================
 
@@ -2916,7 +2966,8 @@ if uploaded_file is not None:
 
             
             codelist_df = build_codelist_sheet(
-                variables_spec_df=variables_spec_df
+                variables_spec_df=variables_spec_df,
+                ct_master_df=st.session_state.get("ct_master_df")
             )
             
             st.dataframe(codelist_df, use_container_width=True)
