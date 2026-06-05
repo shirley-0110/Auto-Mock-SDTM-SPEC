@@ -2617,7 +2617,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                 elif id_temp == "ND":
                     terms = ["NOT DONE"]
 
-                elif id_temp == "NY":
+                elif id_ == "NY":
                     terms = ["N", "Y"]
 
                 elif id_ == "Y":
