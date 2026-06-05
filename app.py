@@ -1025,97 +1025,99 @@ def load_ct_master_from_web(sdtm_ct=""):
     4. normalize
     """
 
-    current_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/"
     archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
+    current_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
+
+
+    requested_version = normalize_ct_version_text(sdtm_ct)
 
     # -------------------------------------------------
-    # helper: 從 Archive 找最新 txt
+    # 1. 先從 Archive 表格抓所有 txt，找最新
     # -------------------------------------------------
-    latest_archive_txt_url = ""
-    latest_archive_txt_version = ""
+    latest_archive_url = ""
+    latest_archive_version = ""
     latest_archive_last_modified = ""
 
     try:
-        archive_links = parse_links_from_index(archive_index)
+        tables = pd.read_html(archive_index)
 
-        txt_rows = []
-        pattern = re.compile(r"^SDTM Terminology (\d{4}-\d{2}-\d{2})\.txt$")
+        # Apache index 通常第一張表就是檔案清單
+        archive_df = tables[0].copy()
+        archive_df.columns = [str(c).strip() for c in archive_df.columns]
 
-        for item in archive_links:
-            text = item.get("text", "").strip()
-            last_modified = item.get("last_modified", "").strip()
-            url = item.get("url", "").strip()
-
-            m = pattern.match(text)
-            if m:
-                version_from_name = m.group(1)
-                txt_rows.append({
-                    "text": text,
-                    "url": url,
-                    "version": version_from_name,
-                    "last_modified": last_modified
-                })
-
-        if txt_rows:
-            # last_modified 最大者視為最新
-            txt_rows = sorted(
-                txt_rows,
-                key=lambda x: x["last_modified"],
-                reverse=True
+        # 正常會有 Name / Last modified
+        if "Name" in archive_df.columns and "Last modified" in archive_df.columns:
+            archive_df["Name"] = archive_df["Name"].astype(str).str.strip()
+            archive_df["Last modified"] = pd.to_datetime(
+                archive_df["Last modified"],
+                errors="coerce"
             )
 
-            latest_archive_txt_url = txt_rows[0]["url"]
-            latest_archive_txt_version = txt_rows[0]["version"]
-            latest_archive_last_modified = txt_rows[0]["last_modified"]
+            pattern = r"^SDTM Terminology (\d{4}-\d{2}-\d{2})\.txt$"
 
-    except:
-        latest_archive_txt_url = ""
-        latest_archive_txt_version = ""
+            txt_df = archive_df[
+                archive_df["Name"].str.match(pattern, na=False)
+            ].copy()
+
+            if not txt_df.empty:
+                txt_df["Version"] = txt_df["Name"].str.extract(pattern)[0]
+
+                txt_df = txt_df.sort_values(
+                    by="Last modified",
+                    ascending=False
+                ).reset_index(drop=True)
+
+                latest_name = txt_df.loc[0, "Name"]
+                latest_archive_version = txt_df.loc[0, "Version"]
+                latest_archive_last_modified = (
+                    txt_df.loc[0, "Last modified"].strftime("%Y-%m-%d %H:%M")
+                    if pd.notna(txt_df.loc[0, "Last modified"]) else ""
+                )
+                latest_archive_url = archive_index + latest_name.replace(" ", "%20")
+
+    except Exception:
+        latest_archive_url = ""
+        latest_archive_version = ""
         latest_archive_last_modified = ""
 
     # -------------------------------------------------
-    # URL build
+    # 2. 決定下載 URL
     # -------------------------------------------------
     if requested_version:
         filename = f"SDTM Terminology {requested_version}.txt"
-        filename_encoded = filename.replace(" ", "%20")
-        url = f"{archive_index}{filename_encoded}"
+        url = archive_index + filename.replace(" ", "%20")
         source_type = "archive"
         resolved_version = requested_version
         resolved_last_modified = ""
     else:
-        # 沒指定版本 → 直接抓 Archive 中最新 txt
-        if latest_archive_txt_url:
-            url = latest_archive_txt_url
+        if latest_archive_url:
+            url = latest_archive_url
             source_type = "latest-archive"
-            resolved_version = latest_archive_txt_version
+            resolved_version = latest_archive_version
             resolved_last_modified = latest_archive_last_modified
         else:
-            # fallback 到 current
-            url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM Terminology.txt"
+            url = current_url
             source_type = "current"
             resolved_version = ""
             resolved_last_modified = ""
 
     # -------------------------------------------------
-    # download（含 fallback）
+    # 3. 下載，若指定版本失敗就 fallback 到最新 archive
     # -------------------------------------------------
     try:
         resp = requests.get(url, timeout=30)
         resp.raise_for_status()
-    except:
-        # 找不到指定版本時 → fallback 到最新 archive txt
-        if latest_archive_txt_url:
-            url = latest_archive_txt_url
+    except Exception:
+        if latest_archive_url:
+            url = latest_archive_url
             source_type = "fallback-latest-archive"
-            resolved_version = latest_archive_txt_version
+            resolved_version = latest_archive_version
             resolved_last_modified = latest_archive_last_modified
 
             resp = requests.get(url, timeout=30)
             resp.raise_for_status()
         else:
-            # 最後才退 current
-            url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM Terminology.txt"
+            url = current_url
             source_type = "fallback-current"
             resolved_version = ""
             resolved_last_modified = ""
@@ -1124,7 +1126,7 @@ def load_ct_master_from_web(sdtm_ct=""):
             resp.raise_for_status()
 
     # -------------------------------------------------
-    # read txt
+    # 4. 讀 txt
     # -------------------------------------------------
     df = pd.read_csv(
         io.StringIO(resp.text),
@@ -1135,7 +1137,7 @@ def load_ct_master_from_web(sdtm_ct=""):
     df = normalize_columns(df)
 
     # -------------------------------------------------
-    # 欄位標準化
+    # 5. 欄位標準化
     # -------------------------------------------------
     rename_map = {}
 
@@ -1151,10 +1153,10 @@ def load_ct_master_from_web(sdtm_ct=""):
         elif ncol in ["CDISC SUBMISSION VALUE", "SUBMISSION VALUE"]:
             rename_map[col] = "Submission Value"
 
-        elif ncol in ["CDISC SYNONYM(S)", "SYNONYM", "SYNONYMS"]:
+        elif ncol in ["CDISC SYNONYM(S)", "CDISC SYNONYM", "SYNONYM", "SYNONYMS"]:
             rename_map[col] = "CDISC Synonym(s)"
 
-        elif ncol in ["NCI PREFERRED TERM"]:
+        elif ncol in ["NCI PREFERRED TERM", "PREFERRED TERM"]:
             rename_map[col] = "NCI Preferred Term"
 
         elif ncol in ["NCI CODE", "NCI TERM CODE", "CODE"]:
@@ -1163,16 +1165,10 @@ def load_ct_master_from_web(sdtm_ct=""):
     df = df.rename(columns=rename_map)
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # -------------------------------------------------
-    # 保底欄位
-    # -------------------------------------------------
     for c in ["Codelist Code", "Codelist Name", "Submission Value", "NCI Term Code"]:
         if c not in df.columns:
             df[c] = ""
 
-    # -------------------------------------------------
-    # clean + merge key
-    # -------------------------------------------------
     df["Codelist Name"] = (
         df["Codelist Name"]
         .fillna("")
@@ -1190,17 +1186,14 @@ def load_ct_master_from_web(sdtm_ct=""):
 
     df["ID_Temp"] = df["Codelist Name"]
 
-    clean_url = url.replace(" ", "%20")
-
     return df.reset_index(drop=True), {
-        "download_url": clean_url,
+        "download_url": url,
         "source_type": source_type,
         "requested_version": requested_version,
         "resolved_version": resolved_version,
         "resolved_last_modified": resolved_last_modified,
         "status": "success"
     }
-
     # End=========================================================
 
 
@@ -2904,7 +2897,8 @@ if uploaded_file is not None:
                 with col2:
                     st.write("🔹 Columns:", len(ct_df.columns))
 
-                st.markdown(f"🔗 [CT Download URL]({clean_url})")
+                st.markdown(f"🔗[CT Download URL]({info['download_url']})")
+
 
                 with st.expander("Preview CT Master"):
                     st.dataframe(ct_df.head(20), use_container_width=True)
