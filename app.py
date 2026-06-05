@@ -1684,6 +1684,47 @@ def build_define_sheet(protocol_no, protocol_title, sdtm_version):
 
 
 
+def build_datasets_from_variables(variables_df, config_df):
+
+    # 1. Dataset list
+    dataset_df = (
+        variables_df[["Dataset"]]
+        .dropna()
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+
+    dataset_df["Dataset"] = dataset_df["Dataset"].astype(str).str.upper().str.strip()
+
+
+    # 2. Config metadata
+    config_cols = [
+        "Dataset", "Label", "Class", "Structure", "Key Variables"
+    ]
+
+    cfg_meta = config_df.copy()
+
+    cfg_meta["Dataset"] = cfg_meta["Dataset"].astype(str).str.upper().str.strip()
+
+    cfg_meta = cfg_meta[[c for c in config_cols if c in cfg_meta.columns]]
+
+    cfg_meta = cfg_meta.drop_duplicates(subset=["Dataset"])
+
+    # 3. Merge
+    dataset_df = dataset_df.merge(
+        cfg_meta,
+        on="Dataset",
+        how="left"
+    )
+
+    # 4. 排序
+    dataset_df = dataset_df.sort_values("Dataset").reset_index(drop=True)
+
+    return dataset_df
+    # End=========================================================
+
+
+
 def build_variables_sheet(detail_df, config_df, td_dict=None):
     """
     Variables Sheet
@@ -2427,6 +2468,15 @@ if uploaded_file is not None:
             
             # 2.2 Datasets
             st.markdown("### 2.2 Datasets")
+            
+            datasets_df = build_datasets_from_variables(
+                variables_spec_df,
+                st.session_state["config_df"]
+            )
+            
+            st.dataframe(datasets_df, use_container_width=True)
+
+
             
             # 2.3 Variables
             st.markdown("### 2.3 Variables")
