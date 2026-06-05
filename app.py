@@ -1040,8 +1040,8 @@ def load_ct_master_from_web(sdtm_ct=""):
 
     try:
         latest_archive_txt_url, latest_archive_txt_version, latest_archive_last_modified = get_latest_archive_txt()
-    except:
-        pass
+        except:
+            pass
 
 
         # Apache index 通常第一張表就是檔案清單
