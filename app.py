@@ -1030,6 +1030,7 @@ def load_ct_master_from_web(sdtm_ct=""):
     # -------------------------------------------------
     filename = f"SDTM Terminology {sdtm_ct}.txt"
     filename_encoded = filename.replace(" ", "%20")
+    current_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/"
 
     # -------------------------------------------------
     # URL build
@@ -1054,6 +1055,22 @@ def load_ct_master_from_web(sdtm_ct=""):
 
         resp = requests.get(url, timeout=30)
         resp.raise_for_status()
+
+    # -------------------------------------------------
+    # 抓最新版本日期（從 index page）
+    # -------------------------------------------------
+    latest_date = ""
+
+    try:
+        links = parse_links_from_index(current_index)
+
+        for item in links:
+            if item["text"].strip() == "SDTM Terminology.txt":
+                latest_date = item.get("last_modified", "")
+                break
+    except:
+        latest_date = ""
+
 
     # -------------------------------------------------
     # read txt
@@ -1133,6 +1150,7 @@ def load_ct_master_from_web(sdtm_ct=""):
     return df.reset_index(drop=True), {
         "download_url": url,
         "source_type": source_type,
+        "latest_date": latest_date,
         "status": "success"
     }
     # End=========================================================
@@ -2356,9 +2374,33 @@ def make_step1_cache_key(file_bytes):
     # End=========================================================
 
 
+# =================================================================================================================
+# HTML設定
+# =================================================================================================================
+def fetch_html(url, timeout=30):
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    return resp.text
+    # End=========================================================
 
+def parse_links_from_index(index_url):
+    html = fetch_html(index_url)
+    soup = BeautifulSoup(html, "html.parser")
 
+    links = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        text = a.get_text(strip=True)
+        if not href:
+            continue
 
+        links.append({
+            "text": text,
+            "href": href,
+            "url": urljoin(index_url, href)
+        })
+    return links
+    # End=========================================================
 
 
 
@@ -2804,7 +2846,7 @@ if uploaded_file is not None:
                     st.info("📁 使用最新版本 CT")
                 
                 elif info["source_type"] == "fallback-current":
-                    st.warning(f"⚠️ 找不到指定版本 → fallback 到最新版本（{version}）")
+                    st.warning(f"⚠️ 找不到指定版本 → fallback 到最新版本（{latest_date}）")
                     
                 clean_url = info["download_url"].replace(" ", "%20")
                 col1, col2 = st.columns(2)
