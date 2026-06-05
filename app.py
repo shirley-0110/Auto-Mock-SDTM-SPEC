@@ -2319,7 +2319,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=None, detail_df=None, ts_df=None):
+def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=None, ts_df=None):
 
     df = variables_spec_df.copy()
 
@@ -2495,63 +2495,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
         else:
             map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "CT Term"])
 
-        # =================================================
-        # 5. 準備 detail_df（第二層用：Assign / CRF Option）
-        # =================================================
-        if detail_df is not None and not detail_df.empty:
-            det_df = detail_df.copy()
-            det_df.columns = [str(c).strip() for c in det_df.columns]
-
-            rename_map = {}
-            for c in det_df.columns:
-                cu = c.upper().strip()
-                if cu == "SDTM DOMAIN":
-                    rename_map[c] = "Dataset"
-                elif cu == "SDTM VARIABLE":
-                    rename_map[c] = "Variable"
-
-            det_df = det_df.rename(columns=rename_map)
-    
-            if "Dataset" not in det_df.columns:
-                det_df["Dataset"] = ""
-            if "Variable" not in det_df.columns:
-                det_df["Variable"] = ""
-
-            det_df["Dataset"] = det_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
-            det_df["Variable"] = det_df["Variable"].fillna("").astype(str).str.strip().str.upper()
-
-            # 自動抓 Assign / Option 欄位
-            assign_col = None
-            option_col = None
-
-            for c in det_df.columns:
-                cu = c.upper()
-                if assign_col is None and "ASSIGN" in cu:
-                    assign_col = c
-
-                # 常見 option/value 命名
-                if option_col is None and (
-                    "OPTION" in cu or
-                    "ORIGINAL VALUE" in cu or
-                    cu == "VALUE"
-                ):
-                    option_col = c
-
-            if assign_col is None:
-                det_df["__ASSIGN__"] = ""
-                assign_col = "__ASSIGN__"
-
-            if option_col is None:
-                det_df["__OPTION__"] = ""
-                option_col = "__OPTION__"
-
-            det_df[assign_col] = det_df[assign_col].fillna("").astype(str).str.strip()
-            det_df[option_col] = det_df[option_col].fillna("").astype(str).str.strip()
-
-        else:
-            det_df = pd.DataFrame(columns=["Dataset", "Variable", "__ASSIGN__", "__OPTION__"])
-            assign_col = "__ASSIGN__"
-            option_col = "__OPTION__"
 
         # =================================================
         # 6. 準備 TS（第二層特殊處理）
@@ -2608,13 +2551,13 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
             # 情況 2：沒 CT Code → 優先 Assign Value，再 CRF Option
             # ---------------------------------------------
             if not terms:
-                subset = det_df[
-                    (det_df["Dataset"] == dataset) &
-                    (det_df["Variable"] == variable)
+                subset = map_df[
+                    (map_df["Dataset"] == dataset) &
+                    (map_df["Variable"] == variable)
                 ].copy()
 
                 assign_terms = (
-                    subset[assign_col]
+                    subset["Assign Value"]
                     .dropna()
                     .astype(str)
                     .str.strip()
@@ -2628,7 +2571,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                     terms = assign_terms
                 else:
                     option_terms = (
-                        subset[option_col]
+                        subset["CRF Option Value"]
                         .dropna()
                         .astype(str)
                         .str.strip()
@@ -3164,7 +3107,7 @@ if uploaded_file is not None:
                     if no_ct_df.empty:
                         st.success("🎉 沒有 CT Code 為空的資料")
                     else:
-                        st.warning("以下變數沒有 CT Code（將走 CRF Option / 特殊規則）")
+                        st.warning("以下變數在 Config 沒有定義 CT Code")
 
                         display_cols = [
                             "SDTM Domain",
@@ -3279,7 +3222,6 @@ if uploaded_file is not None:
             st.markdown("### 2.3 Variables")           
             st.dataframe(variables_view_df, use_container_width=True)
             
-            st.dataframe(detail_df, use_container_width=True)
             
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
@@ -3333,7 +3275,6 @@ if uploaded_file is not None:
                 variables_spec_df=variables_spec_df,
                 ct_master_df=st.session_state.get("ct_master_df"),
                 ct_mapping_df=ct_mapping_df,
-                detail_df=detail_df,
                 ts_df=ts_df
             )
             
