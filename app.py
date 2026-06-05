@@ -2488,7 +2488,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
             id_temp = row["ID_Temp"]
             name = row["Name"]
             nci_codelist_code = row["NCI Codelist Code"]
-            ct_codelist_name = row["CT Codelist Name"]
 
             terms = []
 
