@@ -1513,6 +1513,119 @@ def apply_origin_rules(df):
 
 
 
+def apply_method_rules(df):
+
+    df = df.copy()
+
+    # 保底欄位
+    for col in ["Variable", "Dataset", "Method", "Comment"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    df["Variable"] = df["Variable"].astype(str).str.upper().str.strip()
+    df["Dataset"] = df["Dataset"].astype(str).str.upper().str.strip()
+    df["Method"] = df["Method"].fillna("").astype(str)
+    df["Comment"] = df["Comment"].fillna("").astype(str)
+
+    # -------------------------------------------------
+    # Method rules
+    # -------------------------------------------------
+
+    # 1. USUBJID
+    df.loc[df["Variable"] == "USUBJID", "Method"] = \
+        "Concatenation of STUDYID-SITEID-SUBJID"
+
+    # 2. TSSEQ
+    df.loc[df["Variable"] == "TSSEQ", "Method"] = \
+        "Equal to sequential number identifying records within each TSPARMCD in the domain"
+
+    # 3. {XX}SEQ（除了 TS）
+    mask_seq = df["Variable"].str.endswith("SEQ") & (df["Dataset"] != "TS")
+    df.loc[mask_seq, "Method"] = \
+        "Equal to sequential number identifying records within each USUBJID sorted by key variables in the domain"
+
+    # 4. {XX}{ST/EN}DY
+    mask_dy = (
+        df["Variable"].str.endswith("DY") |
+        df["Variable"].str.endswith("STDY") |
+        df["Variable"].str.endswith("ENDY")
+    )
+
+    df.loc[mask_dy, "Method"] = (
+        "Equal to {XX}{ST/EN}DTC - DM.RFSTDTC + 1 if {XX}{ST/EN}DTC is on or after DM.RFSTDTC; "
+        "equal to {XX}{ST/EN}DTC - DM.RFSTDTC if {XX}{ST/EN}DTC precedes DM.RFSTDTC"
+    )
+
+    # 5. RFSTDTC
+    df.loc[df["Variable"] == "RFSTDTC", "Method"] = \
+        "Equal to date/time of first exposure to study treatment (earliest EXSTDTC)"
+
+    # 6. RFENDTC
+    df.loc[df["Variable"] == "RFENDTC", "Method"] = \
+        "Equal to date/time of last exposure to study treatment (latest EXENDTC)"
+
+    # 7. RFXSTDTC / RFXENDTC
+    df.loc[df["Variable"] == "RFXSTDTC", "Method"] = "Equal to RFSTDTC"
+    df.loc[df["Variable"] == "RFXENDTC", "Method"] = "Equal to RFENDTC"
+
+    # 8. RFPENDTC
+    df.loc[df["Variable"] == "RFPENDTC", "Method"] = \
+        "Equal to the last known date during the study"
+
+    # 9. DTHFL
+    df.loc[df["Variable"] == "DTHFL", "Method"] = \
+        'Set to "Y" if DTHDTC is populated'
+
+    # 10. DSDTC
+    df.loc[df["Variable"] == "DSDTC", "Method"] = "Equal to DSSTDTC"
+
+    # 11. {XX}STRESC
+    df.loc[df["Variable"].str.endswith("STRESC"), "Method"] = \
+        "Equal to {XX}ORRES"
+
+    # 12. {XX}STRESN
+    df.loc[df["Variable"].str.endswith("STRESN"), "Method"] = \
+        "Equal to numeric value of {XX}STRESC if {XX}STRESC contains numeric data"
+
+    # 13. {XX}STRESU
+    df.loc[df["Variable"].str.endswith("STRESU"), "Method"] = \
+        "Equal to {XX}ORRESU"
+
+    # 14. {XX}STAT
+    df.loc[df["Variable"].str.endswith("STAT"), "Method"] = \
+        'Equal to "NOT DONE" if {XX}ORRES is null'
+
+    # 15. {XX}LOBXFL
+    df.loc[df["Variable"].str.endswith("LOBXFL"), "Method"] = \
+        'Equal to "Y" for last non-missing value on or before first exposure (DM.RFSTDTC); null otherwise'
+
+    # -------------------------------------------------
+    # Comment rules
+    # -------------------------------------------------
+
+    # IDVAR
+    df.loc[df["Variable"] == "IDVAR", "Comment"] = \
+        "Name of the variables for related records, such as --SEQ, VISIT or --DTC"
+
+    # IDVARVAL
+    df.loc[df["Variable"] == "IDVARVAL", "Comment"] = \
+        "Value of identifying variable described in IDVAR"
+
+    # VISITNUM（除了 TV）
+    df.loc[
+        (df["Variable"] == "VISITNUM") & (df["Dataset"] != "TV"),
+        "Comment"
+    ] = "Assigned from the TV domain based on VISIT"
+
+    # TA.EPOCH
+    df.loc[
+        (df["Dataset"] == "TA") & (df["Variable"] == "EPOCH"),
+        "Comment"
+    ] = "Assigned based on protocol design"
+
+    return df
+    # End=========================================================
+
 
 
 def build_define_sheet(protocol_no, protocol_title, sdtm_version):
@@ -1530,8 +1643,6 @@ def build_define_sheet(protocol_no, protocol_title, sdtm_version):
 
     return define_df
     # End=========================================================
-
-
 
 
 
@@ -1821,6 +1932,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
     merged = apply_codelist_rules(merged)
     merged = apply_origin_rules(merged)
+    merged = apply_method_rules(merged)
     
     # Data Type 轉換
     if "Data Type" in merged.columns:
