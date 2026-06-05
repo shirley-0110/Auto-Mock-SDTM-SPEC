@@ -2103,9 +2103,7 @@ def build_codelist_sheet(variables_spec_df):
 
     df = variables_spec_df.copy()
 
-    # -------------------------------------------------
     # 保底欄位
-    # -------------------------------------------------
     if "Codelist" not in df.columns:
         df["Codelist"] = ""
 
@@ -2117,27 +2115,43 @@ def build_codelist_sheet(variables_spec_df):
         .str.upper()
     )
 
-    # -------------------------------------------------
-    # 只保留有 Codelist 的
-    # -------------------------------------------------
-    df = df[df["Codelist"] != ""].copy()
 
-    # -------------------------------------------------
-    # ✅ 只用 Codelist 去重
-    # -------------------------------------------------
+    # 只保留有 Codelist 的，移除 AEDICT_F 和 ISO3166
+    df = df[
+        (df["Codelist"] != "") &
+        (~df["Codelist"].isin(["AEDICT_F", "ISO3166"]))
+    ].copy()
+
+
+    # 用 Codelist 去重
     codelist_df = (
         df[["Codelist"]]
         .drop_duplicates()
         .reset_index(drop=True)
     )
 
+    # 加 ID / ID_Temp
     # -------------------------------------------------
-    # 排序（方便看）
-    # -------------------------------------------------
+
+    # ID = Codelist
+    codelist_df["ID"] = codelist_df["Codelist"]
+
+    # ID_Temp = "_" 前字串
+    codelist_df["ID_Temp"] = (
+        codelist_df["Codelist"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .apply(lambda x: x.split("_")[0] if x else "")
+    )
+
+
+    # 排序
     codelist_df = codelist_df.sort_values("Codelist").reset_index(drop=True)
 
     return codelist_df
-
+    # End=========================================================
 
 
 
