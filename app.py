@@ -2600,7 +2600,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                     "ID": id_,
                     "ID_Temp": id_temp,
                     "Name": name,
-                    "CT Codelist Name": ct_codelist_name,
                     "NCI Codelist Code": nci_codelist_code,
                     "Term": term
                 })
