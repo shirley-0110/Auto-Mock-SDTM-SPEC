@@ -2099,7 +2099,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, nci_ct_df=None):
+def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, ts_df=None, nci_ct_df=None):
     """
     建立 2.4 Codelist Sheet
 
@@ -2133,6 +2133,7 @@ def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, nci_ct_df
         "Codelist",
         "CT Code",
         "CT Term",
+        "Term",
         "NCI Codelist Code",
         "NCI Term Code"
     ]
@@ -2145,12 +2146,15 @@ def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, nci_ct_df
 
     df = variables_spec_df.copy()
 
-    for col in ["Codelist", "CT Code"]:
+    for col in ["Dataset", "Variable", "CT Code", "Codelist"]:
         if col not in df.columns:
             df[col] = ""
 
-    df["Codelist"] = df["Codelist"].fillna("").astype(str).str.strip().str.upper()
+    df["Dataset"] = df["Dataset"].fillna("").astype(str).str.strip().str.upper()
+    df["Variable"] = df["Variable"].fillna("").astype(str).str.strip().str.upper()
     df["CT Code"] = df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+    df["Codelist"] = df["Codelist"].fillna("").astype(str).str.strip().str.upper()
+
 
     # 只保留真的有 codelist / ct code 的
     df = df[
@@ -2182,6 +2186,15 @@ def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, nci_ct_df
         .str.upper()
         .apply(lambda x: x.split("_")[0] if x else "")
     )
+    
+    # 排除不進Codelist的ID
+    codelist_df = codelist_df[
+        ~codelist_df["Codelist"].isin(["AEDICT_F", "ISO3166"])
+    ].copy()
+
+    if codelist_df.empty:
+        return pd.DataFrame(columns=final_cols)
+
 
     # -------------------------------------------------
     # 3. 從 Step 1 CT Mapping 結果抓 CT Term
@@ -2193,89 +2206,193 @@ def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, nci_ct_df
 
         ct_df = ct_mapping_result_df.copy()
 
-        # 欄位保底
-        # 你前面如果輸出的是 "CT Term" 就直接用；
-        # 如果還是舊欄位 "CTVAL"，也一起支援
-        if "CT Term" not in ct_df.columns and "CTVAL" in ct_df.columns:
-            ct_df = ct_df.rename(columns={"CTVAL": "CT Term"})
+        # 欄位對齊
+        rename_map = {}
+        for col in ct_df.columns:
+            norm = str(col).strip().upper()
 
-        if "CT Code" not in ct_df.columns and "CTcode" in ct_df.columns:
-            ct_df = ct_df.rename(columns={"CTcode": "CT Code"})
+            if norm in ["CTCODE", "CT CODE"]:
+                rename_map[col] = "CT Code"
+            elif norm in ["CT TERM", "CTVAL"]:
+                rename_map[col] = "CT Term"
+            elif norm in ["ORIGINAL VALUE", "ORIVAL"]:
+                rename_map[col] = "Original Value"
 
-        if "CT Code" in ct_df.columns and "CT Term" in ct_df.columns:
-            ct_df["CT Code"] = ct_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
-            ct_df["CT Term"] = ct_df["CT Term"].fillna("").astype(str).str.strip()
+        ct_df = ct_df.rename(columns=rename_map)
 
-            ct_term_df = (
-                ct_df[["CT Code", "CT Term"]]
-                .drop_duplicates()
+        for col in ["CT Code", "CT Term", "Original Value"]:
+            if col not in ct_df.columns:
+                ct_df[col] = ""
+
+        ct_df["CT Code"] = ct_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+        ct_df["CT Term"] = ct_df["CT Term"].fillna("").astype(str).str.strip()
+        ct_df["Original Value"] = ct_df["Original Value"].fillna("").astype(str).str.strip()
+
+        # 5.1 CT Code -> CT Term
+        ct_term_df = (
+            ct_df[["CT Code", "CT Term"]]
+            .drop_duplicates()
+        )
+
+        codelist_df = codelist_df.merge(
+            ct_term_df,
+            on="CT Code",
+            how="left",
+            suffixes=("", "_from_mapping")
+        )
+
+        if "CT Term_from_mapping" in codelist_df.columns:
+            codelist_df["CT Term"] = codelist_df["CT Term_from_mapping"].fillna(codelist_df["CT Term"])
+            codelist_df = codelist_df.drop(columns=["CT Term_from_mapping"])
+
+        # 5.2 CRF option（給沒有 CT Code 但有 Codelist 的）
+        option_df = (
+            ct_df[["CT Code", "Original Value"]]
+            .drop_duplicates()
+        )
+
+        # 沒 CT Code 的情況，用 Variable / Codelist 不一定能直併，所以這裡先準備 base fallback
+        # 稍後用 Dataset + Variable + Codelist 回 variables 再補
+        variable_option_df = (
+            ct_mapping_result_df.copy()
+            .rename(columns=rename_map)
+        )
+
+        for col in ["Dataset", "Variable", "Original Value", "CT Code"]:
+            if col not in variable_option_df.columns:
+                variable_option_df[col] = ""
+
+        if "Dataset" not in variable_option_df.columns:
+            if "SDTM Domain" in variable_option_df.columns:
+                variable_option_df["Dataset"] = variable_option_df["SDTM Domain"]
+
+        if "Variable" not in variable_option_df.columns:
+            if "SDTM Variable" in variable_option_df.columns:
+                variable_option_df["Variable"] = variable_option_df["SDTM Variable"]
+
+        variable_option_df["Dataset"] = variable_option_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
+        variable_option_df["Variable"] = variable_option_df["Variable"].fillna("").astype(str).str.strip().str.upper()
+        variable_option_df["CT Code"] = variable_option_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+        variable_option_df["Original Value"] = variable_option_df["Original Value"].fillna("").astype(str).str.strip()
+
+    else:
+        variable_option_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "Original Value"])
+
+    # -------------------------------------------------
+    # 6. Term 優先規則
+    # -------------------------------------------------
+
+    # 6.1 優先 = CT Term
+    codelist_df["Term"] = codelist_df["CT Term"]
+
+    # 6.2 ID_Temp = DOMAIN -> Term = Dataset 名稱
+    mask_domain = (
+        codelist_df["Term"].fillna("").astype(str).str.strip() == ""
+    ) & (
+        codelist_df["ID_Temp"] == "DOMAIN"
+    )
+
+    codelist_df.loc[mask_domain, "Term"] = codelist_df.loc[mask_domain, "Dataset"]
+
+    # 6.3 沒 CT Code，但有 CRF option -> Term = Original Value
+    if variable_option_df is not None and not variable_option_df.empty:
+
+        no_ct_mask = codelist_df["CT Code"].fillna("").astype(str).str.strip() == ""
+
+        if no_ct_mask.any():
+            no_ct_rows = codelist_df[no_ct_mask].copy()
+
+            # 用 Dataset + Variable 回找 option
+            no_ct_rows = no_ct_rows.merge(
+                variable_option_df[["Dataset", "Variable", "Original Value"]].drop_duplicates(),
+                on=["Dataset", "Variable"],
+                how="left"
             )
 
+            # 只在 Term 還空的時候補
+            fill_mask = no_ct_rows["Term"].fillna("").astype(str).str.strip() == ""
+
+            no_ct_rows.loc[fill_mask, "Term"] = no_ct_rows.loc[fill_mask, "Original Value"]
+
+            # 回填
+            codelist_df.loc[no_ct_rows.index, "Term"] = no_ct_rows["Term"].values
+
+    # 6.4 TS 的 TSPARM / TSPARMCD
+    if ts_df is not None and not ts_df.empty:
+
+        ts_work = ts_df.copy()
+
+        for col in ["TSPARMCD", "TSPARM"]:
+            if col not in ts_work.columns:
+                ts_work[col] = ""
+
+        ts_work["TSPARMCD"] = ts_work["TSPARMCD"].fillna("").astype(str).str.strip().str.upper()
+        ts_work["TSPARM"] = ts_work["TSPARM"].fillna("").astype(str).str.strip()
+
+        ts_term_df = ts_work[["TSPARMCD", "TSPARM"]].drop_duplicates()
+
+        mask_ts = (
+            (codelist_df["Variable"] == "TSPARMCD") |
+            (codelist_df["Variable"] == "TSPARM")
+        )
+
+        if mask_ts.any():
             codelist_df = codelist_df.merge(
-                ct_term_df,
-                on="CT Code",
-                how="left",
-                suffixes=("", "_from_mapping")
+                ts_term_df,
+                left_on="ID_Temp",
+                right_on="TSPARMCD",
+                how="left"
             )
 
-            # 如果 merge 到的 term 有值，就放回 CT Term
-            if "CT Term_from_mapping" in codelist_df.columns:
-                codelist_df["CT Term"] = codelist_df["CT Term_from_mapping"].fillna(codelist_df["CT Term"])
-                codelist_df = codelist_df.drop(columns=["CT Term_from_mapping"])
+            fill_mask = (
+                (codelist_df["Term"].fillna("").astype(str).str.strip() == "") &
+                (codelist_df["TSPARM"].fillna("").astype(str).str.strip() != "")
+            )
+
+            codelist_df.loc[fill_mask, "Term"] = codelist_df.loc[fill_mask, "TSPARM"]
+
+            drop_cols = [c for c in ["TSPARMCD", "TSPARM"] if c in codelist_df.columns]
+            if drop_cols:
+                codelist_df = codelist_df.drop(columns=drop_cols)
 
     # -------------------------------------------------
-    # 4. 併 NCI CT Master（可選）
-    #    用 ID_Temp + CT Term 去找標準碼
+    # 7. NCI CT master（可選）
     # -------------------------------------------------
-    codelist_df["NCI Codelist Code"] = ""
-    codelist_df["NCI Term Code"] = ""
-
     if nci_ct_df is not None and not nci_ct_df.empty:
 
         nci = nci_ct_df.copy()
 
-        # -----------------------------
-        # 4.1 嘗試標準化欄位名稱
-        # -----------------------------
         rename_map = {}
-
         for col in nci.columns:
             norm = str(col).strip().upper()
 
             if norm in ["ID", "CT CODE", "CODELIST", "CODELIST SUBMISSION VALUE"]:
                 rename_map[col] = "ID_Temp"
-            elif norm in ["CT TERM", "TERM", "SUBMISSION VALUE", "CODED VALUE", "NCI TERM", "DECODE"]:
-                rename_map[col] = "CT Term"
-            elif norm in ["NCI CODELIST CODE", "NCI CODELIST", "CODELIST CODE"]:
+            elif norm in ["CT TERM", "TERM", "SUBMISSION VALUE", "DECODE"]:
+                rename_map[col] = "Term"
+            elif norm in ["NCI CODELIST CODE", "CODELIST CODE"]:
                 rename_map[col] = "NCI Codelist Code"
             elif norm in ["NCI TERM CODE", "TERM CODE", "NCI CODE"]:
                 rename_map[col] = "NCI Term Code"
 
         nci = nci.rename(columns=rename_map)
 
-        # -----------------------------
-        # 4.2 欄位保底
-        # -----------------------------
-        for col in ["ID_Temp", "CT Term", "NCI Codelist Code", "NCI Term Code"]:
+        for col in ["ID_Temp", "Term", "NCI Codelist Code", "NCI Term Code"]:
             if col not in nci.columns:
                 nci[col] = ""
 
         nci["ID_Temp"] = nci["ID_Temp"].fillna("").astype(str).str.strip().str.upper()
-        nci["CT Term"] = nci["CT Term"].fillna("").astype(str).str.strip()
+        nci["Term"] = nci["Term"].fillna("").astype(str).str.strip()
 
-        nci_meta = (
-            nci[["ID_Temp", "CT Term", "NCI Codelist Code", "NCI Term Code"]]
-            .drop_duplicates()
-        )
+        nci_meta = nci[["ID_Temp", "Term", "NCI Codelist Code", "NCI Term Code"]].drop_duplicates()
 
         codelist_df = codelist_df.merge(
             nci_meta,
-            on=["ID_Temp", "CT Term"],
+            on=["ID_Temp", "Term"],
             how="left",
             suffixes=("", "_nci")
         )
 
-        # 回填
         if "NCI Codelist Code_nci" in codelist_df.columns:
             codelist_df["NCI Codelist Code"] = codelist_df["NCI Codelist Code_nci"].fillna(codelist_df["NCI Codelist Code"])
             codelist_df = codelist_df.drop(columns=["NCI Codelist Code_nci"])
@@ -2285,7 +2402,7 @@ def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, nci_ct_df
             codelist_df = codelist_df.drop(columns=["NCI Term Code_nci"])
 
     # -------------------------------------------------
-    # 5. 最終整理
+    # 8. 最終整理
     # -------------------------------------------------
     for col in final_cols:
         if col not in codelist_df.columns:
@@ -2294,11 +2411,12 @@ def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, nci_ct_df
     codelist_df = (
         codelist_df[final_cols]
         .drop_duplicates()
-        .sort_values(by=["Codelist", "CT Term"], na_position="last")
+        .sort_values(by=["Codelist", "Term"], na_position="last")
         .reset_index(drop=True)
     )
 
     return codelist_df
+
 
 
 
