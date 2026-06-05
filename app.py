@@ -2648,7 +2648,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
             if not terms:
                 terms = [""]
 
-                for term in terms:
+            for term in terms:
                 expanded_rows.append({
                     "Dataset": dataset,
                     "Variable": variable,
