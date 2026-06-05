@@ -1749,7 +1749,8 @@ def build_datasets_from_variables(variables_df, config_df, sdtm_version):
 
 
     # 5. Standard 欄位
-    dataset_df["Standard"] = f"SDTMIG {sdtm_version}"
+    std_ver = str(sdtm_version).upper().replace("VERSION", "").strip()
+    dataset_df["Standard"] = f"SDTMIG {std_ver}"
 
 
     # 6. 排序
