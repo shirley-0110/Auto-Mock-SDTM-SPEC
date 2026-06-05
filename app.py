@@ -2433,16 +2433,15 @@ def get_latest_archive_txt():
 
     for row in rows:
         cols = row.find_all("td")
-        if len(cols) < 2:
+        if len(cols) < 3:
             continue
 
-        link_tag = cols[0].find("a")
+        link_tag = cols[1].find("a")
         if not link_tag:
             continue
 
         name = link_tag.get_text(strip=True)
-        debug_names.append(repr(name))
-        last_modified = cols[1].get_text(strip=True)
+        last_modified = cols[2].get_text(strip=True)
 
         m = pattern.match(name)
         if m:
@@ -2463,7 +2462,7 @@ def get_latest_archive_txt():
 
     latest = results[0]
 
-    return latest["url"], latest["version"], latest["last_modified"], debug_names
+    return latest["url"], latest["version"], latest["last_modified"]
     # End=========================================================
 
 
