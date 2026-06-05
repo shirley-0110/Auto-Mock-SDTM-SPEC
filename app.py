@@ -2426,10 +2426,9 @@ def get_latest_archive_txt():
     rows = soup.find_all("tr")
 
     # 只抓：SDTM Terminology yyyy-mm-dd.txt
-    pattern = re.compile(r"^SDTM Terminology (\d{4}-\d{2}-\d{2})\.txt$")
+    pattern = re.compile(r"SDTM Terminology\s+(\d{4}-\d{2}-\d{2})\.txt")
 
     results = []
-    debug_names = []
 
     for row in rows:
         cols = row.find_all("td")
@@ -2442,6 +2441,9 @@ def get_latest_archive_txt():
 
         name = link_tag.get_text(strip=True)
         last_modified = cols[2].get_text(strip=True)
+
+        if "Terminology Changes" in name:
+            continue
 
         m = pattern.match(name)
         if m:
