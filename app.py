@@ -1065,7 +1065,8 @@ def load_ct_master_from_web(sdtm_ct=""):
         links = parse_links_from_index(current_index)
 
         for item in links:
-            if item["text"].strip() == "SDTM Terminology.txt":
+            text = item["text"]
+            if "SDTM Terminology.txt" in text:
                 latest_date = item.get("last_modified", "")
                 break
     except:
