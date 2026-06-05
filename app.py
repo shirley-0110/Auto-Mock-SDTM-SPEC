@@ -2829,7 +2829,7 @@ if uploaded_file is not None:
 
                 st.success("✅ SDTM Controlled Terminology 載入成功")
 
-        
+                latest_date = info.get("latest_date", "") or "Unknown"
                 filename = os.path.basename(info["download_url"])
 
                 version = (
@@ -2842,10 +2842,10 @@ if uploaded_file is not None:
                     st.info(f"📦 使用指定版本 CT（{version}）")
                 
                 elif info["source_type"] == "current":
-                    st.info("📁 使用最新版本 CT")
+                    st.info(f"📁 使用最新版本 CT（{latest_date}）")
                 
                 elif info["source_type"] == "fallback-current":
-                    st.warning(f"⚠️ 找不到指定版本 → fallback 到最新版本（{info[latest_date]}）")
+                    st.warning(f"⚠️ 找不到指定版本 → 使用最新版本（{latest_date}）")
                     
                 clean_url = info["download_url"].replace(" ", "%20")
                 col1, col2 = st.columns(2)
