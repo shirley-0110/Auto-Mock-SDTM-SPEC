@@ -2615,6 +2615,11 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
                     .drop_duplicates()
                     .tolist()
                 )
+          
+                # CT Code 有但沒 mapping，不做情況3
+                if not terms:
+                    terms = []   # 保持空，不進 special
+
 
             # ---------------------------------------------
             # 情況 2：沒 CT Code → 優先 Assign Value，再 CRF Option
@@ -2654,7 +2659,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
             # ---------------------------------------------
             # 情況 3：特殊處理
             # ---------------------------------------------
-            if not terms:
+            if ct_code == "" and not terms:
 
                 if id_temp == "DOMAIN":
                     terms = [dataset]
