@@ -2870,6 +2870,25 @@ if uploaded_file is not None:
             st.markdown("### 2.4 Codelists")
 
             
+            st.markdown("#### 🔍 Debug: Archive HTML Tables")
+
+            archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
+
+            try:
+                tables = pd.read_html(archive_index)
+
+                st.success(f"✅ 成功抓到 {len(tables)} 張 table")
+
+                # 顯示每一張 table 的前幾列
+                for i, tbl in enumerate(tables):
+                    st.markdown(f"##### Table {i}")
+                    st.write("Columns:", list(tbl.columns))
+                    st.dataframe(tbl.head(20), use_container_width=True)
+
+            except Exception as e:
+                st.error("❌ pd.read_html() 抓 Archive 失敗")
+                st.write(str(e))
+
             st.markdown("#### 🔍 Debug: Latest Archive TXT")
 
             try:
