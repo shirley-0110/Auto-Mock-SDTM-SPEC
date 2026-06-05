@@ -2464,7 +2464,16 @@ if uploaded_file is not None:
                 unii_version=unii_version,
                 unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame())
             )
-            
+
+            # 先產出2.3的Variable List
+            variables_spec_df = build_variables_sheet(
+                detail_df=detail_df,
+                config_df=st.session_state["config_df"],
+                td_dict=td_dict
+            )       
+
+            variables_view_df = variables_spec_df.drop(columns=["CT Code"])
+
             
             # 2.2 Datasets
             st.markdown("### 2.2 Datasets")
@@ -2476,20 +2485,11 @@ if uploaded_file is not None:
             
             st.dataframe(datasets_df, use_container_width=True)
 
-
             
             # 2.3 Variables
-            st.markdown("### 2.3 Variables")
-            
-            variables_spec_df = build_variables_sheet(
-                detail_df=detail_df,
-                config_df=st.session_state["config_df"],
-                td_dict=td_dict
-            )       
-
-            variables_view_df = variables_spec_df.drop(columns=["CT Code"])
-           
+            st.markdown("### 2.3 Variables")           
             st.dataframe(variables_view_df, use_container_width=True)
+            
 
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
