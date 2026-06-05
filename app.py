@@ -1143,7 +1143,6 @@ def load_ct_master_from_web(sdtm_ct=""):
         .fillna("")
         .astype(str)
         .str.strip()
-        .str.upper()
     )
 
     df["Submission Value"] = (
@@ -2380,7 +2379,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None):
         # --- rename（只在 output 層） ---
         codelist_df = codelist_df.rename(columns={
             "Code": "NCI Codelist Code",
-            "Codelist Name": "CT Codelist Name"
+            "Codelist Name": "Name"
         })
 
         codelist_df = codelist_df.drop(
