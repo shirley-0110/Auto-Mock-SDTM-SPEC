@@ -2423,9 +2423,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None):
             + " (" + codelist_df.loc[mask, "Dataset"] + ")"
         )
 
-        codelist_df["Name"] = codelist_df.apply(add_domain, axis=1)
-
-
     
     return codelist_df
     # End=========================================================
