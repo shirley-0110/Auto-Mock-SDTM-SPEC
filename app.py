@@ -1028,7 +1028,7 @@ def load_ct_master_from_web(sdtm_ct=""):
     archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
     current_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
 
-    requested_version = normalize_ct_version_text(sdtm_ct)
+    requested_version = normalize_date_text(sdtm_ct)
 
     # -------------------------------------------------
     # 1. 先抓 Archive 最新 txt
