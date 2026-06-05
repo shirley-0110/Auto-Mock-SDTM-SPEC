@@ -1035,7 +1035,7 @@ def load_ct_master_from_web(sdtm_ct=""):
     # -------------------------------------------------
     # URL build
     # -------------------------------------------------
-    if version:
+    if sdtm_ct:
         url = f"https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/{filename_encoded}"
         source_type = "archive"
     else:
