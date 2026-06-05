@@ -1028,56 +1028,17 @@ def load_ct_master_from_web(sdtm_ct=""):
     archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
     current_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
 
-
-    requested_version = sdtm_ct
+    requested_version = str(sdtm_ct or "").strip()
 
     # -------------------------------------------------
-    # 1. 先從 Archive 表格抓所有 txt，找最新
+    # 1. 先抓 Archive 最新 txt
     # -------------------------------------------------
     latest_archive_url = ""
     latest_archive_version = ""
     latest_archive_last_modified = ""
 
     try:
-        latest_archive_txt_url, latest_archive_txt_version, latest_archive_last_modified = get_latest_archive_txt()
-        except:
-            pass
-
-
-        # Apache index 通常第一張表就是檔案清單
-        archive_df = tables[0].copy()
-        archive_df.columns = [str(c).strip() for c in archive_df.columns]
-
-        # 正常會有 Name / Last modified
-        if "Name" in archive_df.columns and "Last modified" in archive_df.columns:
-            archive_df["Name"] = archive_df["Name"].astype(str).str.strip()
-            archive_df["Last modified"] = pd.to_datetime(
-                archive_df["Last modified"],
-                errors="coerce"
-            )
-
-            pattern = r"^SDTM Terminology (\d{4}-\d{2}-\d{2})\.txt$"
-
-            txt_df = archive_df[
-                archive_df["Name"].str.match(pattern, na=False)
-            ].copy()
-
-            if not txt_df.empty:
-                txt_df["Version"] = txt_df["Name"].str.extract(pattern)[0]
-
-                txt_df = txt_df.sort_values(
-                    by="Last modified",
-                    ascending=False
-                ).reset_index(drop=True)
-
-                latest_name = txt_df.loc[0, "Name"]
-                latest_archive_version = txt_df.loc[0, "Version"]
-                latest_archive_last_modified = (
-                    txt_df.loc[0, "Last modified"].strftime("%Y-%m-%d %H:%M")
-                    if pd.notna(txt_df.loc[0, "Last modified"]) else ""
-                )
-                latest_archive_url = archive_index + latest_name.replace(" ", "%20")
-
+        latest_archive_url, latest_archive_version, latest_archive_last_modified = get_latest_archive_txt()
     except Exception:
         latest_archive_url = ""
         latest_archive_version = ""
@@ -1105,7 +1066,7 @@ def load_ct_master_from_web(sdtm_ct=""):
             resolved_last_modified = ""
 
     # -------------------------------------------------
-    # 3. 下載，若指定版本失敗就 fallback 到最新 archive
+    # 3. 下載；指定版本失敗就 fallback 到最新 archive
     # -------------------------------------------------
     try:
         resp = requests.get(url, timeout=30)
@@ -1168,10 +1129,16 @@ def load_ct_master_from_web(sdtm_ct=""):
     df = df.rename(columns=rename_map)
     df = df.loc[:, ~df.columns.duplicated()]
 
+    # -------------------------------------------------
+    # 6. 保底欄位
+    # -------------------------------------------------
     for c in ["Codelist Code", "Codelist Name", "Submission Value", "NCI Term Code"]:
         if c not in df.columns:
             df[c] = ""
 
+    # -------------------------------------------------
+    # 7. clean + merge key
+    # -------------------------------------------------
     df["Codelist Name"] = (
         df["Codelist Name"]
         .fillna("")
@@ -2447,24 +2414,24 @@ def parse_links_from_index(index_url):
     # End=========================================================
 
 
+
 def get_latest_archive_txt():
 
     archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
 
-    resp = requests.get(archive_index)
+    resp = requests.get(archive_index, timeout=30)
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
-
     rows = soup.find_all("tr")
 
-    pattern = re.compile(r"SDTM Terminology (\d{4}-\d{2}-\d{2})\.txt")
+    # 只抓：SDTM Terminology yyyy-mm-dd.txt
+    pattern = re.compile(r"^SDTM Terminology (\d{4}-\d{2}-\d{2})\.txt$")
 
     results = []
 
     for row in rows:
         cols = row.find_all("td")
-
         if len(cols) < 2:
             continue
 
@@ -2472,29 +2439,25 @@ def get_latest_archive_txt():
         if not link_tag:
             continue
 
-        text = link_tag.get_text(strip=True)
+        name = link_tag.get_text(strip=True)
         last_modified = cols[1].get_text(strip=True)
 
-        m = pattern.search(text)
+        m = pattern.match(name)
         if m:
             version = m.group(1)
 
             results.append({
-                "name": text,
+                "name": name,
                 "version": version,
                 "last_modified": last_modified,
-                "url": archive_index + text.replace(" ", "%20")
+                "url": archive_index + name.replace(" ", "%20")
             })
 
     if not results:
         return "", "", ""
 
-    # 用 last_modified 排序
-    results = sorted(
-        results,
-        key=lambda x: x["last_modified"],
-        reverse=True
-    )
+    # 依 last_modified 最新排序
+    results = sorted(results, key=lambda x: x["last_modified"], reverse=True)
 
     latest = results[0]
 
