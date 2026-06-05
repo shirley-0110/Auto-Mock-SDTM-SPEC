@@ -1029,7 +1029,7 @@ def load_ct_master_from_web(sdtm_ct=""):
     current_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
 
 
-    requested_version = normalize_ct_version_text(sdtm_ct)
+    requested_version = sdtm_ct
 
     # -------------------------------------------------
     # 1. 先從 Archive 表格抓所有 txt，找最新
