@@ -2806,9 +2806,8 @@ if uploaded_file is not None:
 
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
-            # -------------------------------------------------
-            # Load button
-            # -------------------------------------------------
+
+            # Load CT Master
             if "ct_master_df" not in st.session_state:
                 
                 try:
@@ -2846,7 +2845,7 @@ if uploaded_file is not None:
                     st.info("📁 使用最新版本 CT")
                 
                 elif info["source_type"] == "fallback-current":
-                    st.warning(f"⚠️ 找不到指定版本 → fallback 到最新版本（{latest_date}）")
+                    st.warning(f"⚠️ 找不到指定版本 → fallback 到最新版本（{info[latest_date]}）")
                     
                 clean_url = info["download_url"].replace(" ", "%20")
                 col1, col2 = st.columns(2)
