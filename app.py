@@ -2418,7 +2418,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None):
 
         codelist_df["Name"] = codelist_df.apply(
             lambda row:
-                special_map.get(row["ID_Temp"], row["Name"]),
+                special_map.get(row["ID"], row["Name"]),
             axis=1
         )
 
