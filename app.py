@@ -2388,6 +2388,47 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None):
         )
 
     
+        # =================================================
+        # Name 調整
+        # =================================================
+
+        # --- 處理空值 fallback ---
+        codelist_df["CT Codelist Name"] = codelist_df["CT Codelist Name"].fillna("").astype(str).str.strip()
+
+        codelist_df["Name"] = codelist_df["CT Codelist Name"]
+
+        # 沒有 merge 到 → 用 Label
+        codelist_df.loc[
+            codelist_df["Name"] == "",
+            "Name"
+        ] = codelist_df["Label"]
+
+
+        # --- 特殊 override ---
+        special_map = {
+            "ARM": "Description of Arm",
+            "ARMCD": "Arm Code"
+        }
+
+        codelist_df["Name"] = codelist_df.apply(
+            lambda row:
+                special_map.get(row["ID_Temp"], row["Name"]),
+            axis=1
+        )
+
+
+        # --- 跨Domain → 加 (Domain) ---
+        mask = codelist_df["Codelist"].str.contains("_", na=False)
+
+        codelist_df.loc[mask, "Name"] = (
+            codelist_df.loc[mask, "Name"]
+            + " (" + codelist_df.loc[mask, "Dataset"] + ")"
+        )
+
+        codelist_df["Name"] = codelist_df.apply(add_domain, axis=1)
+
+
+    
     return codelist_df
     # End=========================================================
 
