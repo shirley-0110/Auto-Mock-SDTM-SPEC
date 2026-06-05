@@ -2900,7 +2900,7 @@ if uploaded_file is not None:
                 
                 try:
                     ct_df, info = load_ct_master_from_web(
-                        st.session_state.get("sdtm_ct_version", "")
+                        st.session_state.get("sdtm_ct", "")
                     )
 
                     st.session_state["ct_master_df"] = ct_df
