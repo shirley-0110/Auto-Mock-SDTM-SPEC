@@ -2870,26 +2870,6 @@ if uploaded_file is not None:
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
 
-            
-            st.markdown("#### 🔍 Debug: Latest Archive TXT")
-
-            try:
-                url, version, last_modified = get_latest_archive_txt()
-
-                st.success("✅ get_latest_archive_txt() 成功")
-
-                st.write("🔹 Version:", version or "❌ 空")
-                st.write("🔹 Last modified:", last_modified or "❌ 空")
-                st.markdown(f"🔹 URL: [{url}]({url})" if url else "❌ URL 空")
-
-                st.write("All filenames:")
-
-
-            except Exception as e:
-                st.error("❌ get_latest_archive_txt() 失敗")
-                st.write(str(e))
-
-
             # Load CT Master
             current_ct_key = st.session_state.get("sdtm_ct", "")
 
@@ -2931,22 +2911,8 @@ if uploaded_file is not None:
                         f"⚠️ 找不到指定版本 {requested_version} → 改用最新版本（[{resolved_version}]({url})）"
                     )
 
-
-                clean_url = info["download_url"]
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("🔹 Rows:", len(ct_df))
-
-                with col2:
-                    st.write("🔹 Columns:", len(ct_df.columns))
-
-                st.markdown(f"🔗[CT Download URL]({info['download_url']})")
-
-
                 with st.expander("Preview CT Master"):
                     st.dataframe(ct_df.head(20), use_container_width=True)
-
 
             
             codelist_df = build_codelist_sheet(
