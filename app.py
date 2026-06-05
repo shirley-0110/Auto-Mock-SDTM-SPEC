@@ -2919,16 +2919,16 @@ if uploaded_file is not None:
                 st.success("✅ SDTM Controlled Terminology 載入成功")
                 
                 resolved_version = info.get("resolved_version", "") or "Unknown"
-                resolved_last_modified = info.get("resolved_last_modified", "") or "Unknown"
+                requested_version = info.get("requested_version", "")
+                url = info.get("download_url", "")
                 
                 if info["source_type"] == "archive":
-                    st.info(f"📦 使用指定版本 CT（{resolved_version}）")
+                    st.markdown(f"📦 使用指定版本 CT（[{resolved_version}]({url})）")
                 elif info["source_type"] == "latest-archive":
-                    st.info(f"📁 使用最新版本 CT（{resolved_version}）")
+                    st.markdown(f"📁 使用最新版本 CT（[{resolved_version}]({url})）")
                 elif info["source_type"] == "fallback-latest-archive":
                     st.warning(
-                        f"⚠️ 找不到指定版本 {info.get('requested_version', '')} → "
-                        f"改用最新版本（{resolved_version}）"
+                        f"⚠️ 找不到指定版本 {requested_version} → 改用最新版本（[{resolved_version}]({url})）"
                     )
 
 
