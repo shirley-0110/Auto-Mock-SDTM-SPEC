@@ -1205,7 +1205,7 @@ def load_ct_master_from_web(sdtm_ct=""):
 # =================================================================================================================
 # Step 2 - Mock SDTM SPEC
 # =================================================================================================================
-def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct, snomed_version, medrt_version, unii_version, unique_visit_df):
+def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct, snomed_version, medrt_version, unii_version, unique_visit_df, ct_master_df=None):
 
     # ----------------------------------------
     # Normalize inputs
@@ -1321,13 +1321,82 @@ def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct
         })
     ti_df = pd.DataFrame(ti_rows)
 
+
+    # ----------------------------------------
+    # TS TSPARMCD -> TSPARM lookup（從 CT master 抓）
+    # ----------------------------------------
+    tsparm_lookup = {}
+
+    if ct_master_df is not None and not ct_master_df.empty:
+
+        ct = ct_master_df.copy()
+
+        # 保底欄位
+        for col in ["Code", "Codelist Name", "Submission Value"]:
+            if col not in ct.columns:
+                ct[col] = ""
+
+        ct["Code"] = (
+            ct["Code"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        ct["Codelist Name"] = (
+            ct["Codelist Name"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        ct["Submission Value"] = (
+            ct["Submission Value"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        # Code side: Trial Summary Parameter Test Code
+        tsparmcd_df = ct[
+            ct["Codelist Name"] == "Trial Summary Parameter Test Code"
+        ][["Code", "Submission Value"]].copy()
+
+        tsparmcd_df = tsparmcd_df.rename(columns={
+            "Submission Value": "TSPARMCD"
+        })
+
+        tsparmcd_df["TSPARMCD"] = tsparmcd_df["TSPARMCD"].str.upper()
+
+        # Name side: Trial Summary Parameter Test Name
+        tsparm_df = ct[
+            ct["Codelist Name"] == "Trial Summary Parameter Test Name"
+        ][["Code", "Submission Value"]].copy()
+
+        tsparm_df = tsparm_df.rename(columns={
+            "Submission Value": "TSPARM"
+        })
+
+        # 以 Code 配對
+        tsparm_lookup_df = tsparmcd_df.merge(
+            tsparm_df,
+            on="Code",
+            how="inner"
+        ).drop_duplicates(subset=["TSPARMCD"])
+
+        # 轉成 dict：TSPARMCD -> TSPARM
+        tsparm_lookup = dict(
+            zip(tsparm_lookup_df["TSPARMCD"], tsparm_lookup_df["TSPARM"])
+        )
+
     # ----------------------------------------
     # TS（展開 + 自動填值）
     # ----------------------------------------
     ts_rows = []
 
     for i, tsparmcd in enumerate(tsparmcd_list, start=1):
-        
+
+        tsparm = tsparm_lookup.get(tsparmcd, "")
         tsval = tsval_map.get(tsparmcd, "")
         tsvcdref, tsvcdver = refver_map.get(tsparmcd, ("", ""))
 
@@ -1336,7 +1405,7 @@ def build_trial_design_sheets(protocol_no, protocol_title, sdtm_version, sdtm_ct
             "DOMAIN": "TS",
             "TSSEQ": "1",
             "TSPARMCD": tsparmcd,
-            "TSPARM": "",
+            "TSPARM": tsparm,
             "TSVAL": tsval,
             "TSVALCD": "",
             "TSVCDREF": tsvcdref,
@@ -3186,7 +3255,8 @@ if uploaded_file is not None:
                 snomed_version=snomed_version,
                 medrt_version=medrt_version,
                 unii_version=unii_version,
-                unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame())
+                unique_visit_df=st.session_state.get("unique_visit_df", pd.DataFrame()),
+                ct_master_df=st.session_state.get("ct_master_df")
             )
             
             ta_df = td_dict.get("TA", pd.DataFrame())
