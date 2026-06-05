@@ -2914,7 +2914,7 @@ if uploaded_file is not None:
             st.markdown("#### 🔍 Debug: Latest Archive TXT")
 
             try:
-                url, version, last_modified, debug_names = get_latest_archive_txt()
+                url, version, last_modified = get_latest_archive_txt()
 
                 st.success("✅ get_latest_archive_txt() 成功")
 
@@ -2923,7 +2923,6 @@ if uploaded_file is not None:
                 st.markdown(f"🔹 URL: [{url}]({url})" if url else "❌ URL 空")
 
                 st.write("All filenames:")
-                st.write(debug_names)
 
 
             except Exception as e:
