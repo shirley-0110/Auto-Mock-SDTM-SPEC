@@ -1071,7 +1071,13 @@ def load_ct_master_from_web(sdtm_ct=""):
     try:
         resp = requests.get(url, timeout=30)
         resp.raise_for_status()
+
+        # ✅ 🔥 關鍵：驗證是不是 CT 檔
+        if "Codelist" not in resp.text:
+            raise ValueError("Invalid CT file")
+
     except Exception:
+        # ✅ 找不到版本 → fallback 到最新 archive
         if latest_archive_url:
             url = latest_archive_url
             source_type = "fallback-latest-archive"
@@ -1080,7 +1086,9 @@ def load_ct_master_from_web(sdtm_ct=""):
 
             resp = requests.get(url, timeout=30)
             resp.raise_for_status()
+
         else:
+            # 最後 fallback current
             url = current_url
             source_type = "fallback-current"
             resolved_version = ""
@@ -2871,46 +2879,6 @@ if uploaded_file is not None:
             st.markdown("### 2.4 Codelists")
 
             
-            st.markdown("#### 🔍 Debug: Archive HTML Tables")
-
-            archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
-            
-            try:
-                resp = requests.get(archive_index, timeout=30)
-                resp.raise_for_status()
-
-                soup = BeautifulSoup(resp.text, "html.parser")
-                rows = soup.find_all("tr")
-
-                debug_rows = []
-
-                for row in rows:
-                    cols = row.find_all("td")
-
-                    if len(cols) < 3:
-                        continue
-                    
-                    link_tag = cols[1].find("a")
-                    name = link_tag.get_text(strip=True) if link_tag else ""
-                    href = link_tag.get("href", "") if link_tag else ""
-                    last_modified = cols[2].get_text(strip=True)
-                    
-                    debug_rows.append({
-                        "Name": name,
-                        "Href": href,
-                        "Last modified": last_modified
-                    })
-
-                df_debug = pd.DataFrame(debug_rows)
-
-                st.success(f"✅ 抓到 {len(df_debug)} 列")
-                st.dataframe(df_debug, use_container_width=True)
-
-            except Exception as e:
-                st.error("❌ BeautifulSoup debug 失敗")
-                st.write(str(e))
-
-
             st.markdown("#### 🔍 Debug: Latest Archive TXT")
 
             try:
@@ -2951,24 +2919,20 @@ if uploaded_file is not None:
                 ct_df = st.session_state["ct_master_df"]
 
                 st.success("✅ SDTM Controlled Terminology 載入成功")
-
+                
                 resolved_version = info.get("resolved_version", "") or "Unknown"
                 resolved_last_modified = info.get("resolved_last_modified", "") or "Unknown"
-
+                
                 if info["source_type"] == "archive":
                     st.info(f"📦 使用指定版本 CT（{resolved_version}）")
-
                 elif info["source_type"] == "latest-archive":
-                    st.info(f"📁 使用最新版本 CT（{resolved_version}；Last modified: {resolved_last_modified}）")
-
+                    st.info(f"📁 使用最新版本 CT（{resolved_version}）")
                 elif info["source_type"] == "fallback-latest-archive":
                     st.warning(
                         f"⚠️ 找不到指定版本 {info.get('requested_version', '')} → "
-                        f"改用最新版本（{resolved_version}；Last modified: {resolved_last_modified}）"
+                        f"改用最新版本（{resolved_version}）"
                     )
 
-                elif info["source_type"] == "fallback-current":
-                    st.warning("⚠️ 找不到指定版本，且無法解析 Archive 最新 txt，改用 current CT")
 
                 clean_url = info["download_url"]
 
