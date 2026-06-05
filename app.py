@@ -1301,6 +1301,7 @@ def apply_codelist_rules(merged_df):
     # -------------------------------------------------
     rule_var_as_codelist = (
         (df["Variable"] == "DOMAIN") |
+        (df["Variable"] == "AEREL") |
         ((df["Dataset"] == "CO") & (df["Variable"] == "RDOMAIN")) |
         (df["Variable"].str.endswith("TEST")) |
         (df["Variable"].str.endswith("TESTCD"))
