@@ -751,36 +751,66 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
 
                     for rec in parsed_records:
 
-                        sdtm_var = str(rec["SDTM Variable"]).strip().upper()
+                        sdtm_domain = str(rec.get("SDTM Domain", "")).strip().upper()
+                        sdtm_var = str(rec.get("SDTM Variable", "")).strip().upper()
+
                         ctcode = var_to_ctcode.get(sdtm_var, "")
+                        ctcode = "" if pd.isna(ctcode) else str(ctcode).strip().upper()
+
                         assign_val = rec.get("Assign Value", "")
                         assign_val = "" if pd.isna(assign_val) else str(assign_val).strip()
 
-
-                        if not ctcode:
-                            continue
-
-
-                        # Assign Value 優先；否則用 option_tokens
+                        # -------------------------------------------------
+                        # 情況 A：有 Assign Value
+                        #   → 優先保留 assign
+                        # -------------------------------------------------
                         if assign_val:
-                            orival_candidates = [(assign_val, "")]
-                        else:
-                            if not option_tokens:
-                                continue
-                            orival_candidates = [(opt, opt) for opt in option_tokens]
-
-                        for orival, option_displayed_value in orival_candidates:
-                            orival = "" if pd.isna(orival) else str(orival).strip()
-
-                            if not orival:
-                                continue
 
                             seed_records.append({
-                                "SDTM Domain": str(rec["SDTM Domain"]).strip(),
+                                "SDTM Domain": sdtm_domain,
                                 "SDTM Variable": sdtm_var,
                                 "CT Code": ctcode,
-                                "Original Value": orival,
-                                "Original Value Normalized": normalize_text(orival)
+                                "Assign Value": assign_val,
+                                "CRF Option Value": "",
+                                "Original Value": assign_val,
+                                "Original Value Normalized": normalize_text(assign_val)
+                            })
+
+                        # -------------------------------------------------
+                        # 情況 B：沒有 Assign Value，但有 option
+                        #   → 逐個 option 展開
+                        # -------------------------------------------------
+                        elif option_tokens:
+
+                            for opt in option_tokens:
+                                opt = "" if pd.isna(opt) else str(opt).strip()
+                                if not opt:
+                                    continue
+
+                                seed_records.append({
+                                    "SDTM Domain": sdtm_domain,
+                                    "SDTM Variable": sdtm_var,
+                                    "CT Code": ctcode,
+                                    "Assign Value": "",
+                                    "CRF Option Value": opt,
+                                    "Original Value": opt,
+                                    "Original Value Normalized": normalize_text(opt)
+                                })
+
+                        # -------------------------------------------------
+                        # 情況 C：既沒有 Assign，也沒有 option
+                        #   → 如果有 CT Code，仍保留一列供後續 CT 展開
+                        # -------------------------------------------------
+                        elif ctcode:
+
+                            seed_records.append({
+                                "SDTM Domain": sdtm_domain,
+                                "SDTM Variable": sdtm_var,
+                                "CT Code": ctcode,
+                                "Assign Value": "",
+                                "CRF Option Value": "",
+                                "Original Value": "",
+                                "Original Value Normalized": ""
                             })
 
                 except Exception:
@@ -799,6 +829,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     "SDTM Domain",
                     "SDTM Variable",
                     "CT Code",
+                    "Assign Value",
+                    "CRF Option Value",
                     "Original Value",
                     "Original Value Normalized"
                 ]
@@ -808,8 +840,9 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     "SDTM Domain",
                     "SDTM Variable",
                     "CT Code",
-                    "Original Value",
-                    "Original Value Normalized"
+                    "Assign Value",
+                    "CRF Option Value",
+                    "Original Value"
                 ]
             )
             .reset_index(drop=True)
@@ -819,11 +852,14 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
             "SDTM Domain",
             "SDTM Variable",
             "CT Code",
+            "Assign Value",
+            "CRF Option Value",
             "Original Value",
             "Original Value Normalized"
         ])
 
     return ct_mapping_df, sorted(list(set(ct_mapping_sheet_errors)))
+
     # End=========================================================
 
 
