@@ -2168,7 +2168,7 @@ def build_codelist_sheet(variables_spec_df, ct_mapping_result_df=None, ts_df=Non
     # 1. 先建立 dataset-level codelist list（去重）
     # -------------------------------------------------
     codelist_df = (
-        df[["Codelist", "CT Code"]]
+        df[["Dataset", "Variable", "Codelist", "CT Code"]]
         .drop_duplicates()
         .reset_index(drop=True)
     )
