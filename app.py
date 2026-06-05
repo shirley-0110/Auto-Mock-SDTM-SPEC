@@ -2767,50 +2767,57 @@ if uploaded_file is not None:
             # -------------------------------------------------
             # Load button
             # -------------------------------------------------
-            if st.button("Load SDTM CT Master"):
-        
+            if "ct_master_df" not in st.session_state:
+                
                 try:
-                    ct_df, info = load_ct_master_from_web(sdtm_ct)
+                    ct_df, info = load_ct_master_from_web(
+                        st.session_state.get("sdtm_ct_version", "")
+                    )
 
-                    # ------------------------------
-                    # ✅ Success
-                    # ------------------------------
-                    if info["status"] == "success":
-    
-                        st.success("✅ SDTM Controlled Terminology 載入成功")
+                    st.session_state["ct_master_df"] = ct_df
+                    st.session_state["ct_master_info"] = info
 
-                        # source 顯示（重要）
-                        if info["source_type"] == "archive":
-                            st.info("📦 使用 Archive 指定版本")
-        
-                        elif info["source_type"] == "current":
-                            st.info("📁 使用最新版本")
-
-                        elif info["source_type"] == "fallback-current":
-                            st.warning("⚠️ 找不到指定版本 → 自動 fallback 到最新版本")
-
-                        # 基本資訊
-                        st.write("🔹 URL:", info["download_url"])
-                        st.write("🔹 Total rows:", len(ct_df))
-
-                        # preview
-                        st.dataframe(ct_df.head(20), use_container_width=True)
-
-                        # 👉 存到 session（後面 merge 用）
-                        st.session_state["ct_master_df"] = ct_df
-                        st.session_state["ct_master_info"] = info
-
-                    else:
-                        st.warning("⚠️ CT loading returned unexpected status")
-                        st.write(info)
-
-                # ------------------------------
-                # ❌ Error
-                # ------------------------------
                 except Exception as e:
-
                     st.error("❌ SDTM CT 載入失敗")
-                    st.write("Error message:", str(e))
+                    st.write(str(e))
+
+            if "ct_master_info" in st.session_state:
+                
+                info = st.session_state["ct_master_info"]
+                ct_df = st.session_state["ct_master_df"]
+
+                st.success("✅ SDTM Controlled Terminology 載入成功")
+
+        
+                filename = os.path.basename(info["download_url"])
+
+                version = (
+                    filename
+                    .replace("SDTM Terminology ", "")
+                    .replace(".txt", "")
+                )
+                
+                if info["source_type"] == "archive":
+                    st.info(f"📦 使用指定版本 CT（{version}）")
+                
+                elif info["source_type"] == "current":
+                    st.info("📁 使用最新版本 CT")
+                
+                elif info["source_type"] == "fallback-current":
+                    st.warning(f"⚠️ 找不到指定版本 → fallback 到最新版本（{version}）")
+                    
+                clean_url = info["download_url"].replace(" ", "%20")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("🔹 Rows:", len(ct_df))
+                with col2:
+                    st.write("🔹 Columns:", len(ct_df.columns))
+                    
+                st.markdown(f"🔗 [CT Download URL]({clean_url})")
+                
+                with st.expander("Preview CT Master"):
+                    st.dataframe(ct_df.head(20), use_container_width=True)
 
             
             codelist_df = build_codelist_sheet(
