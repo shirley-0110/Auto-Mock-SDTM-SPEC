@@ -2429,6 +2429,7 @@ def get_latest_archive_txt():
     pattern = re.compile(r"^SDTM Terminology (\d{4}-\d{2}-\d{2})\.txt$")
 
     results = []
+    debug_names = []
 
     for row in rows:
         cols = row.find_all("td")
@@ -2440,7 +2441,7 @@ def get_latest_archive_txt():
             continue
 
         name = link_tag.get_text(strip=True)
-        print("RAW NAME:", repr(name))
+        debug_names.append(repr(name))
         last_modified = cols[1].get_text(strip=True)
 
         m = pattern.match(name)
@@ -2462,7 +2463,7 @@ def get_latest_archive_txt():
 
     latest = results[0]
 
-    return latest["url"], latest["version"], latest["last_modified"]
+    return latest["url"], latest["version"], latest["last_modified"], debug_names
     # End=========================================================
 
 
@@ -2872,13 +2873,17 @@ if uploaded_file is not None:
             st.markdown("#### 🔍 Debug: Latest Archive TXT")
 
             try:
-                url, version, last_modified = get_latest_archive_txt()
+                url, version, last_modified, debug_names = get_latest_archive_txt()
 
                 st.success("✅ get_latest_archive_txt() 成功")
 
                 st.write("🔹 Version:", version or "❌ 空")
                 st.write("🔹 Last modified:", last_modified or "❌ 空")
                 st.markdown(f"🔹 URL: [{url}]({url})" if url else "❌ URL 空")
+
+                st.write("All filenames:")
+                st.write(debug_names)
+
 
             except Exception as e:
                 st.error("❌ get_latest_archive_txt() 失敗")
