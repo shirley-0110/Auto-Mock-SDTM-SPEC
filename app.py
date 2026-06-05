@@ -1545,16 +1545,38 @@ def apply_method_rules(df):
         "Equal to sequential number identifying records within each USUBJID sorted by key variables in the domain"
 
     # 4. {XX}{ST/EN}DY
+    mask_stdy = df["Variable"].str.endswith("STDY")
+    mask_endy = df["Variable"].str.endswith("ENDY")
     mask_dy = (
-        df["Variable"].str.endswith("DY") |
-        df["Variable"].str.endswith("STDY") |
-        df["Variable"].str.endswith("ENDY")
+        df["Variable"].str.endswith("DY") &
+        ~mask_stdy &
+        ~mask_endy
     )
 
-    df.loc[mask_dy, "Method"] = (
-        "Equal to {XX}{ST/EN}DTC - DM.RFSTDTC + 1 if {XX}{ST/EN}DTC is on or after DM.RFSTDTC; "
-        "equal to {XX}{ST/EN}DTC - DM.RFSTDTC if {XX}{ST/EN}DTC precedes DM.RFSTDTC"
+    # STDY → STDTC
+    df.loc[mask_stdy, "Method"] = df.loc[mask_stdy, "Variable"].apply(
+        lambda x: (
+            f"Equal to {x.replace('STDY','STDTC')} - DM.RFSTDTC + 1 if {x.replace('STDY','STDTC')} is on or after DM.RFSTDTC; "
+            f"equal to {x.replace('STDY','STDTC')} - DM.RFSTDTC if {x.replace('STDY','STDTC')} precedes DM.RFSTDTC"
+        )
     )
+
+    # ENDY → ENDTC
+    df.loc[mask_endy, "Method"] = df.loc[mask_endy, "Variable"].apply(
+        lambda x: (
+            f"Equal to {x.replace('ENDY','ENDTC')} - DM.RFSTDTC + 1 if {x.replace('ENDY','ENDTC')} is on or after DM.RFSTDTC; "
+            f"equal to {x.replace('ENDY','ENDTC')} - DM.RFSTDTC if {x.replace('ENDY','ENDTC')} precedes DM.RFSTDTC"
+        )
+    )
+
+    # DY → DTC（排除 STDY / ENDY）
+    df.loc[mask_dy, "Method"] = df.loc[mask_dy, "Variable"].apply(
+        lambda x: (
+            f"Equal to {x.replace('DY','DTC')} - DM.RFSTDTC + 1 if {x.replace('DY','DTC')} is on or after DM.RFSTDTC; "
+            f"equal to {x.replace('DY','DTC')} - DM.RFSTDTC if {x.replace('DY','DTC')} precedes DM.RFSTDTC"
+        )
+    )
+
 
     # 5. RFSTDTC
     df.loc[df["Variable"] == "RFSTDTC", "Method"] = \
