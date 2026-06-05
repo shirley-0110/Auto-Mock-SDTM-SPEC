@@ -1026,7 +1026,7 @@ def load_ct_master_from_web(sdtm_ct=""):
     """
 
     current_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/"
-    archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/
+    archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
 
     # -------------------------------------------------
     # helper: 從 Archive 找最新 txt
