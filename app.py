@@ -3351,6 +3351,7 @@ if uploaded_file is not None:
             codelist_df = build_codelist_sheet(
                 variables_spec_df=variables_spec_df,
                 ct_master_df=st.session_state.get("ct_master_df"),
+                matched_ct_df=matched_ct_df,
                 ct_mapping_df=ct_mapping_df,
                 ts_df=ts_df
             )
