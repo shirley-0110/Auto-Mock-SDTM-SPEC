@@ -3301,6 +3301,8 @@ if uploaded_file is not None:
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
 
+            st.write("ct_mapping_df columns:", ct_mapping_df.columns.tolist())
+
             # Load CT Master
             current_ct_key = st.session_state.get("sdtm_ct", "")
 
