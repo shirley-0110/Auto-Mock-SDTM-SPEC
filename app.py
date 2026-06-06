@@ -2388,7 +2388,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=None, ts_df=None):
+def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=None, ct_mapping_df=None, ts_df=None):
 
     df = variables_spec_df.copy()
 
@@ -2538,31 +2538,31 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
         # =================================================
         # 4. 準備 CT Mapping（第二層用）
         # =================================================
-        if ct_mapping_df is not None and not ct_mapping_df.empty:
-            map_df = ct_mapping_df.copy()
-            map_df.columns = [str(c).strip() for c in map_df.columns]
+        if matched_ct_df is not None and not matched_ct_df.empty:
+            matched_df = matched_ct_df.copy()
+            matched_df.columns = [str(c).strip() for c in matched_df.columns]
 
             rename_map = {}
-            for c in map_df.columns:
+            for c in matched_df.columns:
                 cu = c.upper().strip()
                 if cu == "SDTM DOMAIN":
                     rename_map[c] = "Dataset"
                 elif cu == "SDTM VARIABLE":
                     rename_map[c] = "Variable"
 
-            map_df = map_df.rename(columns=rename_map)
+            matched_df = matched_df.rename(columns=rename_map)
 
             for col in ["Dataset", "Variable", "CT Code", "CT Term"]:
-                if col not in map_df.columns:
-                    map_df[col] = ""
+                if col not in matched_df.columns:
+                    matched_df[col] = ""
 
-            map_df["Dataset"] = map_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
-            map_df["Variable"] = map_df["Variable"].fillna("").astype(str).str.strip().str.upper()
-            map_df["CT Code"] = map_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
-            map_df["CT Term"] = map_df["CT Term"].fillna("").astype(str).str.strip()
+            matched_df["Dataset"] = matched_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
+            matched_df["Variable"] = matched_df["Variable"].fillna("").astype(str).str.strip().str.upper()
+            matched_df["CT Code"] = matched_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+            matched_df["CT Term"] = matched_df["CT Term"].fillna("").astype(str).str.strip()
 
         else:
-            map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "CT Term"])
+            matched_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "CT Term"])
 
 
         # =================================================
@@ -2603,8 +2603,8 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, ct_mapping_df=Non
             # ---------------------------------------------
             if ct_code != "":
                 terms = (
-                    map_df.loc[
-                        map_df["CT Code"] == ct_code,
+                    matched_df.loc[
+                        matched_df["CT Code"] == ct_code,
                         "CT Term"
                     ]
                     .dropna()
