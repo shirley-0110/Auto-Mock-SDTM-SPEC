@@ -2389,7 +2389,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=None, ct_mapping_df=None, ts_df=None, ct_version=None):
+def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=None, ct_mapping_df=None, ts_df=None, sdtm_ct=None):
 
     df = variables_spec_df.copy()
 
@@ -2963,9 +2963,8 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
     codelist_df["Data Type"] = "text"
 
     #Terminology（用 CT version）
-    ct_version = st.session_state.get("ct_version", "")
-    if ct_version:
-        codelist_df["Terminology"] = f"SDTM {ct_version}"
+    if sdtm_ct:
+        codelist_df["Terminology"] = f"SDTM {sdtm_ct}"
     else:
         codelist_df["Terminology"] = "SDTM"
 
@@ -3635,7 +3634,7 @@ if uploaded_file is not None:
                 matched_ct_df=matched_ct_df,
                 ct_mapping_df=ct_mapping_df,
                 ts_df=ts_df,
-                ct_version=resolved_version
+                sdtm_ct=sdtm_ct
             )
             
             st.dataframe(codelist_df, use_container_width=True)
