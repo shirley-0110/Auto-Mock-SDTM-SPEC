@@ -2746,7 +2746,62 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 })
     
         codelist_df = pd.DataFrame(expanded_rows)
-    
+
+        
+        # =================================================
+        # ✅ Step 3：Term → NCI Term Code
+        # =================================================
+        if ct_master_df is not None and not ct_master_df.empty:
+
+            right = ct_master_df.copy()
+
+            # normalize
+            right["Submission Value"] = (
+                right["Submission Value"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.upper()
+            )
+
+            right["Codelist Code"] = (
+                right["Codelist Code"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
+
+            # 用 Term 對 Submission Value
+            codelist_df["Term_norm"] = (
+                codelist_df["Term"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.upper()
+            )
+
+            # 只抓 term-level（Codelist Code 不為空）
+            right_term = right[right["Codelist Code"] != ""].copy()
+
+            codelist_df = codelist_df.merge(
+                right_term[
+                    ["Submission Value", "Code", "Codelist Code"]
+                ].rename(columns={
+                    "Code": "NCI Term Code",
+                    "Codelist Code": "NCI Codelist Code (Term Level)"
+                }),
+                left_on="Term_norm",
+                right_on="Submission Value",
+                how="left"
+            )
+
+            # cleanup
+            codelist_df = codelist_df.drop(
+                columns=["Submission Value", "Term_norm"],
+                errors="ignore"
+            )
+
+
         # 排序 / 去重
         codelist_df = (
             codelist_df
