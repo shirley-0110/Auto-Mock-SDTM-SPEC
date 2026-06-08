@@ -85,7 +85,7 @@ def normalize_date_text(x):
 
 
 # =================================================================================================================
-# 匯入Excel各種工具
+# 匯入/匯出Excel各種工具
 # =================================================================================================================
 def find_column(columns, required_keywords):
     for col in columns:
@@ -148,6 +148,92 @@ def read_sheet_with_detected_header(
     df = normalize_columns(df)
 
     return df, header_row_zero_based + 1
+    # End=========================================================
+
+
+
+def Export_excel(sheet_dict):
+    output = BytesIO()
+
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for sheet_name, df in sheet_dict.items():
+
+            # 如果是空 df 就 skip（避免空 sheet）
+            if df is None or df.empty:
+                continue
+
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            ws = writer.book[sheet_name]
+
+            # Freeze first row
+            ws.freeze_panes = "A2"
+
+            # Auto filter（非常推薦）
+            ws.auto_filter.ref = ws.dimensions
+
+            # Header style
+            header_fill = PatternFill(
+                start_color="F4A300",
+                end_color="F4A300",
+                fill_type="solid"
+            )
+
+            header_font = Font(name="Calibri", size=10, bold=True)
+            normal_font = Font(name="Calibri", size=10)
+
+            align_wrap_top = Alignment(wrap_text=True, vertical="top")
+            align_wrap_center = Alignment(wrap_text=True, vertical="center")
+
+            # Header style
+            for cell in ws[1]:
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = align_wrap_center
+
+            # Body style（避免重複設定 header）
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    cell.font = normal_font
+                    cell.alignment = align_wrap_top
+
+            # 欄寬自動（稍微 smarter）
+            for col_idx, col in enumerate(ws.columns, start=1):
+                max_length = 0
+
+                col_letter = get_column_letter(col_idx)
+
+                for cell in col:
+                    try:
+                        if cell.value:
+                            val = str(cell.value)
+                            max_length = max(max_length, len(val))
+                    except:
+                        pass
+
+                # 限制最大寬度（避免爆炸）
+                ws.column_dimensions[col_letter].width = min(max_length + 2, 40)
+
+            # Row height（改善 wrap）
+            for row in ws.iter_rows():
+                max_lines = 1
+
+                for cell in row:
+                    if cell.value:
+                        text = str(cell.value)
+                        approx_lines = max(
+                            text.count("\n") + 1,
+                            (len(text) // 40) + 1
+                        )
+                        max_lines = max(max_lines, approx_lines)
+
+                ws.row_dimensions[row[0].row].height = max_lines * 15
+
+    output.seek(0)
+    return output.getvalue()
     # End=========================================================
 
 
@@ -3639,11 +3725,13 @@ if uploaded_file is not None:
 
             # 防欄位不存在（避免Error）
             display_cols = [c for c in display_cols if c in codelist_df.columns]
+            
+            codelists_export = codelist_df.copy()
+            codelists_export = codelists_export[
+                [c for c in display_cols if c in codelists_export.columns]
+            ]
 
-            st.dataframe(
-                codelist_df[display_cols],
-                use_container_width=True
-            )
+            st.dataframe(codelists_export, use_container_width=True)
 
 
             # 2.5 Codelists
@@ -3686,7 +3774,7 @@ if uploaded_file is not None:
                 "Define": define_df,
                 "Datasets": datasets_df,
                 "Variables": variables_view_df,
-                "Codelist": codelist_df[display_cols],
+                "Codelist": codelists_export,
                 "Dictionaries": dictionaries_df,
                 "TA": ta_df,
                 "TE": te_df,
@@ -3695,7 +3783,7 @@ if uploaded_file is not None:
                 "TV": tv_df
             }
 
-            excel_bytes = to_excel_bytes(export_sheets)
+            excel_bytes = Export_excel(export_sheets)
 
             # 檔名
             today_str = datetime.now().strftime("%Y%m%d")
