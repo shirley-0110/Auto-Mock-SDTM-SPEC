@@ -2389,7 +2389,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=None, ct_mapping_df=None, ts_df=None):
+def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=None, ct_mapping_df=None, ts_df=None, ct_version=None):
 
     df = variables_spec_df.copy()
 
@@ -3634,7 +3634,8 @@ if uploaded_file is not None:
                 ct_master_df=st.session_state.get("ct_master_df"),
                 matched_ct_df=matched_ct_df,
                 ct_mapping_df=ct_mapping_df,
-                ts_df=ts_df
+                ts_df=ts_df,
+                ct_version=resolved_version
             )
             
             st.dataframe(codelist_df, use_container_width=True)
