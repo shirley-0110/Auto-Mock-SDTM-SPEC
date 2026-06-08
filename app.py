@@ -491,7 +491,7 @@ def build_soa_visit_list(soa_df, folder_df):
             cell_val = str(row.get(col, "")).strip().upper()
 
             # 只抓 ticked X
-            if cell_val == "X":
+            if str(cell_val).strip().upper() in ["X", "TRUE", "1"]:
                 visit_name = folder_lookup.get(abbr, "")
 
                 records.append({
