@@ -2570,6 +2570,12 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             "Code": "NCI Codelist Code",
             "Codelist Name": "Name"
         })
+        
+        codelist_df["Terminology"] = codelist_df["NCI Codelist Code"].apply(
+            lambda x: f"SDTM {ct_version}"
+            if str(x).strip() != ""
+            else ""
+        )
 
         codelist_df = codelist_df.drop(columns=["Submission Value"], errors="ignore")
 
@@ -2964,12 +2970,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
     # =================================================
     #Data Type 固定
     codelist_df["Data Type"] = "text"
-
-    #Terminology（用 CT version）
-    if sdtm_ct:
-        codelist_df["Terminology"] = f"SDTM {sdtm_ct}"
-    else:
-        codelist_df["Terminology"] = "SDTM"
 
     # Comment 固定空
     codelist_df["Comment"] = ""
