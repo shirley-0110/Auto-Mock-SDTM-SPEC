@@ -3140,6 +3140,40 @@ def fetch_url(url):
 
 
 
+def get_latest_sdtm_txt():
+    """
+    從 /SDTM/ 目錄取得最新 SDTM Terminology.txt 與版本號
+    """
+    import re
+
+    sdtm_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/"
+    stamp_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Publication%20Date%20Stamp.txt"
+    txt_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
+
+    # 先嘗試讀 publication date stamp
+    resolved_version = ""
+
+    try:
+        resp = fetch_url(stamp_url)
+        stamp_text = resp.text.strip()
+
+        # 直接抓 yyyy-mm-dd
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", stamp_text)
+        if m:
+            resolved_version = m.group(1)
+
+    except Exception:
+        # 如果 stamp 檔讀不到，再退而求其次讀 SDTM 索引頁
+        resp = fetch_url(sdtm_index)
+        html = resp.text
+
+        # 依索引頁內容找日期
+        m = re.search(r"SDTM Publication Date Stamp\.txt.*?(\d{4}-\d{2}-\d{2})", html, re.DOTALL)
+        if m:
+            resolved_version = m.group(1)
+
+    return txt_url, resolved_version
+
 
 
 
@@ -3639,26 +3673,21 @@ if uploaded_file is not None:
             st.dataframe(variables_view_df, use_container_width=True)
             
 
-            st.markdown("#### 🔍 Debug CT Archive Fetch")
     
+            st.markdown("#### 🔍 Debug get_latest_sdtm_txt()")
+
             try:
-                latest_archive_url, latest_archive_version, latest_archive_last_modified = get_latest_archive_txt()
+                latest_url, latest_version = get_latest_sdtm_txt()
+        
+                st.success("✅ get_latest_sdtm_txt() 成功")
 
-                st.success("✅ 成功取得最新 Archive CT")
-
-                st.write("latest_archive_url:", latest_archive_url)
-                st.write("latest_archive_version:", latest_archive_version)
-                st.write("latest_archive_last_modified:", latest_archive_last_modified)
+                st.write("latest_url:", latest_url)
+                st.write("latest_version:", latest_version)
 
             except Exception as e:
-                st.error("❌ get_latest_archive_txt() 失敗")
-
+                st.error("❌ get_latest_sdtm_txt() 失敗")
                 st.write("Error:", str(e))
 
-                # ✅ fallback 顯示
-                latest_archive_url = ""
-                latest_archive_version = ""
-                latest_archive_last_modified = ""
 
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
