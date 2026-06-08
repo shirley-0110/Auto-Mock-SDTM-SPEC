@@ -2689,7 +2689,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             # ---------------------------------------------
             # 情況 3：特殊處理
             # ---------------------------------------------
-            if ct_code == "" and not terms:
+            if not terms:
 
                 if id_temp == "DOMAIN":
                     terms = [dataset]
