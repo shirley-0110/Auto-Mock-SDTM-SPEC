@@ -2635,7 +2635,9 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             if ct_code != "":
                 terms = (
                     matched_df.loc[
-                        matched_df["CT Code"] == ct_code,
+                        (matched_df["CT Code"] == ct_code)
+                        &
+                        (matched_df["Dataset"] == dataset),
                         "CT Term"
                     ]
                     .dropna()
