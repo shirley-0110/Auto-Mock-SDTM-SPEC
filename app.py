@@ -3685,7 +3685,7 @@ if uploaded_file is not None:
             export_sheets = {
                 "Define": define_df,
                 "Datasets": datasets_df,
-                "Variables": variables_export,
+                "Variables": variables_view_df,
                 "Codelist": codelists_export,
                 "Dictionaries": dictionaries_df,
                 "TA": ta_df,
