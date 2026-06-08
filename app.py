@@ -3686,7 +3686,7 @@ if uploaded_file is not None:
                 "Define": define_df,
                 "Datasets": datasets_df,
                 "Variables": variables_view_df,
-                "Codelist": codelists_export,
+                "Codelist": codelist_df[display_cols],
                 "Dictionaries": dictionaries_df,
                 "TA": ta_df,
                 "TE": te_df,
