@@ -2790,8 +2790,8 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                     "Code": "NCI Term Code",
                     "Codelist Code": "NCI Codelist Code (Term Level)"
                 }),
-                left_on="Term_norm",
-                right_on="Submission Value",
+                left_on=["Term_norm", "NCI Codelist Code"],
+                right_on=["Submission Value", "NCI Codelist Code (Term Level)"],
                 how="left"
             )
 
