@@ -2078,7 +2078,8 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     # 輸出欄位：
     final_cols = [
         "Order", "Dataset", "Variable", "Label", "Data Type",
-        "CT Code", "Codelist", "Origin", "Source", "Pages", "Method", "Comment"
+        "CT Code", "Codelist", "Origin", "Source", "Pages", "Method", "Comment",
+        "CRF Dataset", "CRF Variable",
     ]
 
 
@@ -2142,7 +2143,9 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
                 "Source": source,
                 "Pages": "",
                 "Method": "",
-                "Comment": ""
+                "Comment": "",
+                "CRF Dataset": crf_dataset,
+                "CRF Variable": crf_variable
             })
 
     detail_variables_df = pd.DataFrame(detail_rows)
@@ -2171,7 +2174,9 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
                     "Source": "Sponsor",
                     "Pages": "",
                     "Method": "",
-                    "Comment": ""
+                    "Comment": "",
+                    "CRF Dataset": "",
+                    "CRF Variable": ""
                 })
 
     td_variables_df = pd.DataFrame(td_rows)
@@ -2185,7 +2190,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     )
     if source_variables_df.empty:
         source_variables_df = pd.DataFrame(columns=[
-            "Dataset", "Variable", "Origin", "Source", "Pages", "Method", "Comment"
+            "Dataset", "Variable", "Origin", "Source", "Pages", "Method", "Comment", "CRF Dataset", "CRF Variable"
         ])
     else:
         source_variables_df = source_variables_df.drop_duplicates(
@@ -2274,7 +2279,8 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
         cfg_keep_df["Pages"] = ""
         cfg_keep_df["Method"] = ""
         cfg_keep_df["Comment"] = ""
-
+        cfg_keep_df["CRF Dataset"] = ""
+        cfg_keep_df["CRF Variable"] = ""
 
     # Paired variables
     existing_pairs_source = pd.concat(
@@ -2299,7 +2305,9 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
                 "Source": "",
                 "Pages": "",
                 "Method": "",
-                "Comment": ""
+                "Comment": "",
+                "CRF Dataset": "",
+                "CRF Variable": ""
             })
 
     pair_df = pd.DataFrame(pair_rows)
@@ -2394,7 +2402,6 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     final_df = final_df.sort_values(by=["Dataset", "Order", "Variable"]).reset_index(drop=True)
 
     return final_df
-
     # End=========================================================
 
 
