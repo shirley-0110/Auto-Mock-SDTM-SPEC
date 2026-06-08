@@ -1138,103 +1138,19 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
 
 
 # =================================================================================================================
-# 匯入SDTM Terminology
+# 根據所選的CT版本 load SDTM Terminology
 # =================================================================================================================
-def load_ct_master_from_web(sdtm_ct=""):
+def load_ct_master(sdtm_ct):
 
-    """
-    1. 決定 archive URL（指定版本 / latest archive）
-    2. 下載
-    3. 驗證是不是 CT txt
-    4. parse + normalize
-    """
-
-    archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
-
-    requested_version = normalize_date_text(sdtm_ct)
+    base_path = "config/sdtm_ct"
     
-    # -------------------------------------------------
-    # helper：下載 + 驗證
-    # -------------------------------------------------
-    def fetch_ct_text(url):
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
-        resp = requests.get(url, headers=headers, timeout=30)
+    file_name = f"SDTM Terminology {sdtm_ct}.txt"
+    file_path = os.path.join(base_path, file_name)
 
-        resp.raise_for_status()
-
-        #  核心：確認是 CT file，不是 html/error page
-        if "Codelist" not in resp.text:
-            raise ValueError("Invalid CT file")
-        return resp.text
-
-    # -------------------------------------------------
-    # 1. 先抓 Archive 最新 txt
-    # -------------------------------------------------
-    latest_archive_url = ""
-    latest_archive_version = ""
-    latest_archive_last_modified = ""
-
-    try:
-        latest_archive_url, latest_archive_version, latest_archive_last_modified = get_latest_archive_txt()
-    except Exception:
-        latest_archive_url = ""
-        latest_archive_version = ""
-        latest_archive_last_modified
-
-
-   # -------------------------------------------------
-    # 2. 決定 URL
-    # -------------------------------------------------
-    source_type = ""
-    resolved_version = ""
-    resolved_last_modified = ""
-    url = ""
-
-    if requested_version:
-        # 先嘗試指定版本
-        filename = f"SDTM Terminology {requested_version}.txt"
-        url = archive_index + filename.replace(" ", "%20")
-        source_type = "archive"
-        resolved_version = requested_version
-        resolved_last_modified = ""
-
-        try:
-            text = fetch_ct_text(url)
-
-        except Exception:
-            # 指定版本失敗 → fallback 最新 archive
-            if latest_archive_url:
-                url = latest_archive_url
-                source_type = "fallback-latest-archive"
-                resolved_version = latest_archive_version
-                resolved_last_modified = latest_archive_last_modified
-
-                text = fetch_ct_text(url)
-            else:
-                raise ValueError("找不到指定版本，且無法取得最新 Archive CT")
-
-    else:
-        # 沒指定版本 → 直接最新 archive
-        if latest_archive_url:
-            url = latest_archive_url
-            source_type = "latest-archive"
-            resolved_version = latest_archive_version
-            resolved_last_modified = latest_archive_last_modified
-
-            text = fetch_ct_text(url)
-        else:
-            raise ValueError("無法取得最新 Archive CT")
-
-
-    # -------------------------------------------------
-    # 3. 讀 txt
-    # -------------------------------------------------
-    df = pd.read_csv(io.StringIO(text), sep="\t", dtype=str)
+    # 讀 txt
+    df = pd.read_csv(file_path, sep="\t", dtype=str).fillna("")
     df = normalize_columns(df)
-
+    
     rename_map = {}
 
     for col in df.columns:
@@ -1255,9 +1171,8 @@ def load_ct_master_from_web(sdtm_ct=""):
     df = df.rename(columns=rename_map)
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # -------------------------------------------------
-    # 4. 保底欄位
-    # -------------------------------------------------
+    
+    # 保底欄位
     for c in ["Codelist Code", "Codelist Name", "Submission Value", "Code"]:
         if c not in df.columns:
             df[c] = ""
@@ -1279,11 +1194,9 @@ def load_ct_master_from_web(sdtm_ct=""):
     df["ID_Temp"] = df["Codelist Name"]
 
     return df.reset_index(drop=True), {
-        "download_url": url,
-        "source_type": source_type,
-        "requested_version": requested_version,
-        "resolved_version": resolved_version,
-        "resolved_last_modified": resolved_last_modified,
+        "source_type": "local",
+        "resolved_version": sdtm_ct,
+        "file_path": file_path,
         "status": "success"
     }
     # End=========================================================
@@ -3612,7 +3525,7 @@ if uploaded_file is not None:
             ):          
                 
                 try:
-                    ct_df, info = load_ct_master_from_web(
+                    ct_df, info = load_ct_master(
                         st.session_state.get("sdtm_ct", "")
                     )
 
