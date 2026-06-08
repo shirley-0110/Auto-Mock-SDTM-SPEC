@@ -2449,60 +2449,132 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
     codelist_df = codelist_df.sort_values("Codelist").reset_index(drop=True)
 
 
+    # =================================================
+    # 準備 matched_df（情況1：CT Code -> CT Term）
+    # ======================================
+    if matched_ct_df is not None and not matched_ct_df.empty:
+        matched_df = matched_ct_df.copy()
+        matched_df.columns = [str(c).strip() for c in matched_df.columns]
+
+        rename_map = {}
+        for c in matched_df.columns:
+            cu = c.upper().strip()
+            if cu == "SDTM DOMAIN":
+                rename_map[c] = "Dataset"
+            elif cu == "SDTM VARIABLE":
+                rename_map[c] = "Variable"
+
+        matched_df = matched_df.rename(columns=rename_map)
+        
+        for col in ["Dataset", "Variable", "CT Code", "CT Term"]:
+            if col not in matched_df.columns:
+                matched_df[col] = ""
+
+        matched_df["Dataset"] = matched_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
+        matched_df["Variable"] = matched_df["Variable"].fillna("").astype(str).str.strip().str.upper()
+        matched_df["CT Code"] = matched_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+        matched_df["CT Term"] = matched_df["CT Term"].fillna("").astype(str).str.strip()
+
+    else:
+        matched_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "CT Term"])
+
 
     # =================================================
-    # 第一層 merge（Main Codelist Code）
-    # =================================================
-    if ct_master_df is not None and not ct_master_df.empty:
+    # 準備 map_df（情況2：Assign / CRF Option / Original）
+    # ================================================
+    if ct_mapping_df is not None and not ct_mapping_df.empty:
+        map_df = ct_mapping_df.copy()
+        map_df.columns = [str(c).strip() for c in map_df.columns]
 
-        right = ct_master_df.copy()
+        rename_map = {}
+        for c in map_df.columns:
+            cu = c.upper().strip()
+            if cu == "SDTM DOMAIN":
+                rename_map[c] = "Dataset"
+            elif cu == "SDTM VARIABLE":
+                rename_map[c] = "Variable"
+        
+        map_df = map_df.rename(columns=rename_map)
 
-        # --- 標準化 ---
-        right["Submission Value"] = (
-            right["Submission Value"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.upper()
-        )
+        for col in ["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value", "Original Value"]:
+            if col not in map_df.columns:
+                map_df[col] = ""
 
-        right["Codelist Code"] = (
-            right["Codelist Code"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
+        map_df["Dataset"] = map_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
+        map_df["Variable"] = map_df["Variable"].fillna("").astype(str).str.strip().str.upper()
+        map_df["CT Code"] = map_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+        map_df["Assign Value"] = map_df["Assign Value"].fillna("").astype(str).str.strip()
+        map_df["CRF Option Value"] = map_df["CRF Option Value"].fillna("").astype(str).str.strip()
+        map_df["Original Value"] = map_df["Original Value"].fillna("").astype(str).str.strip()
 
-        # 只取 Main Code（最重要🔥）
-        right_main = right[
-            right["Codelist Code"] == ""
-        ].copy()
+        else:
+            map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value"])
 
-        # --- merge ---
-        codelist_df = codelist_df.merge(
-            right_main[
-                ["Submission Value", "Code", "Codelist Name"]
-            ].drop_duplicates(),
-            left_on="ID_Temp",
-            right_on="Submission Value",
-            how="left"
-        )
+        # =================================================
+        # 準備 TS（第二層特殊處理）
+        # =================================================
+        if ts_df is not None and not ts_df.empty:
+            ts_work = ts_df.copy()
+            for col in ["TSPARM", "TSPARMCD"]:
+                if col not in ts_work.columns:
+                    ts_work[col] = ""
 
-        # --- rename（只在 output 層） ---
-        codelist_df = codelist_df.rename(columns={
-            "Code": "NCI Codelist Code",
-            "Codelist Name": "Name"
-        })
+            ts_work["TSPARM"] = ts_work["TSPARM"].fillna("").astype(str).str.strip()
+            ts_work["TSPARMCD"] = ts_work["TSPARMCD"].fillna("").astype(str).str.strip()
+        else:
+            ts_work = pd.DataFrame(columns=["TSPARM", "TSPARMCD"])
 
-        codelist_df = codelist_df.drop(
-            columns=["Submission Value"],
-            errors="ignore"
-        )
+
+        # =================================================
+        # 第一層 merge（Main Codelist Code）
+        # =================================================
+        if ct_master_df is not None and not ct_master_df.empty:
+
+            right = ct_master_df.copy()
+
+            # --- 標準化 ---
+            right["Submission Value"] = (
+                right["Submission Value"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.upper()
+            )
+
+            right["Codelist Code"] = (
+                right["Codelist Code"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
+
+            # 只取 Main Code（最重要🔥）
+            right_main = right[right["Codelist Code"] == ""].copy()
+
+            # --- merge ---
+            codelist_df = codelist_df.merge(
+                right_main[
+                    ["Submission Value", "Code", "Codelist Name"]
+                ].drop_duplicates(),
+                left_on="ID_Temp",
+                right_on="Submission Value",
+                how="left"
+            )
+
+            # --- rename（只在 output 層） ---
+            codelist_df = codelist_df.rename(columns={
+                "Code": "NCI Codelist Code",
+                "Codelist Name": "Name"
+            })
+
+            codelist_df = codelist_df.drop(columns=["Submission Value"], errors="ignore")
 
     
         # =================================================
         # Name 調整
         # =================================================
+        if "Name" not in codelist_df.columns:
+            codelist_df["Name"] = ""
 
         # --- 處理空值 fallback ---
         codelist_df["Name"] = codelist_df["Name"].fillna("").astype(str).str.strip()
@@ -2512,7 +2584,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             codelist_df["Name"] == "",
             "Name"
         ] = codelist_df["Label"]
-
 
         # --- 特殊 override ---
         special_map = {
@@ -2527,7 +2598,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             axis=1
         )
 
-
         # --- 跨Domain → 加 (Domain) ---
         mask = codelist_df["Codelist"].str.contains("_", na=False)
 
@@ -2537,82 +2607,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         )
 
         # =================================================
-        # 4. 準備 CT Match Mapping + map_df（Assign / CRF Option）（第二層用）
-        # =================================================
-        if matched_ct_df is not None and not matched_ct_df.empty:
-            matched_df = matched_ct_df.copy()
-            matched_df.columns = [str(c).strip() for c in matched_df.columns]
-
-            rename_map = {}
-            for c in matched_df.columns:
-                cu = c.upper().strip()
-                if cu == "SDTM DOMAIN":
-                    rename_map[c] = "Dataset"
-                elif cu == "SDTM VARIABLE":
-                    rename_map[c] = "Variable"
-
-            matched_df = matched_df.rename(columns=rename_map)
-
-            for col in ["Dataset", "Variable", "CT Code", "CT Term"]:
-                if col not in matched_df.columns:
-                    matched_df[col] = ""
-
-            matched_df["Dataset"] = matched_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
-            matched_df["Variable"] = matched_df["Variable"].fillna("").astype(str).str.strip().str.upper()
-            matched_df["CT Code"] = matched_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
-            matched_df["CT Term"] = matched_df["CT Term"].fillna("").astype(str).str.strip()
-
-        else:
-            matched_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "CT Term"])
-
-
-
-        if ct_mapping_df is not None and not ct_mapping_df.empty:
-            map_df = ct_mapping_df.copy()
-            map_df.columns = [str(c).strip() for c in map_df.columns]
-
-            rename_map = {}
-            for c in map_df.columns:
-                cu = c.upper().strip()
-                if cu == "SDTM DOMAIN":
-                    rename_map[c] = "Dataset"
-                elif cu == "SDTM VARIABLE":
-                    rename_map[c] = "Variable"
-
-            map_df = map_df.rename(columns=rename_map)
-    
-            for col in ["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value", "Original Value"]:
-                if col not in map_df.columns:
-                    map_df[col] = ""
-
-            map_df["Dataset"] = map_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
-            map_df["Variable"] = map_df["Variable"].fillna("").astype(str).str.strip().str.upper()
-            map_df["CT Code"] = map_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
-            map_df["Assign Value"] = map_df["Assign Value"].fillna("").astype(str).str.strip()
-            map_df["CRF Option Value"] = map_df["CRF Option Value"].fillna("").astype(str).str.strip()
-            map_df["Original Value"] = map_df["Original Value"].fillna("").astype(str).str.strip()
-
-        else:
-            map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value"])
-
-
-        
-        # =================================================
-        # 6. 準備 TS（第二層特殊處理）
-        # =================================================
-        if ts_df is not None and not ts_df.empty:
-            ts_work = ts_df.copy()
-            for col in ["TSPARM", "TSPARMCD"]:
-                if col not in ts_work.columns:
-                    ts_work[col] = ""
-
-            ts_work["TSPARM"] = ts_work["TSPARM"].fillna("").astype(str).str.strip()
-            ts_work["TSPARMCD"] = ts_work["TSPARMCD"].fillna("").astype(str).str.strip()
-        else:
-            ts_work = pd.DataFrame(columns=["TSPARM", "TSPARMCD"])
-
-        # =================================================
-        # 7. 第二層：展開 Term
+        # 第二層：展開 Term
         # =================================================
         expanded_rows = []
 
@@ -2676,8 +2671,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 # final：matched + unmatched 原始值
                 terms = matched_terms + unmatched_original_terms
 
-
-
+            
             # ---------------------------------------------
             # 情況 2：沒 CT Code → 優先 Assign Value，再 CRF Option
             # ---------------------------------------------
@@ -2795,6 +2789,10 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         if ct_master_df is not None and not ct_master_df.empty:
 
             right = ct_master_df.copy()
+
+            for col in ["Submission Value", "Code", "Codelist Code"]:
+                if col not in right.columns:
+                    right[col] = ""
 
             # normalize
             right["Submission Value"] = (
