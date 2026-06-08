@@ -2573,7 +2573,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         
         codelist_df["Terminology"] = codelist_df["NCI Codelist Code"].apply(
             lambda x: f"SDTM {sdtm_ct}"
-            if str(x).strip() != ""
+            if pd.notna(x) and str(x).strip() not in ["", "None", "nan"]
             else ""
         )
 
@@ -3623,7 +3623,7 @@ if uploaded_file is not None:
             )
             
             st.dataframe(codelist_df, use_container_width=True)
-
+            st.write(codelist_df.columns.tolist())
 
             # 2.5 Codelists
             st.markdown("### 2.5 Dictionaries")
