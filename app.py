@@ -3119,37 +3119,7 @@ st.markdown("""
 st.title("Auto SDTM SPEC")
 
 
-uploaded_file = st.file_uploader("請上傳 eCRF Schema Excel", type=["xlsx", "xls"])
-
-        ctx = build_step1_context(file_bytes, all_sheets)
-
-        st.markdown("### 📦 Step 1：匯入 Domain 檢查")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("#### ✅ Available Domain Sheets")
-            if ctx["available_sheets"]:
-                st.dataframe(
-                    pd.DataFrame({"Domain": ctx["available_sheets"]}),
-                    use_container_width=True
-                )
-            else:
-                st.info("沒有抓到任何 domain sheet")
-
-        with col2:
-            st.markdown("#### ❌ Missing Domain Sheets")
-            if ctx["missing_sheets"]:
-                st.dataframe(
-                    pd.DataFrame({"Missing Domain": ctx["missing_sheets"]}),
-                    use_container_width=True
-                )
-            else:
-                st.success("沒有缺少的 domain 👍")
-
-
-
-
+uploaded_file = st.file_uploader("請上傳 eCRF Schema Excel123", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
     file_bytes = uploaded_file.getvalue()
