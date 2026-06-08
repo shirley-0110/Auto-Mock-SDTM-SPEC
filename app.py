@@ -3140,39 +3140,22 @@ def fetch_url(url):
 
 
 
-def get_latest_sdtm_txt():
-    """
-    從 /SDTM/ 目錄取得最新 SDTM Terminology.txt 與版本號
-    """
-    import re
 
-    sdtm_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/"
+def get_latest_sdtm_txt():
+    sdtm_index_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/"
     stamp_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Publication%20Date%20Stamp.txt"
     txt_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
 
-    # 先嘗試讀 publication date stamp
-    resolved_version = ""
+    resp1 = fetch_url(stamp_url)
+    print("STAMP status:", resp1.status_code)
+    print("STAMP text:", resp1.text[:200])
 
-    try:
-        resp = fetch_url(stamp_url)
-        stamp_text = resp.text.strip()
+    resp2 = fetch_url(txt_url)
+    print("TXT status:", resp2.status_code)
+    print("TXT head:", resp2.text[:200])
 
-        # 直接抓 yyyy-mm-dd
-        m = re.search(r"(\d{4}-\d{2}-\d{2})", stamp_text)
-        if m:
-            resolved_version = m.group(1)
+    return txt_url
 
-    except Exception:
-        # 如果 stamp 檔讀不到，再退而求其次讀 SDTM 索引頁
-        resp = fetch_url(sdtm_index)
-        html = resp.text
-
-        # 依索引頁內容找日期
-        m = re.search(r"SDTM Publication Date Stamp\.txt.*?(\d{4}-\d{2}-\d{2})", html, re.DOTALL)
-        if m:
-            resolved_version = m.group(1)
-
-    return txt_url, resolved_version
 
 
 
