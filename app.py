@@ -3306,6 +3306,32 @@ if uploaded_file is not None:
         ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
 
 
+        ctx = build_step1_context(file_bytes, all_sheets)
+
+        st.markdown("### 📦 Step 1：匯入 Domain 檢查")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("#### ✅ Available Domain Sheets")
+            if ctx["available_sheets"]:
+                st.dataframe(
+                    pd.DataFrame({"Domain": ctx["available_sheets"]}),
+                    use_container_width=True
+                )
+            else:
+                st.info("沒有抓到任何 domain sheet")
+
+        with col2:
+            st.markdown("#### ❌ Missing Domain Sheets")
+            if ctx["missing_sheets"]:
+                st.dataframe(
+                    pd.DataFrame({"Missing Domain": ctx["missing_sheets"]}),
+                    use_container_width=True
+                )
+            else:
+                st.success("沒有缺少的 domain 👍")
+
 
 
         # SDTM Varialbe Mapping (Summary by Domain）
@@ -3341,7 +3367,7 @@ if uploaded_file is not None:
 
             st.dataframe(sorted_detail_df, use_container_width=True)
 
-        st.dataframe(domain_df_map, use_container_width=True)
+       
 
         # CT Mapping Result       
         st.markdown("### 🧩 CT Mapping List")
