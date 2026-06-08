@@ -2572,7 +2572,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         })
         
         codelist_df["Terminology"] = codelist_df["NCI Codelist Code"].apply(
-            lambda x: f"SDTM {ct_version}"
+            lambda x: f"SDTM {sdtm_ct}"
             if str(x).strip() != ""
             else ""
         )
