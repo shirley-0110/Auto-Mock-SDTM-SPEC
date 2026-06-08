@@ -293,12 +293,20 @@ def build_step1_context(file_bytes, all_sheets):
     soa_df, _ = read_sheet_with_detected_header(
         file_bytes=file_bytes,
         sheet_name="SoA",
-        keyword_groups=[["FORM", "OID"]]
+        keyword_groups=[
+            ["FORM", "OID"],
+            ["ABBREVIATION"]
+        ]
     )
 
     form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
+    
+    # fallback：如果沒有 FORM OID，用 Abbreviation
     if form_oid_col is None:
-        raise ValueError("SoA 找不到 Form OID")
+        form_oid_col = find_column(soa_df.columns, ["ABBREVIATION"])
+
+    if form_oid_col is None:
+        raise ValueError("SoA 分頁中找不到 Form OID 或 Abbreviation 欄位")
 
     valid_domains = extract_form_oids(soa_df[form_oid_col])
 
