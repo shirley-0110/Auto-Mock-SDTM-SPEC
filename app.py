@@ -1177,7 +1177,7 @@ def load_ct_master_from_web(sdtm_ct=""):
     except Exception:
         latest_archive_url = ""
         latest_archive_version = ""
-        latest_archive_last_modifie
+        latest_archive_last_modified
 
 
    # -------------------------------------------------
