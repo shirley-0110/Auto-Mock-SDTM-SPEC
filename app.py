@@ -2581,7 +2581,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
 
             map_df = map_df.rename(columns=rename_map)
     
-            for col in ["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value"]:
+            for col in ["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value", "Original Value"]:
                 if col not in map_df.columns:
                     map_df[col] = ""
 
@@ -2590,6 +2590,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             map_df["CT Code"] = map_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
             map_df["Assign Value"] = map_df["Assign Value"].fillna("").astype(str).str.strip()
             map_df["CRF Option Value"] = map_df["CRF Option Value"].fillna("").astype(str).str.strip()
+            map_df["Original Value"] = map_df["Original Value"].fillna("").astype(str).str.strip()
 
         else:
             map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value"])
@@ -2633,10 +2634,14 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             # 情況 1：有 CT Code → 用 CT Mapping List 的 CT Term
             # ---------------------------------------------
             if ct_code != "":
-                terms = (
+                subset = map_df[
+                    (map_df["Dataset"] == dataset) &
+                    (map_df["Variable"] == variable)
+                ].copy()
+
+                matched_terms = (
                     matched_df.loc[
-                        (matched_df["CT Code"] == ct_code)
-                        &
+                        (matched_df["CT Code"] == ct_code) &
                         (matched_df["Dataset"] == dataset),
                         "CT Term"
                     ]
@@ -2648,27 +2653,28 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                     .drop_duplicates()
                     .tolist()
                 )
-          
-                # CT Code 有但沒 mapping，fallback 到 CRF (Original Value)
-                if not terms:
-                    subset = map_df[
-                        (map_df["Dataset"] == dataset)
-                        &
-                        (map_df["Variable"] == variable)
-                    ].copy()
-                    
-                    fallback_terms = (
-                        subset["Original Value"]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                        .replace("", pd.NA)
-                        .dropna()
-                        .drop_duplicates()
-                        .tolist()
-                    )
-            
-                    terms = fallback_terms
+
+                original_terms = (
+                    subset["Original Value"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .replace("", pd.NA)
+                    .dropna()
+                    .drop_duplicates()
+                    .tolist()
+                )
+
+                # 只把「沒有被 matched term 吃掉」的 original values 保留下來
+                matched_norm = {normalize_text(x) for x in matched_terms if str(x).strip() != ""}
+
+                unmatched_original_terms = [
+                    t for t in original_terms
+                    if normalize_text(t) not in matched_norm
+                ]
+
+                # final：matched + unmatched 原始值
+                terms = matched_terms + unmatched_original_terms
 
 
 
