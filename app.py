@@ -2837,7 +2837,11 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             )
             
         # 只處理 TESTCD
-        testcd_mask = codelist_df["ID"].fillna("").astype(str).str.endswith("TESTCD")
+        testcd_mask = (
+            codelist_df["ID"].fillna("").astype(str).str.endswith("TESTCD")
+            &
+            codelist_df["NCI Term Code"].fillna("").astype(str).str.strip().ne("")
+        )
 
         codelist_df.loc[testcd_mask, "Decode"] = (
             codelist_df.loc[testcd_mask, "Decode_from_TEST"].fillna("")
