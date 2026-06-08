@@ -2151,10 +2151,20 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
     detail_variables_df = pd.DataFrame(detail_rows)
 
     if not detail_variables_df.empty:
-        detail_variables_df = detail_variables_df.drop_duplicates(
-            subset=["Dataset", "Variable"],
-            keep="first"
-        ).reset_index(drop=True)
+        detail_variables_df = (
+            detail_variables_df
+            .groupby(["Dataset", "Variable"], as_index=False)
+            .agg({
+                "Origin": "first",
+                "Source": "first",
+                "Pages": "first",
+                "Method": "first",
+                "Comment": "first",
+                "CRF Dataset": join_unique,
+                "CRF Variable": join_unique
+            })
+            .reset_index(drop=True)
+        )
 
     # -------------------------------------------------
     # 2. 加入 5T variables
