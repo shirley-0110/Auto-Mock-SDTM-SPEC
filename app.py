@@ -2673,20 +2673,22 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                     .drop_duplicates()
                     .tolist()
                 )
+               
+                option_terms = (
+                    subset["CRF Option Value"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .replace("", pd.NA)
+                    .dropna()
+                    .drop_duplicates()
+                    .tolist()
+                )
 
                 if assign_terms:
                     terms = assign_terms
                 elif option_terms:
-                    option_terms = (
-                        subset["CRF Option Value"]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                        .replace("", pd.NA)
-                        .dropna()
-                        .drop_duplicates()
-                        .tolist()
-                    )
+                    terms = option_terms
                 else:
                     # fallback：保留原始值（Unmatched）
                     fallback_terms = (
