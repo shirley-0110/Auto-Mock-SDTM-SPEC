@@ -2851,6 +2851,65 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         codelist_df = codelist_df.drop(columns=["Decode_Lookup_ID", "Decode_from_TEST"], errors="ignore")
 
 
+
+        # =================================================
+        # TSPARMCD Decode（用 CT master）
+        # =================================================
+        if ct_master_df is not None and not ct_master_df.empty:
+
+            # normalize
+            right = ct_master_df.copy()
+
+            for col in ["Submission Value", "Code", "Codelist Name"]:
+                if col not in right.columns:
+                    right[col] = ""
+
+            right["Submission Value"] = (
+                right["Submission Value"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.upper()
+            )
+
+            right["Code"] = right["Code"].fillna("").astype(str).str.strip()
+            right["Codelist Name"] = right["Codelist Name"].fillna("").astype(str).str.strip()
+
+            # TSPARM name codelist（關鍵）
+            tsparm_name_df = right[
+                right["Codelist Name"] == "Trial Summary Parameter Test Name"
+            ][["Code", "Submission Value"]].copy()
+
+            tsparm_name_df = tsparm_name_df.rename(columns={
+                "Code": "NCI Term Code",
+                "Submission Value": "Decode_TSPARM"
+            })
+
+            # 找出 TSPARMCD rows（且有 NCI Term Code）
+            tsparmcd_mask = (
+                codelist_df["ID"].fillna("").astype(str).str.upper() == "TSPARMCD"
+                &
+                codelist_df["NCI Term Code"].fillna("").astype(str).str.strip().ne("")
+            )
+
+            if tsparmcd_mask.any():
+
+                codelist_df = codelist_df.merge(
+                    tsparm_name_df.drop_duplicates(),
+                    on="NCI Term Code",
+                    how="left"
+                )
+
+                # 塞回 Decode（但不要覆蓋原 TESTCD decode）
+                codelist_df.loc[tsparmcd_mask, "Decode"] = (
+                    codelist_df.loc[tsparmcd_mask, "Decode_TSPARM"].fillna("")
+                )
+
+                # cleanup
+                codelist_df = codelist_df.drop(columns=["Decode_TSPARM"], errors="ignore")
+
+
+        
         # 排序 / 去重
         codelist_df = (
             codelist_df
