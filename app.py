@@ -3674,21 +3674,30 @@ if uploaded_file is not None:
             
 
     
+
+
+
+
             st.markdown("#### 🔍 Debug get_latest_sdtm_txt()")
 
             try:
-                latest_url, latest_version = get_latest_sdtm_txt()
-        
-                st.success("✅ get_latest_sdtm_txt() 成功")
+                latest_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
+                stamp_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Publication%20Date%20Stamp.txt"
 
+                resp_stamp = fetch_url(stamp_url)
+                resp_txt = fetch_url(latest_url)
+
+                st.success("✅ /SDTM/ 測試成功")
+                st.write("stamp_url:", stamp_url)
+                st.write("stamp_text:", resp_stamp.text[:200])
                 st.write("latest_url:", latest_url)
-                st.write("latest_version:", latest_version)
+                st.write("txt_preview:", resp_txt.text[:200])
 
             except Exception as e:
-                st.error("❌ get_latest_sdtm_txt() 失敗")
-                st.write("Error:", str(e))
+                st.error("❌ /SDTM/ 測試失敗")
+                st.write(str(e))
 
-
+            
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
 
