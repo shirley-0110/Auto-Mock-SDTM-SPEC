@@ -442,7 +442,11 @@ def build_soa_visit_list(soa_df, folder_df):
     # 1 呼叫SoA
     form_oid_col = find_column(soa_df.columns, ["FORM", "OID"])
     if form_oid_col is None:
-        raise ValueError("SoA 分頁中找不到 Form OID 欄位")
+        form_oid_col = find_column(soa_df.columns, ["ABBREVIATION"])
+
+    if form_oid_col is None:
+        raise ValueError("SoA 分頁中找不到 Form OID 或 Abbreviation 欄位")
+
 
     # SoA 所有欄位
     soa_columns = [str(c).strip() for c in soa_df.columns if str(c).strip()]
