@@ -2636,13 +2636,14 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 (map_df["Variable"] == variable)
             ].copy()
 
+            matched_subset = matched_df.loc[
+                (matched_df["CT Code"] == ct_code) &
+                (matched_df["Dataset"] == dataset) &
+                (matched_df["Variable"] == variable)
+            ].copy()
+
             matched_terms = (
-                matched_df.loc[
-                    (matched_df["CT Code"] == ct_code) &
-                    (matched_df["Dataset"] == dataset) &
-                    (matched_df["Variable"] == variable),
-                    "CT Term"
-                ]
+                matched_subset["CT Term"]
                 .dropna()
                 .astype(str)
                 .str.strip()
@@ -2663,13 +2664,30 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 .tolist()
             )
 
-            matched_norm = {normalize_text(x) for x in matched_terms if str(x).strip() != ""}
+            if "Original Value Normalized" in matched_subset.columns:
+                matched_original_norm = set(
+                matched_subset["Original Value Normalized"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .tolist()
+            )
+            else:
+                matched_original_norm = set(
+                    matched_subset["Original Value"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .apply(normalize_text)
+                    .tolist()
+                )
 
             unmatched_original_terms = [
                 t for t in original_terms
-                if normalize_text(t) not in matched_norm
+                if normalize_text(t) not in matched_original_norm
             ]
-
+            
             # 保留 matched + unmatched
             terms = matched_terms + unmatched_original_terms
 
