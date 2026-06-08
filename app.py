@@ -2683,10 +2683,13 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                     .tolist()
                 )
 
-            unmatched_original_terms = [
-                t for t in original_terms
-                if normalize_text(t) not in matched_original_norm
-            ]
+            if id_ != "NY":
+                unmatched_original_terms = [
+                    t for t in original_terms
+                    if normalize_text(t) not in matched_original_norm
+                ]
+            else:
+                unmatched_original_terms = []
             
             # 保留 matched + unmatched
             terms = matched_terms + unmatched_original_terms
