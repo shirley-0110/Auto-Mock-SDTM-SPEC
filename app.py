@@ -3341,6 +3341,7 @@ if uploaded_file is not None:
 
             st.dataframe(sorted_detail_df, use_container_width=True)
 
+        st.dataframe(domain_df_map, use_container_width=True)
 
         # CT Mapping Result       
         st.markdown("### 🧩 CT Mapping List")
