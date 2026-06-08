@@ -2649,9 +2649,27 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                     .tolist()
                 )
           
-                # CT Code 有但沒 mapping，不做情況3
+                # CT Code 有但沒 mapping，fallback 到 CRF (Original Value)
                 if not terms:
-                    terms = []   # 保持空，不進 special
+                    subset = map_df[
+                        (map_df["Dataset"] == dataset)
+                        &
+                        (map_df["Variable"] == variable)
+                    ].copy()
+                    
+                    fallback_terms = (
+                        subset["Original Value"]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .replace("", pd.NA)
+                        .dropna()
+                        .drop_duplicates()
+                        .tolist()
+                    )
+            
+                    terms = fallback_terms
+
 
 
             # ---------------------------------------------
