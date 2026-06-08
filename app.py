@@ -4,6 +4,7 @@ import re
 import os
 import hashlib
 import io
+import traceback
 
 from io import BytesIO
 
