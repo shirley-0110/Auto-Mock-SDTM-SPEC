@@ -3614,14 +3614,15 @@ if uploaded_file is not None:
                 with st.expander("Preview CT Master"):
                     st.dataframe(ct_df.head(20), use_container_width=True)
 
-
+            
+            sdtm_ct = st.session_state.get("sdtm_ct", "")
             codelist_df = build_codelist_sheet(
                 variables_spec_df=variables_spec_df,
                 ct_master_df=st.session_state.get("ct_master_df"),
                 matched_ct_df=matched_ct_df,
                 ct_mapping_df=ct_mapping_df,
                 ts_df=ts_df,
-                sdtm_ct=st.session_state.get("sdtm_ct", "")
+                sdtm_ct=sdtm_ct
             )
             
             st.dataframe(codelist_df, use_container_width=True)
