@@ -2984,24 +2984,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         + 1
     )
 
-    # =================================================
-    # 欄位順序
-    # =================================================
-    codelist_df = codelist_df[
-        [
-            "ID",
-            "Name",
-            "NCI Codelist Code",
-            "Data Type",
-            "Terminology",
-            "Comment",
-            "Order",
-            "Term",
-            "NCI Term Code",
-            "Decoded Value"
-        ]
-    ]
-
     #  清理
     for col in codelist_df.columns:
         codelist_df[col] = codelist_df[col].fillna("").astype(str)
