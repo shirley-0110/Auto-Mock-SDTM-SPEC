@@ -3615,7 +3615,7 @@ if uploaded_file is not None:
                     st.dataframe(ct_df.head(20), use_container_width=True)
 
             
-            sdtm_ct = st.session_state.get("sdtm_ct", "")
+            sdtm_ct = info.get("resolved_version", "")
             codelist_df = build_codelist_sheet(
                 variables_spec_df=variables_spec_df,
                 ct_master_df=st.session_state.get("ct_master_df"),
