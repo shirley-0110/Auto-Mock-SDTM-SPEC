@@ -3126,94 +3126,29 @@ def make_step1_cache_key(file_bytes):
 
 
 # =================================================================================================================
-# HTML設定
+# 從上傳的txt中抓CT版本
 # =================================================================================================================
-def fetch_url(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9"
-    }
-    resp = requests.get(url, headers=headers, timeout=30)
-    resp.raise_for_status()
-    return resp
+def get_available_ct_versions():
+    base_path = "config/sdtm_ct"
 
+    files = [
+        f for f in os.listdir(base_path)
+        if f.startswith("SDTM Terminology") and f.endswith(".txt")
+    ]
 
+    version_map = {}
 
-
-def get_latest_sdtm_txt():
-    sdtm_index_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/"
-    stamp_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Publication%20Date%20Stamp.txt"
-    txt_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
-
-    resp1 = fetch_url(stamp_url)
-    print("STAMP status:", resp1.status_code)
-    print("STAMP text:", resp1.text[:200])
-
-    resp2 = fetch_url(txt_url)
-    print("TXT status:", resp2.status_code)
-    print("TXT head:", resp2.text[:200])
-
-    return txt_url
-
-
-
-
-
-def get_latest_archive_txt():
-
-    archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
-
-    resp = fetch_url(archive_index)
-    resp.raise_for_status()
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    rows = soup.find_all("tr")
-
-    # 只抓：SDTM Terminology yyyy-mm-dd.txt
-    pattern = re.compile(r"SDTM Terminology\s+(\d{4}-\d{2}-\d{2})\.txt")
-
-    results = []
-
-    for row in rows:
-        cols = row.find_all("td")
-        if len(cols) < 3:
-            continue
-
-        link_tag = cols[1].find("a")
-        if not link_tag:
-            continue
-
-        name = link_tag.get_text(strip=True)
-        last_modified = cols[2].get_text(strip=True)
-
-        if "Terminology Changes" in name:
-            continue
-
-        m = pattern.match(name)
+    for f in files:
+        # 抓 yyyy-mm-dd
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", f)
         if m:
             version = m.group(1)
+            version_map[version] = f
 
-            results.append({
-                "name": name,
-                "version": version,
-                "last_modified": last_modified,
-                "url": archive_index + name.replace(" ", "%20")
-            })
+    # 排序（新 → 舊）
+    versions = sorted(version_map.keys(), reverse=True)
 
-    if not results:
-        return "", "", ""
-
-    # 依 last_modified 最新排序
-    results = sorted(results, key=lambda x: x["last_modified"], reverse=True)
-
-    latest = results[0]
-
-    return latest["url"], latest["version"], latest["last_modified"]
-    # End=========================================================
-
-
-
+    return versions, version_map
 
 
 # =========================================================================================================================================================
@@ -3276,8 +3211,14 @@ if uploaded_file is not None:
                 key="sdtm_version_selector"
             )
 
+        versions, version_map = get_available_ct_versions()
         with r1_c2:
-            sdtm_ct = st.text_input("SDTM CT", value="", key="sdtm_ct")
+            sdtm_ct = st.selectbox(
+                "SDTM CT",
+                options=versions,
+                index=0,  # 預設選最新
+                key="sdtm_ct"
+            )
         
         meddra_version = st.text_input("MedDRA", value="", key="meddra_version")
 
@@ -3657,28 +3598,6 @@ if uploaded_file is not None:
             
 
     
-
-
-
-
-            st.markdown("#### 🔍 Debug get_latest_sdtm_txt()")
-
-            try:
-                latest_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
-                stamp_url = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Publication%20Date%20Stamp.txt"
-
-                resp_stamp = fetch_url(stamp_url)
-                resp_txt = fetch_url(latest_url)
-
-                st.success("✅ /SDTM/ 測試成功")
-                st.write("stamp_url:", stamp_url)
-                st.write("stamp_text:", resp_stamp.text[:200])
-                st.write("latest_url:", latest_url)
-                st.write("txt_preview:", resp_txt.text[:200])
-
-            except Exception as e:
-                st.error("❌ /SDTM/ 測試失敗")
-                st.write(str(e))
 
             
             # 2.4 Codelists
