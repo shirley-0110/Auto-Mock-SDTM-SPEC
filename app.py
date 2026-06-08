@@ -3247,7 +3247,7 @@ if uploaded_file is not None:
         )
         
         st.session_state["unique_visit_df"] = unique_visit_df
-        # st.write(unique_visit_df)
+        st.write(unique_visit_df)
 
         
         missing_sheets = result["missing_sheets"]
@@ -3503,15 +3503,11 @@ if uploaded_file is not None:
             )
             
             st.dataframe(datasets_df, use_container_width=True)
-
             
             # 2.3 Variables
             st.markdown("### 2.3 Variables")           
             st.dataframe(variables_view_df, use_container_width=True)
             
-
-    
-
             
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
@@ -3533,7 +3529,6 @@ if uploaded_file is not None:
             except Exception as e:
                 st.error("❌ SDTM CT 載入失敗")
                 st.write(str(e))
-
 
             sdtm_ct = info.get("resolved_version", "")
             codelist_df = build_codelist_sheet(
