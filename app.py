@@ -2749,7 +2749,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
 
         
         # =================================================
-        # ✅ Step 3：Term → NCI Term Code
+        # Term → NCI Term Code
         # =================================================
         if ct_master_df is not None and not ct_master_df.empty:
 
@@ -2800,6 +2800,52 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 errors="ignore"
             )
 
+
+        # =================================================
+        # Decode（只處理 XXTESTCD / XXTEST 組合）
+        # =================================================
+        if "Decode" not in codelist_df.columns:
+            codelist_df["Decode"] = ""
+            
+        # 只處理 TESTCD
+        testcd_mask = codelist_df["ID"].fillna("").astype(str).str.endswith("TESTCD")
+
+        if testcd_mask.any():
+
+            # 建 sibling key：EGTESTCD -> EGTEST
+            codelist_df["Decode_Lookup_ID"] = codelist_df["ID"].fillna("").astype(str).str.replace(
+                r"TESTCD$", "TEST", regex=True
+            )
+            
+            # 從同一張 codelist_df 裡找 TEST row 當 decode source
+            # 只留真正的 TEST（不是 TESTCD）
+            test_name_df = codelist_df[
+                codelist_df["ID"].fillna("").astype(str).str.endswith("TEST")
+                & ~codelist_df["ID"].fillna("").astype(str).str.endswith("TESTCD")
+            ][[
+                "Dataset",
+                "ID",
+                "NCI Term Code",
+                "Term"
+            ]].copy()
+            
+            test_name_df = test_name_df.rename(columns={
+                "ID": "Decode_Lookup_ID",
+                "Term": "Decode_from_TEST"
+            })
+            
+            # 用 Dataset + paired TEST ID + NCI Term Code 對回來
+            codelist_df = codelist_df.merge(
+                test_name_df.drop_duplicates(),
+                on=["Dataset", "Decode_Lookup_ID", "NCI Term Code"],
+                how="left"
+            )
+
+            # 只把 Decode 填在 TESTCD rows
+            codelist_df.loc[testcd_mask, "Decode"] = codelist_df.loc[testcd_mask, "Decode_from_TEST"].fillna("")
+
+            # cleanup
+            codelist_df = codelist_df.drop(columns=["Decode_Lookup_ID", "Decode_from_TEST"], errors="ignore")
 
         # 排序 / 去重
         codelist_df = (
