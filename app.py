@@ -3091,6 +3091,24 @@ def get_available_ct_versions():
 # =========================================================================================================================================================
 
 st.set_page_config(page_title="Auto SDTM SPEC", layout="wide")
+
+st.markdown("""
+<style>
+.stButton > button {
+    background-color: black !important;
+    color: white !important;
+    border-radius: 6px;
+    border: none;
+}
+
+.stButton > button:hover {
+    background-color: #333333 !important;
+    color: white !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 st.title("Auto SDTM SPEC")
 
 
@@ -3269,7 +3287,7 @@ if uploaded_file is not None:
         )
         
         st.session_state["unique_visit_df"] = unique_visit_df
-        st.write(soa_df)
+        # st.write(soa_df)
 
         
         missing_sheets = result["missing_sheets"]
