@@ -3121,6 +3121,36 @@ st.title("Auto SDTM SPEC")
 
 uploaded_file = st.file_uploader("請上傳 eCRF Schema Excel", type=["xlsx", "xls"])
 
+        ctx = build_step1_context(file_bytes, all_sheets)
+
+        st.markdown("### 📦 Step 1：匯入 Domain 檢查")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("#### ✅ Available Domain Sheets")
+            if ctx["available_sheets"]:
+                st.dataframe(
+                    pd.DataFrame({"Domain": ctx["available_sheets"]}),
+                    use_container_width=True
+                )
+            else:
+                st.info("沒有抓到任何 domain sheet")
+
+        with col2:
+            st.markdown("#### ❌ Missing Domain Sheets")
+            if ctx["missing_sheets"]:
+                st.dataframe(
+                    pd.DataFrame({"Missing Domain": ctx["missing_sheets"]}),
+                    use_container_width=True
+                )
+            else:
+                st.success("沒有缺少的 domain 👍")
+
+
+
+
+
 if uploaded_file is not None:
     file_bytes = uploaded_file.getvalue()
 
@@ -3304,33 +3334,6 @@ if uploaded_file is not None:
         unparsed_records = result["unparsed_records"]
         ct_mapping_df = result.get("ct_mapping_df", pd.DataFrame())
         ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
-
-
-        ctx = build_step1_context(file_bytes, all_sheets)
-
-        st.markdown("### 📦 Step 1：匯入 Domain 檢查")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("#### ✅ Available Domain Sheets")
-            if ctx["available_sheets"]:
-                st.dataframe(
-                    pd.DataFrame({"Domain": ctx["available_sheets"]}),
-                    use_container_width=True
-                )
-            else:
-                st.info("沒有抓到任何 domain sheet")
-
-        with col2:
-            st.markdown("#### ❌ Missing Domain Sheets")
-            if ctx["missing_sheets"]:
-                st.dataframe(
-                    pd.DataFrame({"Missing Domain": ctx["missing_sheets"]}),
-                    use_container_width=True
-                )
-            else:
-                st.success("沒有缺少的 domain 👍")
 
 
 
