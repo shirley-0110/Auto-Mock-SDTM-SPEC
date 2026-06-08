@@ -3517,50 +3517,24 @@ if uploaded_file is not None:
             st.markdown("### 2.4 Codelists")
 
             # Load CT Master
-            current_ct_key = st.session_state.get("sdtm_ct", "")
-
-            if (
-                "ct_master_df" not in st.session_state
-                or st.session_state.get("ct_version_key") != current_ct_key
-            ):          
+            try:
+                ct_df, info = load_ct_master(
+                    st.session_state.get("sdtm_ct", "")
+                )
                 
-                try:
-                    ct_df, info = load_ct_master(
-                        st.session_state.get("sdtm_ct", "")
-                    )
+                st.session_state["ct_master_df"] = ct_df
+                st.session_state["ct_master_info"] = info
 
-                    st.session_state["ct_master_df"] = ct_df
-                    st.session_state["ct_master_info"] = info
-                    st.session_state["ct_version_key"] = current_ct_key
-
-                except Exception as e:
-                    st.error("❌ SDTM CT 載入失敗")
-                    st.write(str(e))
-
-            if "ct_master_info" in st.session_state:
+                st.success(f"✅ 使用 SDTM CT：{info['resolved_version']}")
                 
-                info = st.session_state["ct_master_info"]
-                ct_df = st.session_state["ct_master_df"]
-
-                st.success("✅ SDTM Controlled Terminology 載入成功")
-                
-                resolved_version = info.get("resolved_version", "") or "Unknown"
-                requested_version = info.get("requested_version", "")
-                url = info.get("download_url", "")
-                
-                if info["source_type"] == "archive":
-                    st.markdown(f"📦 使用指定版本 CT（[{resolved_version}]({url})）")
-                elif info["source_type"] == "latest-archive":
-                    st.markdown(f"📁 使用最新版本 CT（[{resolved_version}]({url})）")
-                elif info["source_type"] == "fallback-latest-archive":
-                    st.warning(
-                        f"⚠️ 找不到指定版本 {requested_version} → 改用最新版本（[{resolved_version}]({url})）"
-                    )
-
                 with st.expander("Preview CT Master"):
                     st.dataframe(ct_df.head(20), use_container_width=True)
+                
+            except Exception as e:
+                st.error("❌ SDTM CT 載入失敗")
+                st.write(str(e))
 
-            
+
             sdtm_ct = info.get("resolved_version", "")
             codelist_df = build_codelist_sheet(
                 variables_spec_df=variables_spec_df,
