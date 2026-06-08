@@ -3625,7 +3625,7 @@ if uploaded_file is not None:
             )
             
             st.dataframe(codelist_df, use_container_width=True)
-            st.write(codelist_df.columns.tolist())
+            st.write("Current CT Version:", sdtm_ct)
 
             # 2.5 Codelists
             st.markdown("### 2.5 Dictionaries")
