@@ -2676,7 +2676,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
 
                 if assign_terms:
                     terms = assign_terms
-                else:
+                elif option_terms:
                     option_terms = (
                         subset["CRF Option Value"]
                         .dropna()
