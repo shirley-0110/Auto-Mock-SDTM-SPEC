@@ -1568,6 +1568,17 @@ def expand_suppqual_variables(config_df, target_supp_datasets):
     # End=========================================================
 
 
+def join_unique(series):
+    vals = [
+        str(x).strip()
+        for x in series.fillna("").astype(str).tolist()
+        if str(x).strip() != ""
+    ]
+    vals = list(dict.fromkeys(vals))  # 保序去重
+    return "; ".join(vals)
+    # End=========================================================
+
+
 
 def apply_codelist_rules(merged_df):
     """
@@ -3129,7 +3140,7 @@ st.markdown("""
 st.title("Auto SDTM SPEC")
 
 
-uploaded_file = st.file_uploader("請上傳 eCRF Schema Excel123", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("請上傳 eCRF Schema Excel", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
     file_bytes = uploaded_file.getvalue()
