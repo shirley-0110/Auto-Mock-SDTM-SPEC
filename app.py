@@ -1157,7 +1157,12 @@ def load_ct_master_from_web(sdtm_ct=""):
     # helper：下載 + 驗證
     # -------------------------------------------------
     def fetch_ct_text(url):
-        resp = requests.get(url, timeout=30)
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+        resp = requests.get(url, headers=headers, timeout=30)
+
         resp.raise_for_status()
 
         #  核心：確認是 CT file，不是 html/error page
@@ -3123,38 +3128,20 @@ def make_step1_cache_key(file_bytes):
 # =================================================================================================================
 # HTML設定
 # =================================================================================================================
-def fetch_html(url, timeout=30):
-    resp = requests.get(url, timeout=timeout)
+def fetch_url(url):
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+    resp = requests.get(url, headers=headers, timeout=30)
     resp.raise_for_status()
-    return resp.text
-    # End=========================================================
-
-def parse_links_from_index(index_url):
-    html = fetch_html(index_url)
-    soup = BeautifulSoup(html, "html.parser")
-
-    links = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        text = a.get_text(strip=True)
-        if not href:
-            continue
-
-        links.append({
-            "text": text,
-            "href": href,
-            "url": urljoin(index_url, href)
-        })
-    return links
-    # End=========================================================
-
+    return resp
 
 
 def get_latest_archive_txt():
 
     archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
 
-    resp = requests.get(archive_index, timeout=30)
+    resp = fetch_url(url)
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
