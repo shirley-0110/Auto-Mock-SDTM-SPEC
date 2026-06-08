@@ -3645,7 +3645,28 @@ if uploaded_file is not None:
             st.markdown("### 2.3 Variables")           
             st.dataframe(variables_view_df, use_container_width=True)
             
-            
+
+            st.markdown("#### 🔍 Debug CT Archive Fetch")
+    
+            try:
+                latest_archive_url, latest_archive_version, latest_archive_last_modified = get_latest_archive_txt()
+
+                st.success("✅ 成功取得最新 Archive CT")
+
+                st.write("latest_archive_url:", latest_archive_url)
+                st.write("latest_archive_version:", latest_archive_version)
+                st.write("latest_archive_last_modified:", latest_archive_last_modified)
+
+            except Exception as e:
+                st.error("❌ get_latest_archive_txt() 失敗")
+
+                st.write("Error:", str(e))
+
+                # ✅ fallback 顯示
+                latest_archive_url = ""
+                latest_archive_version = ""
+                latest_archive_last_modified = ""
+
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
 
