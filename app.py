@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from difflib import get_close_matches
 from st_aggrid import AgGrid, GridOptionsBuilder
+from datetime import datetime
 
 # Step 2 用到 sas7bdat
 try:
@@ -3676,7 +3677,37 @@ if uploaded_file is not None:
                 
                 st.markdown("#### TV")
                 st.dataframe(tv_df, use_container_width=True)
-            
+
+
+            # ==========================================================
+            # Excel Sheets
+            # ==========================================================
+            export_sheets = {
+                "Define": define_df,
+                "Datasets": datasets_df,
+                "Variables": variables_export,
+                "Codelist": codelists_export,
+                "Dictionaries": dictionaries_df,
+                "TA": ta_df,
+                "TE": te_df,
+                "TI": ti_df,
+                "TS": ts_df,
+                "TV": tv_df
+            }
+
+            excel_bytes = to_excel_bytes(export_sheets)
+
+            # 檔名
+            today_str = datetime.now().strftime("%Y%m%d")
+            file_name = f"{sponsor}_{protocol_no}_Mock SDTM_SPEC_{today_str}.xlsx"
+
+            # Download Button
+            st.download_button(
+                label="下載 SDTM SPEC Excel",
+                data=excel_bytes,
+                file_name=file_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
         
     except Exception as e:
