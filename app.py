@@ -2788,16 +2788,15 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                     ["Submission Value", "Code", "Codelist Code"]
                 ].rename(columns={
                     "Code": "NCI Term Code",
-                    "Codelist Code": "NCI Codelist Code (Term Level)"
                 }),
                 left_on=["Term_norm", "NCI Codelist Code"],
-                right_on=["Submission Value", "NCI Codelist Code (Term Level)"],
+                right_on=["Submission Value", "Codelist Code"],
                 how="left"
             )
 
             # cleanup
             codelist_df = codelist_df.drop(
-                columns=["Submission Value", "Term_norm"],
+                columns=["Submission Value", "Term_norm", "Codelist Code"],
                 errors="ignore"
             )
 
