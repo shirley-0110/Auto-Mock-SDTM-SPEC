@@ -3141,7 +3141,7 @@ def get_latest_archive_txt():
 
     archive_index = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/Archive/"
 
-    resp = fetch_url(url)
+    resp = fetch_url(archive_index)
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
