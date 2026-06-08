@@ -2887,9 +2887,9 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
 
             # 找出 TSPARMCD rows（且有 NCI Term Code）
             tsparmcd_mask = (
-                codelist_df["ID"].fillna("").astype(str).str.upper() == "TSPARMCD"
+                (codelist_df["ID"].fillna("").astype(str).str.upper() == "TSPARMCD")
                 &
-                codelist_df["NCI Term Code"].fillna("").astype(str).str.strip().ne("")
+                (codelist_df["NCI Term Code"].fillna("").astype(str).str.strip().ne(""))
             )
 
             if tsparmcd_mask.any():
