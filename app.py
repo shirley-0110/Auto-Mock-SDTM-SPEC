@@ -3568,8 +3568,6 @@ if uploaded_file is not None:
             # 2.4 Codelists
             st.markdown("### 2.4 Codelists")
 
-            st.write("ct_mapping_df columns:", ct_mapping_df.columns.tolist())
-
             # Load CT Master
             current_ct_key = st.session_state.get("sdtm_ct", "")
 
@@ -3625,8 +3623,27 @@ if uploaded_file is not None:
                 sdtm_ct=sdtm_ct
             )
             
-            st.dataframe(codelist_df, use_container_width=True)
-            st.write("Current CT Version:", sdtm_ct)
+            display_cols = [
+                "ID",
+                "Name",
+                "NCI Codelist Code",
+                "Data Type",
+                "Terminology",
+                "Comment",
+                "Order",
+                "Term",
+                "NCI Term Code",
+                "Decoded Value"
+            ]
+
+            # 防欄位不存在（避免Error）
+            display_cols = [c for c in display_cols if c in codelist_df.columns]
+
+            st.dataframe(
+                codelist_df[display_cols],
+                use_container_width=True
+            )
+
 
             # 2.5 Codelists
             st.markdown("### 2.5 Dictionaries")
