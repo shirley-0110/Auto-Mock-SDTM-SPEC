@@ -2423,6 +2423,16 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         (~df["Codelist"].isin(["AEDICT_F", "ISO3166"]))
     ].copy()
 
+    # =================================================
+    # 針對 DOMAIN codelist，先排除 SUPPxx
+    # 避免 DOMAIN_VS 被 SUPPVS 蓋掉
+    # =================================================
+    is_domain_codelist = df["Codelist"].fillna("").astype(str).str.upper().str.startswith("DOMAIN")
+    is_supp_dataset = df["Dataset"].fillna("").astype(str).str.upper().str.startswith("SUPP")
+
+    df = df[~(is_domain_codelist & is_supp_dataset)].copy()
+
+
     # 排序後挑 representative row
     df = df.sort_values(by=["Codelist", "Dataset", "Variable"]).reset_index(drop=True)
 
