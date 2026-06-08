@@ -2507,8 +2507,8 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         map_df["CRF Option Value"] = map_df["CRF Option Value"].fillna("").astype(str).str.strip()
         map_df["Original Value"] = map_df["Original Value"].fillna("").astype(str).str.strip()
 
-        else:
-            map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value"])
+    else:
+        map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value"])
 
         # =================================================
         # 準備 TS（第二層特殊處理）
