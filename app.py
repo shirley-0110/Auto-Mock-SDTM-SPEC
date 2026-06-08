@@ -2687,7 +2687,20 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                         .drop_duplicates()
                         .tolist()
                     )
-                    terms = option_terms
+                else:
+                    # fallback：保留原始值（Unmatched）
+                    fallback_terms = (
+                        subset["Original Value"]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .replace("", pd.NA)
+                        .dropna()
+                        .drop_duplicates()
+                        .tolist()
+                    )
+
+                    terms = fallback_terms
 
             # ---------------------------------------------
             # 情況 3：特殊處理
@@ -2750,7 +2763,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
     
         codelist_df = pd.DataFrame(expanded_rows)
 
-        
         # =================================================
         # Term → NCI Term Code
         # =================================================
@@ -2803,7 +2815,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 errors="ignore"
             )
 
-
         # =================================================
         # Decode（只處理 XXTESTCD / XXTEST 組合）
         # =================================================
@@ -2851,7 +2862,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         
         # cleanup
         codelist_df = codelist_df.drop(columns=["Decode_Lookup_ID", "Decode_from_TEST"], errors="ignore")
-
 
 
         # =================================================
@@ -2910,7 +2920,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 # cleanup
                 codelist_df = codelist_df.drop(columns=["Decode_TSPARM"], errors="ignore")
 
-
         
         # 排序 / 去重
         codelist_df = (
@@ -2921,9 +2930,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         )
 
     return codelist_df
-
     # End=========================================================
-
 
 
 
