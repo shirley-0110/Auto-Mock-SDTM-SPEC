@@ -2536,7 +2536,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         )
 
         # =================================================
-        # 4. 準備 CT Mapping（第二層用）
+        # 4. 準備 CT Match Mapping + map_df（Assign / CRF Option）（第二層用）
         # =================================================
         if matched_ct_df is not None and not matched_ct_df.empty:
             matched_df = matched_ct_df.copy()
@@ -2565,6 +2565,36 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             matched_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "CT Term"])
 
 
+
+        if ct_mapping_df is not None and not ct_mapping_df.empty:
+            map_df = ct_mapping_df.copy()
+            map_df.columns = [str(c).strip() for c in map_df.columns]
+
+            rename_map = {}
+            for c in map_df.columns:
+                cu = c.upper().strip()
+                if cu == "SDTM DOMAIN":
+                    rename_map[c] = "Dataset"
+                elif cu == "SDTM VARIABLE":
+                    rename_map[c] = "Variable"
+
+            map_df = map_df.rename(columns=rename_map)
+    
+            for col in ["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value"]:
+                if col not in map_df.columns:
+                    map_df[col] = ""
+
+            map_df["Dataset"] = map_df["Dataset"].fillna("").astype(str).str.strip().str.upper()
+            map_df["Variable"] = map_df["Variable"].fillna("").astype(str).str.strip().str.upper()
+            map_df["CT Code"] = map_df["CT Code"].fillna("").astype(str).str.strip().str.upper()
+            map_df["Assign Value"] = map_df["Assign Value"].fillna("").astype(str).str.strip()
+            map_df["CRF Option Value"] = map_df["CRF Option Value"].fillna("").astype(str).str.strip()
+
+        else:
+            map_df = pd.DataFrame(columns=["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value"])
+
+
+        
         # =================================================
         # 6. 準備 TS（第二層特殊處理）
         # =================================================
