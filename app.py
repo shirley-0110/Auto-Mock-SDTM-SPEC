@@ -3247,7 +3247,7 @@ if uploaded_file is not None:
         )
         
         st.session_state["unique_visit_df"] = unique_visit_df
-        st.write(unique_visit_df)
+        st.write(soa_df)
 
         
         missing_sheets = result["missing_sheets"]
