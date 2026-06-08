@@ -2956,6 +2956,58 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         .reset_index(drop=True)
     )
 
+    # =================================================
+    # Final UI 欄位
+    # =================================================
+    #Data Type 固定
+    codelist_df["Data Type"] = "text"
+
+    #Terminology（用 CT version）
+    ct_version = st.session_state.get("ct_version", "")
+    if ct_version:
+        codelist_df["Terminology"] = f"SDTM {ct_version}"
+    else:
+        codelist_df["Terminology"] = "SDTM"
+
+    # Comment 固定空
+    codelist_df["Comment"] = ""
+
+    # Decoded Value
+    codelist_df["Decoded Value"] = codelist_df.get("Decode", "")
+
+    # Order（ID分組 + 依Term排序）
+    codelist_df = codelist_df.sort_values(["ID", "Term"], kind="stable")
+
+    codelist_df["Order"] = (
+        codelist_df
+        .groupby("ID")
+        .cumcount()
+        + 1
+    )
+
+    # =================================================
+    # 欄位順序
+    # =================================================
+    codelist_df = codelist_df[
+        [
+            "ID",
+            "Name",
+            "NCI Codelist Code",
+            "Data Type",
+            "Terminology",
+            "Comment",
+            "Order",
+            "Term",
+            "NCI Term Code",
+            "Decoded Value"
+        ]
+    ]
+
+    #  清理
+    for col in codelist_df.columns:
+        codelist_df[col] = codelist_df[col].fillna("").astype(str)
+
+
     return codelist_df
     # End=========================================================
 
