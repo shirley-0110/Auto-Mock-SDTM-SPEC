@@ -2691,7 +2691,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
     # 7. 第二層：展開 Term
     # =================================================
     expanded_rows = []
-
+    
     for _, row in codelist_df.iterrows():
 
         dataset = row["Dataset"]
@@ -2704,13 +2704,12 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         name = row["Name"]
         nci_codelist_code = row.get("NCI Codelist Code", "")
         terminology = row.get("Terminology", "")
-        
-        terms = []
+
+        value_rows = []
 
         # ---------------------------------------------
         # 情況 1：有 CT Code
-        # 先抓 matched CT term
-        # 再保留 unmatched original value
+        #   保留 Original Value -> CT Term 對應
         # ---------------------------------------------
         if ct_code != "":
             subset = map_df[
@@ -2724,17 +2723,19 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 (matched_df["Variable"] == variable)
             ].copy()
 
-            matched_terms = (
-                matched_subset["CT Term"]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .replace("", pd.NA)
-                .dropna()
-                .drop_duplicates()
-                .tolist()
-            )
+            # --- 1A. matched rows：保留 Original Value -> CT Term ---
+            if not matched_subset.empty:
+                for _, mrow in matched_subset.iterrows():
+                    orig_val = str(mrow.get("Original Value", "")).strip()
+                    ct_term = str(mrow.get("CT Term", "")).strip()
 
+                    if ct_term:
+                        value_rows.append({
+                            "Original Value": orig_val,
+                            "Term": ct_term
+                        })
+
+            # --- 1B. unmatched rows：保留原始值本身 ---
             original_terms = (
                 subset["Original Value"]
                 .dropna()
@@ -2748,13 +2749,13 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
 
             if "Original Value Normalized" in matched_subset.columns:
                 matched_original_norm = set(
-                matched_subset["Original Value Normalized"]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .str.upper()
-                .tolist()
-            )
+                    matched_subset["Original Value Normalized"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .str.upper()
+                    .tolist()
+                )
             else:
                 matched_original_norm = set(
                     matched_subset["Original Value"]
@@ -2772,14 +2773,18 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 ]
             else:
                 unmatched_original_terms = []
-            
-            # 保留 matched + unmatched
-            terms = matched_terms + unmatched_original_terms
+
+            for orig_val in unmatched_original_terms:
+                value_rows.append({
+                    "Original Value": orig_val,
+                    "Term": orig_val
+                })
 
         # ---------------------------------------------
-        # 情況 2：沒 CT Code → 優先 Assign Value，再 CRF Option，再 Original
+        # 情況 2：沒 CT Code
+        #   優先 Assign Value，再 CRF Option，再 Original
         # ---------------------------------------------
-        elif ct_code == "":
+        else:
             subset = map_df[
                 (map_df["Dataset"] == dataset) &
                 (map_df["Variable"] == variable)
@@ -2807,70 +2812,96 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 .tolist()
             )
 
-            if assign_terms:
-                terms = assign_terms
-            elif option_terms:
-                terms = option_terms
-            else:
-                fallback_terms = (
-                    subset["Original Value"]
-                    .dropna()
-                    .astype(str)
-                    .str.strip()
-                    .replace("", pd.NA)
-                    .dropna()
-                    .drop_duplicates()
-                    .tolist()
-                )
+            fallback_terms = (
+                subset["Original Value"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .replace("", pd.NA)
+                .dropna()
+                .drop_duplicates()
+                .tolist()
+            )
 
-                terms = fallback_terms
+            if assign_terms:
+                for t in assign_terms:
+                    value_rows.append({
+                        "Original Value": t,
+                        "Term": t
+                    })
+
+            elif option_terms:
+                for t in option_terms:
+                    value_rows.append({
+                        "Original Value": t,
+                        "Term": t
+                    })
+
+            else:
+                for t in fallback_terms:
+                    value_rows.append({
+                        "Original Value": t,
+                        "Term": t
+                    })
 
         # ---------------------------------------------
         # 情況 3：特殊處理（最後 fallback）
         # ---------------------------------------------
-        if not terms:
+        if not value_rows:
 
             if id_temp == "DOMAIN":
-                terms = [dataset]
+                value_rows = [{
+                    "Original Value": dataset,
+                    "Term": dataset
+                }]
 
             elif id_temp == "TSPARM":
-                terms = (
-                    ts_work["TSPARM"]
-                    .dropna()
-                    .astype(str)
-                    .str.strip()
-                    .replace("", pd.NA)
-                    .dropna()
-                    .drop_duplicates()
-                    .tolist()
-                )
+                value_rows = [
+                    {"Original Value": t, "Term": t}
+                    for t in (
+                        ts_work["TSPARM"]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .replace("", pd.NA)
+                        .dropna()
+                        .drop_duplicates()
+                        .tolist()
+                    )
+                ]
 
             elif id_temp == "TSPARMCD":
-                terms = (
-                    ts_work["TSPARMCD"]
-                    .dropna()
-                    .astype(str)
-                    .str.strip()
-                    .replace("", pd.NA)
-                    .dropna()
-                    .drop_duplicates()
-                    .tolist()
-                )
+                value_rows = [
+                    {"Original Value": t, "Term": t}
+                    for t in (
+                        ts_work["TSPARMCD"]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .replace("", pd.NA)
+                        .dropna()
+                        .drop_duplicates()
+                        .tolist()
+                    )
+                ]
 
             elif id_temp == "ND":
-                terms = ["NOT DONE"]
+                value_rows = [{"Original Value": "NOT DONE", "Term": "NOT DONE"}]
 
             elif id_ == "NY":
-                terms = ["N", "Y"]
+                value_rows = [
+                    {"Original Value": "N", "Term": "N"},
+                    {"Original Value": "Y", "Term": "Y"}
+                ]
 
             elif id_ == "Y":
-                terms = ["Y"]
+                value_rows = [{"Original Value": "Y", "Term": "Y"}]
 
         # 如果還是沒有，就至少保留一列空值
-        if not terms:
-            terms = [""]
+        if not value_rows:
+            value_rows = [{"Original Value": "", "Term": ""}]
 
-        for term in terms:
+        for vrow in value_rows:
             expanded_rows.append({
                 "Dataset": dataset,
                 "Variable": variable,
@@ -2882,10 +2913,12 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 "Name": name,
                 "NCI Codelist Code": nci_codelist_code,
                 "Terminology": terminology,
-                "Term": term
+                "Original Value": vrow["Original Value"],
+                "Term": vrow["Term"]
             })
 
     codelist_df = pd.DataFrame(expanded_rows)
+
 
     # =================================================
     # 8. Term → NCI Term Code
@@ -4052,7 +4085,7 @@ if uploaded_file is not None:
             st.dataframe(codelists_export, use_container_width=True)
 
 
-            # 2.5 Codelists
+            # 2.5 Dictionaries
             st.markdown("### 2.5 Dictionaries")
             dictionaries_df = st.data_editor(
                 build_dictionaries_sheet(
