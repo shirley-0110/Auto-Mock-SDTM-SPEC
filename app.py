@@ -4152,13 +4152,9 @@ if uploaded_file is not None:
             st.markdown("### DEBUG｜variable_mapping_df")
             st.dataframe(variable_mapping_df, use_container_width=True)
 
-            st.markdown("### DEBUG｜value_mapping_df")
-            st.dataframe(value_mapping_df, use_container_width=True)
-
             st.markdown("### DEBUG｜ct_mapping_df")
             st.dataframe(ct_mapping_df, use_container_width=True)
 
-    
             st.markdown("### DEBUG｜codelist_df")
             st.dataframe(codelist_df.head(20))
 
