@@ -644,6 +644,9 @@ def build_sdtm_mapping(domain_df_map):
             raw_target = row[target_col]
             source_var = row[source_var_col] if source_var_col is not None else ""
             source_dtype = row[source_dtype_col] if source_dtype_col is not None else ""
+
+            source_dtype = "" if pd.isna(source_dtype) else str(source_dtype).strip()
+            source_dtype = source_dtype.lower().title()
         
             parsed_records, unparsed_tokens = parse_sdtm_targets(raw_target)
 
@@ -838,6 +841,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                     raw_option = row.get(option_col, "")
 
                     source_var = "" if pd.isna(source_var) else str(source_var).strip()
+                    source_dtype = "" if pd.isna(source_dtype) else str(source_dtype).strip()
+                    source_dtype = source_dtype.lower().title()                    
                     raw_target = "" if pd.isna(raw_target) else str(raw_target).strip()
                     raw_option = "" if pd.isna(raw_option) else str(raw_option).strip()
 
