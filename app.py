@@ -4086,7 +4086,7 @@ if uploaded_file is not None:
 
             # Download Button
             st.download_button(
-                label="下載 SDTM SPEC Excel",
+                label="下載 Mock SDTM SPEC",
                 data=excel_bytes,
                 file_name=file_name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -4099,8 +4099,6 @@ if uploaded_file is not None:
                 variables_spec_df=variables_spec_df
             )
 
-            st.markdown("### 🧩 Variable Mapping Table")
-
             var_display_cols = [
                 "CRF Dataset", "CRF Variable", "CRF Data Type",
                 "Order", "Dataset", "Variable", "Label", "Data Type",
@@ -4112,14 +4110,13 @@ if uploaded_file is not None:
                 [c for c in var_display_cols if c in variable_mapping_export.columns]
             ]
 
+            st.markdown("### 🧩 Variable Mapping Table")
             st.dataframe(
                 variable_mapping_export,
                 use_container_width=True,
                 height=450
             )
 
-
-            st.markdown("### 🧩 Value Mapping Table")
             
             value_mapping_df = build_value_mapping_table(
                 variable_mapping_df=variable_mapping_df,
@@ -4127,47 +4124,34 @@ if uploaded_file is not None:
                 codelist_df=codelist_df
             )
 
-            display_cols = [
-                "CRF Dataset",
-                "CRF Variable",
-                "SDTM Domain",
-                "SDTM Variable",
-                "Codelist",
-                "Original Value",
-                "CT Term",
-                "NCI Term Code"
+            val_display_cols = ["CRF Dataset", "CRF Variable", "SDTM Domain", "SDTM Variable", "Codelist", "Original Value", "CT Term", "NCI Term Code"]
+            
+            value_mapping_export = value_mapping_df.copy()
+            value_mapping_export = value_mapping_export[
+                [c for c in val_display_cols if c in value_mapping_export.columns]
             ]
 
-            display_cols = [c for c in display_cols if c in value_mapping_df.columns]
-
+            st.markdown("### 🧩 Value Mapping Table")
             st.dataframe(
-                value_mapping_df[display_cols],
+                value_mapping_export,
                 use_container_width=True,
                 height=500
             )
 
             export_sheets = {
                 "Variable Mapping": variable_mapping_export,
-                "Datasets": datasets_df,
-                "Variables": variables_view_df,
-                "Codelist": codelists_export,
-                "Dictionaries": dictionaries_df,
-                "TA": ta_df,
-                "TE": te_df,
-                "TI": ti_df,
-                "TS": ts_df,
-                "TV": tv_df
+                "Value Mapping": value_mapping_export
             }
 
             excel_bytes = Export_excel(export_sheets)
 
             # 檔名
             today_str = datetime.now().strftime("%Y%m%d")
-            file_name = f"{sponsor}_{protocol_no}_Mock SDTM_SPEC_{today_str}.xlsx"
+            file_name = f"{sponsor}_{protocol_no}_Mapping List_{today_str}.xlsx"
 
             # Download Button
             st.download_button(
-                label="下載 SDTM SPEC Excel",
+                label="下載 Mapping List",
                 data=excel_bytes,
                 file_name=file_name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
