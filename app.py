@@ -3299,6 +3299,14 @@ def build_mapping_rule_table(
         expanded_rows = []
 
         for _, base in rule_df.iterrows():
+            
+            if str(base.get("Rule Type", "")).strip().upper() == "ASSIGN":
+                row = base.to_dict()
+                row["CRF Option Value"] = ""
+                row["Original Value"] = ""
+                ct_rows.append(row)
+                continue
+
             ds = clean_str(base["Dataset"]).upper()
             var = clean_str(base["Variable"]).upper()
 
