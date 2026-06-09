@@ -3297,7 +3297,8 @@ def build_mapping_rule_table(
         ct["CT Code"] = ct["CT Code"].fillna("").astype(str).str.strip().str.upper()
 
         expanded_rows = []
-
+        ct_rows = [] 
+        
         for _, base in rule_df.iterrows():
             
             if str(base.get("Rule Type", "")).strip().upper() == "ASSIGN":
