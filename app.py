@@ -4131,16 +4131,14 @@ if uploaded_file is not None:
                 codelist_df=codelist_df
             )
 
-            st.markdown("### 🧩 Value Mapping Table")
-
             display_cols = [
                 "CRF Dataset",
                 "CRF Variable",
                 "CRF Data Type",
+                "Codelist"
                 "Original Value",
                 "CT Term",
-                "NCI Term Code",
-                "Decoded Value"
+                "NCI Term Code"
             ]
 
             display_cols = [c for c in display_cols if c in value_mapping_df.columns]
