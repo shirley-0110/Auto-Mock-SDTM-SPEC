@@ -4094,6 +4094,11 @@ if uploaded_file is not None:
 
     
 
+            # ==========================================================
+            # Mapping List for Next Step (Auto SDTM)
+            # ==========================================================
+
+            # Variable Mapping Table
             variable_mapping_df = build_variable_mapping_table(
                 detail_df=detail_df,
                 variables_spec_df=variables_spec_df
@@ -4110,14 +4115,10 @@ if uploaded_file is not None:
                 [c for c in var_display_cols if c in variable_mapping_export.columns]
             ]
 
-            st.markdown("### 🧩 Variable Mapping Table")
-            st.dataframe(
-                variable_mapping_export,
-                use_container_width=True,
-                height=450
-            )
+            # st.markdown("### 🧩 Variable Mapping Table")
+            # st.dataframe(variable_mapping_export, use_container_width=True, height=450)
 
-            
+            # Value Mapping Table
             value_mapping_df = build_value_mapping_table(
                 variable_mapping_df=variable_mapping_df,
                 ct_mapping_df=ct_mapping_df,
@@ -4131,13 +4132,11 @@ if uploaded_file is not None:
                 [c for c in val_display_cols if c in value_mapping_export.columns]
             ]
 
-            st.markdown("### 🧩 Value Mapping Table")
-            st.dataframe(
-                value_mapping_export,
-                use_container_width=True,
-                height=500
-            )
+            #st.markdown("### 🧩 Value Mapping Table")
+            #st.dataframe(value_mapping_export, use_container_width=True, height=500)
 
+            
+            # 輸出
             export_sheets = {
                 "Variable Mapping": variable_mapping_export,
                 "Value Mapping": value_mapping_export
