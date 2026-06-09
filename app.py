@@ -3117,8 +3117,101 @@ def get_available_ct_versions():
 
 
 
+def build_variable_mapping_table(detail_df, variables_spec_df):
+    """
+    Variable Mapping:
+    以前三個 CRF source 欄位為主體，
+    再和 SDTM variable sheet 合併 metadata
+    """
 
-def build_mapping_rule_table(
+    import pandas as pd
+
+    if detail_df is None or detail_df.empty:
+        return pd.DataFrame(columns=[
+            "CRF Dataset", "CRF Variable", "CRF Data Type",
+            "Order", "Dataset", "Variable", "Label", "Data Type",
+            "Codelist", "Origin", "Source"
+        ])
+
+    d = detail_df.copy()
+    d.columns = [str(c).strip() for c in d.columns]
+
+    # detail_df 保底
+    for c in ["CRF Dataset", "CRF Variable", "SDTM Domain", "SDTM Variable"]:
+        if c not in d.columns:
+            d[c] = ""
+
+    if "CRF Data Type" not in d.columns:
+        d["CRF Data Type"] = ""
+
+    d["CRF Dataset"] = d["CRF Dataset"].fillna("").astype(str).str.strip()
+    d["CRF Variable"] = d["CRF Variable"].fillna("").astype(str).str.strip()
+    d["CRF Data Type"] = d["CRF Data Type"].fillna("").astype(str).str.strip()
+    d["SDTM Domain"] = d["SDTM Domain"].fillna("").astype(str).str.strip().str.upper()
+    d["SDTM Variable"] = d["SDTM Variable"].fillna("").astype(str).str.strip().str.upper()
+
+    # detail_df = execution truth
+    var_map = d.rename(columns={
+        "SDTM Domain": "Dataset",
+        "SDTM Variable": "Variable"
+    })[
+        ["CRF Dataset", "CRF Variable", "CRF Data Type", "Dataset", "Variable"]
+    ].drop_duplicates().reset_index(drop=True)
+
+    # 用 variables_spec_df 補 metadata
+    if variables_spec_df is not None and not variables_spec_df.empty:
+        v = variables_spec_df.copy()
+        v.columns = [str(c).strip() for c in v.columns]
+
+        for c in [
+            "Order", "Dataset", "Variable", "Label", "Data Type",
+            "Codelist", "Origin", "Source"
+        ]:
+            if c not in v.columns:
+                v[c] = ""
+
+        v["Dataset"] = v["Dataset"].fillna("").astype(str).str.strip().str.upper()
+        v["Variable"] = v["Variable"].fillna("").astype(str).str.strip().str.upper()
+
+        meta = v[[
+            "Order", "Dataset", "Variable", "Label", "Data Type",
+            "Codelist", "Origin", "Source"
+        ]].drop_duplicates(subset=["Dataset", "Variable"], keep="first")
+
+        var_map = var_map.merge(
+            meta,
+            how="left",
+            on=["Dataset", "Variable"]
+        )
+    else:
+        for c in ["Order", "Label", "Data Type", "Codelist", "Origin", "Source"]:
+            var_map[c] = ""
+
+    out_cols = [
+        "CRF Dataset", "CRF Variable", "CRF Data Type",
+        "Order", "Dataset", "Variable", "Label", "Data Type",
+        "Codelist", "Origin", "Source"
+    ]
+
+    for c in out_cols:
+        if c not in var_map.columns:
+            var_map[c] = ""
+
+    var_map = var_map[out_cols].copy()
+
+    # 排序：先 SDTM，再 raw source
+    var_map["Order"] = pd.to_numeric(var_map["Order"], errors="coerce")
+    var_map = var_map.sort_values(
+        by=["Dataset", "Order", "Variable", "CRF Dataset", "CRF Variable"],
+        na_position="last"
+    ).reset_index(drop=True)
+
+    return var_map
+    # End=========================================================
+
+
+
+def build_value_mapping_table(
     detail_df,
     variables_spec_df=None,
     ct_mapping_df=None,
@@ -3126,70 +3219,20 @@ def build_mapping_rule_table(
     codelist_df=None
 ):
     """
-    以 detail_df 為主，建立可執行的 mapping rule table
-    未來直接餵給 SAS generator
-
-    Parameters
-    ----------
-    detail_df : pd.DataFrame
-        必要，至少包含：
-        - CRF Dataset
-        - CRF Variable
-        - SDTM Domain
-        - SDTM Variable
-        - Assign Value
-
-    variables_spec_df : pd.DataFrame | None
-        build_variables_sheet() 輸出
-        用來補 metadata：
-        Label / Data Type / CT Code / Codelist / Origin / Source
-
-    ct_mapping_df : pd.DataFrame | None
-        原始 value-level CT seed
-        建議欄位：
-        - SDTM Domain
-        - SDTM Variable
-        - CT Code
-        - Assign Value
-        - CRF Option Value
-        - Original Value
-
-    matched_ct_df : pd.DataFrame | None
-        matched CT mapping
-        建議欄位：
-        - SDTM Domain
-        - SDTM Variable
-        - CT Code
-        - Original Value
-        - Original Value Normalized
-        - CT Term
-
-    codelist_df : pd.DataFrame | None
-        build_codelist_sheet() 輸出
-        用來補：
-        - NCI Term Code
-        - Decoded Value
+    Value Mapping:
+    只處理 value-level mapping，不處理 ASSIGN
     """
 
-    # -------------------------------------------------
-    # helper
-    # -------------------------------------------------
+    import pandas as pd
+
     def clean_str(x):
         return "" if pd.isna(x) else str(x).strip()
 
-    def normalize_upper(x):
-        return clean_str(x).upper()
-
-    # =================================================
-    # 0. detail_df = execution truth
-    # =================================================
     if detail_df is None or detail_df.empty:
         return pd.DataFrame(columns=[
-            "Dataset", "Variable", "Label", "Data Type",
-            "CT Code", "Codelist", "Origin", "Source",
-            "CRF Dataset", "CRF Variable", "CRF Data Type",
-            "Rule Type", "Assign Value", "CRF Option Value",
-            "Original Value", "Original Value Normalized",
+            "CRF Dataset", "CRF Variable",
+            "Dataset", "Variable", "Codelist", "CT Code",
+            "CRF Option Value", "Original Value", "Original Value Normalized",
             "CT Term", "NCI Term Code", "Decoded Value"
         ])
 
@@ -3206,82 +3249,43 @@ def build_mapping_rule_table(
     d["SDTM Variable"] = d["SDTM Variable"].fillna("").astype(str).str.strip().str.upper()
     d["Assign Value"] = d["Assign Value"].fillna("").astype(str).str.strip()
 
-    d = d[
-        (d["SDTM Domain"] != "") &
-        (d["SDTM Variable"] != "")
-    ].copy()
-
-    # row-level mapping base
-    rule_df = d.rename(columns={
+    # ✅ 只保留非 ASSIGN（value mapping 只看 collected）
+    base_df = d[
+        d["Assign Value"].fillna("").astype(str).str.strip() == ""
+    ].rename(columns={
         "SDTM Domain": "Dataset",
         "SDTM Variable": "Variable"
-    })[[
-        "Dataset", "Variable", "CRF Dataset", "CRF Variable", "Assign Value"
-    ]].drop_duplicates().reset_index(drop=True)
+    })[
+        ["CRF Dataset", "CRF Variable", "Dataset", "Variable"]
+    ].drop_duplicates().reset_index(drop=True)
 
-    # 初始 Rule Type
-    rule_df["Rule Type"] = rule_df["Assign Value"].apply(
-        lambda x: "ASSIGN" if clean_str(x) != "" else "CRF_DIRECT"
-    )
+    # 補 variables metadata
+    if variables_spec_df is not None and not variables_spec_df.empty:
+        v = variables_spec_df.copy()
+        v.columns = [str(c).strip() for c in v.columns]
 
-    # =================================================
-    # 1. 補 variables_spec_df metadata
-    # =================================================
-    if variables_spec_df is None or variables_spec_df.empty:
-        var_meta = pd.DataFrame(columns=[
-            "Dataset", "Variable", "Label", "Data Type",
-            "CT Code", "Codelist", "Origin", "Source", "CRF Data Type"
-        ])
+        for c in ["Dataset", "Variable", "Codelist", "CT Code"]:
+            if c not in v.columns:
+                v[c] = ""
+
+        v["Dataset"] = v["Dataset"].fillna("").astype(str).str.strip().str.upper()
+        v["Variable"] = v["Variable"].fillna("").astype(str).str.strip().str.upper()
+        v["Codelist"] = v["Codelist"].fillna("").astype(str).str.strip().str.upper()
+        v["CT Code"] = v["CT Code"].fillna("").astype(str).str.strip().str.upper()
+
+        meta = v[["Dataset", "Variable", "Codelist", "CT Code"]].drop_duplicates(
+            subset=["Dataset", "Variable"],
+            keep="first"
+        )
+
+        base_df = base_df.merge(meta, how="left", on=["Dataset", "Variable"])
     else:
-        var_meta = variables_spec_df.copy()
-        var_meta.columns = [str(c).strip() for c in var_meta.columns]
+        base_df["Codelist"] = ""
+        base_df["CT Code"] = ""
 
-        for c in [
-            "Dataset", "Variable", "Label", "Data Type",
-            "CT Code", "Codelist", "Origin", "Source"
-        ]:
-            if c not in var_meta.columns:
-                var_meta[c] = ""
-
-        if "CRF Data Type" not in var_meta.columns:
-            var_meta["CRF Data Type"] = ""
-
-        for c in [
-            "Dataset", "Variable", "Label", "Data Type",
-            "CT Code", "Codelist", "Origin", "Source", "CRF Data Type"
-        ]:
-            var_meta[c] = var_meta[c].fillna("").astype(str).str.strip()
-
-        var_meta["Dataset"] = var_meta["Dataset"].str.upper()
-        var_meta["Variable"] = var_meta["Variable"].str.upper()
-        var_meta["CT Code"] = var_meta["CT Code"].str.upper()
-        var_meta["Codelist"] = var_meta["Codelist"].str.upper()
-
-        var_meta = var_meta[[
-            "Dataset", "Variable", "Label", "Data Type",
-            "CT Code", "Codelist", "Origin", "Source", "CRF Data Type"
-        ]].drop_duplicates(subset=["Dataset", "Variable"], keep="first")
-
-    rule_df = rule_df.merge(
-        var_meta,
-        how="left",
-        on=["Dataset", "Variable"]
-    )
-
-    # 保底
-    for c in [
-        "Label", "Data Type", "CT Code", "Codelist",
-        "Origin", "Source", "CRF Data Type"
-    ]:
-        if c not in rule_df.columns:
-            rule_df[c] = ""
-
-    # =================================================
-    # 2. 用 ct_mapping_df 補 value-level raw mapping
-    #    ⚠ ASSIGN 不做 explode，但要保留原 row
-    # =================================================
-    rule_df["CRF Option Value"] = ""
-    rule_df["Original Value"] = ""
+    # ct_mapping_df 補 raw values
+    base_df["CRF Option Value"] = ""
+    base_df["Original Value"] = ""
 
     if ct_mapping_df is not None and not ct_mapping_df.empty:
         ct = ct_mapping_df.copy()
@@ -3297,290 +3301,178 @@ def build_mapping_rule_table(
 
         ct = ct.rename(columns=rename_map)
 
-        for c in ["Dataset", "Variable", "CT Code", "Assign Value", "CRF Option Value", "Original Value"]:
+        for c in [
+            "CRF Dataset", "CRF Variable", "Dataset", "Variable",
+            "CRF Option Value", "Original Value"
+        ]:
             if c not in ct.columns:
                 ct[c] = ""
 
-        for c in ["Assign Value", "CRF Option Value", "Original Value"]:
-            ct[c] = ct[c].fillna("").astype(str).str.strip()
-
+        ct["CRF Dataset"] = ct["CRF Dataset"].fillna("").astype(str).str.strip()
+        ct["CRF Variable"] = ct["CRF Variable"].fillna("").astype(str).str.strip()
         ct["Dataset"] = ct["Dataset"].fillna("").astype(str).str.strip().str.upper()
         ct["Variable"] = ct["Variable"].fillna("").astype(str).str.strip().str.upper()
-        ct["CT Code"] = ct["CT Code"].fillna("").astype(str).str.strip().str.upper()
+        ct["CRF Option Value"] = ct["CRF Option Value"].fillna("").astype(str).str.strip()
+        ct["Original Value"] = ct["Original Value"].fillna("").astype(str).str.strip()
 
-        ct_rows = []
+        raw_rows = []
 
-        for _, base in rule_df.iterrows():
-            rule_type = normalize_upper(base.get("Rule Type", ""))
-
-            # ✅ ASSIGN 不展開 value-level mapping，但一定要保留 row
-            if rule_type == "ASSIGN":
-                row = base.to_dict()
-                row["CRF Option Value"] = ""
-                row["Original Value"] = ""
-                ct_rows.append(row)
-                continue
-
-            ds = normalize_upper(base["Dataset"])
-            var = normalize_upper(base["Variable"])
-
-            base_crf_ds = clean_str(base.get("CRF Dataset", ""))
-            base_crf_var = clean_str(base.get("CRF Variable", ""))
+        for _, b in base_df.iterrows():
+            ds = clean_str(b["Dataset"]).upper()
+            var = clean_str(b["Variable"]).upper()
+            crf_ds = clean_str(b["CRF Dataset"])
+            crf_var = clean_str(b["CRF Variable"])
 
             subset = ct[
                 (ct["Dataset"] == ds) &
-                (ct["Variable"] == var)
+                (ct["Variable"] == var) &
+                (ct["CRF Dataset"] == crf_ds) &
+                (ct["CRF Variable"] == crf_var)
             ].copy()
 
-            # ✅ 優先用 CRF Dataset + CRF Variable 精準對
-            if base_crf_ds and "CRF Dataset" in ct.columns:
-                subset = subset[
-                    subset["CRF Dataset"].fillna("").astype(str).str.strip() == base_crf_ds
-                ].copy()
-    
-            if base_crf_var and "CRF Variable" in ct.columns:
-                subset = subset[
-                    subset["CRF Variable"].fillna("").astype(str).str.strip() == base_crf_var
-                ].copy()
-
             if subset.empty:
-                row = base.to_dict()
+                row = b.to_dict()
                 row["CRF Option Value"] = ""
                 row["Original Value"] = ""
-                ct_rows.append(row)
+                raw_rows.append(row)
             else:
                 for _, s in subset.iterrows():
-                    row = base.to_dict()
-
-                    # 如果 detail 沒 assign，但 ct seed 有 assign，可以補
-                    if clean_str(row.get("Assign Value", "")) == "":
-                        row["Assign Value"] = clean_str(s.get("Assign Value", ""))
-
+                    row = b.to_dict()
                     row["CRF Option Value"] = clean_str(s.get("CRF Option Value", ""))
                     row["Original Value"] = clean_str(s.get("Original Value", ""))
-                    ct_rows.append(row)
+                    raw_rows.append(row)
 
-        rule_df = pd.DataFrame(ct_rows).drop_duplicates().reset_index(drop=True)
+        base_df = pd.DataFrame(raw_rows).drop_duplicates().reset_index(drop=True)
 
-    # =================================================
-    # 3. 用 matched_ct_df 補 CT Term / Original Value Normalized
-    #    ⚠ ASSIGN 不做 CT_MAP explode，但要保留原 row
-    # =================================================
-    rule_df["Original Value Normalized"] = ""
-    rule_df["CT Term"] = ""
+    # matched_ct_df 補 CT term
+    base_df["Original Value Normalized"] = ""
+    base_df["CT Term"] = ""
 
     if matched_ct_df is not None and not matched_ct_df.empty:
-        mdf = matched_ct_df.copy()
-        mdf.columns = [str(c).strip() for c in mdf.columns]
+        m = matched_ct_df.copy()
+        m.columns = [str(c).strip() for c in m.columns]
 
         rename_map = {}
-        for c in mdf.columns:
+        for c in m.columns:
             cu = c.upper().strip()
             if cu == "SDTM DOMAIN":
                 rename_map[c] = "Dataset"
             elif cu == "SDTM VARIABLE":
                 rename_map[c] = "Variable"
 
-        mdf = mdf.rename(columns=rename_map)
+        m = m.rename(columns=rename_map)
 
-        for c in ["Dataset", "Variable", "CT Code", "Original Value", "Original Value Normalized", "CT Term"]:
-            if c not in mdf.columns:
-                mdf[c] = ""
+        for c in [
+            "CRF Dataset", "CRF Variable", "Dataset", "Variable",
+            "Original Value", "Original Value Normalized", "CT Term"
+        ]:
+            if c not in m.columns:
+                m[c] = ""
 
-        for c in ["Original Value", "Original Value Normalized", "CT Term"]:
-            mdf[c] = mdf[c].fillna("").astype(str).str.strip()
+        m["CRF Dataset"] = m["CRF Dataset"].fillna("").astype(str).str.strip()
+        m["CRF Variable"] = m["CRF Variable"].fillna("").astype(str).str.strip()
+        m["Dataset"] = m["Dataset"].fillna("").astype(str).str.strip().str.upper()
+        m["Variable"] = m["Variable"].fillna("").astype(str).str.strip().str.upper()
+        m["Original Value"] = m["Original Value"].fillna("").astype(str).str.strip()
+        m["Original Value Normalized"] = m["Original Value Normalized"].fillna("").astype(str).str.strip()
+        m["CT Term"] = m["CT Term"].fillna("").astype(str).str.strip()
 
-        mdf["Dataset"] = mdf["Dataset"].fillna("").astype(str).str.strip().str.upper()
-        mdf["Variable"] = mdf["Variable"].fillna("").astype(str).str.strip().str.upper()
-        mdf["CT Code"] = mdf["CT Code"].fillna("").astype(str).str.strip().str.upper()
+        ct_rows = []
 
-        matched_rows = []
+        for _, b in base_df.iterrows():
+            ds = clean_str(b["Dataset"]).upper()
+            var = clean_str(b["Variable"]).upper()
+            crf_ds = clean_str(b["CRF Dataset"])
+            crf_var = clean_str(b["CRF Variable"])
+            orig = clean_str(b["Original Value"])
 
-        for _, base in rule_df.iterrows():
-            rule_type = normalize_upper(base.get("Rule Type", ""))
-
-            # ✅ ASSIGN 不展開 CT mapping，但一定保留 row
-            if rule_type == "ASSIGN":
-                matched_rows.append(base.to_dict())
-                continue
-
-            ds = normalize_upper(base["Dataset"])
-            var = normalize_upper(base["Variable"])
-            orig = clean_str(base.get("Original Value", ""))
-
-            
-            base_crf_ds = clean_str(base.get("CRF Dataset", ""))
-            base_crf_var = clean_str(base.get("CRF Variable", ""))
-
-            subset = mdf[
-                (mdf["Dataset"] == ds) &
-                (mdf["Variable"] == var)
+            subset = m[
+                (m["Dataset"] == ds) &
+                (m["Variable"] == var) &
+                (m["CRF Dataset"] == crf_ds) &
+                (m["CRF Variable"] == crf_var)
             ].copy()
 
-            # ✅ 優先限縮到同一個 CRF source
-            if base_crf_ds and "CRF Dataset" in mdf.columns:
-                subset = subset[
-                    mdf["CRF Dataset"].fillna("").astype(str).str.strip() == base_crf_ds
-                ].copy()
-
-            if base_crf_var and "CRF Variable" in mdf.columns:
-                subset = subset[
-                    subset["CRF Variable"].fillna("").astype(str).str.strip() == base_crf_var
-                ].copy()
-
-            # 如果有 original value，就優先用它對
             if orig:
                 subset = subset[
                     subset["Original Value"].fillna("").astype(str).str.strip() == orig
                 ].copy()
 
             if subset.empty:
-                matched_rows.append(base.to_dict())
+                ct_rows.append(b.to_dict())
             else:
-                has_term = False
-
                 for _, s in subset.iterrows():
-                    ct_term = clean_str(s.get("CT Term", ""))
-                    if ct_term == "":
-                        continue
-
-                    row = base.to_dict()
+                    row = b.to_dict()
                     row["Original Value"] = clean_str(s.get("Original Value", "")) or row.get("Original Value", "")
                     row["Original Value Normalized"] = clean_str(s.get("Original Value Normalized", ""))
-                    row["CT Term"] = ct_term
+                    row["CT Term"] = clean_str(s.get("CT Term", ""))
+                    ct_rows.append(row)
 
-                    # 只有非 ASSIGN 才轉成 CT_MAP
-                    if normalize_upper(row.get("Rule Type", "")) != "ASSIGN":
-                        row["Rule Type"] = "CT_MAP"
+        base_df = pd.DataFrame(ct_rows).drop_duplicates().reset_index(drop=True)
 
-                    matched_rows.append(row)
-                    has_term = True
-
-                if not has_term:
-                    matched_rows.append(base.to_dict())
-
-        rule_df = pd.DataFrame(matched_rows).drop_duplicates().reset_index(drop=True)
-
-    # =================================================
-    # 4. 用 codelist_df 補 NCI Term Code / Decoded Value
-    # =================================================
-    rule_df["NCI Term Code"] = ""
-    rule_df["Decoded Value"] = ""
+    # codelist enrich
+    base_df["NCI Term Code"] = ""
+    base_df["Decoded Value"] = ""
 
     if codelist_df is not None and not codelist_df.empty:
-        cdf = codelist_df.copy()
-        cdf.columns = [str(c).strip() for c in cdf.columns]
+        c = codelist_df.copy()
+        c.columns = [str(cn).strip() for cn in c.columns]
 
-        for c in ["ID", "Term", "NCI Term Code", "Decoded Value"]:
-            if c not in cdf.columns:
-                cdf[c] = ""
+        for col in ["ID", "Term", "NCI Term Code", "Decoded Value"]:
+            if col not in c.columns:
+                c[col] = ""
 
-        for c in ["ID", "Term", "NCI Term Code", "Decoded Value"]:
-            cdf[c] = cdf[c].fillna("").astype(str).str.strip()
+        c["ID"] = c["ID"].fillna("").astype(str).str.strip().str.upper()
+        c["Term"] = c["Term"].fillna("").astype(str).str.strip()
+        c["NCI Term Code"] = c["NCI Term Code"].fillna("").astype(str).str.strip()
+        c["Decoded Value"] = c["Decoded Value"].fillna("").astype(str).str.strip()
 
         enrich_rows = []
 
-        for _, base in rule_df.iterrows():
-            variable = normalize_upper(base["Variable"])
-            ct_term = clean_str(base.get("CT Term", ""))
+        for _, b in base_df.iterrows():
+            variable = clean_str(b["Variable"]).upper()
+            term = clean_str(b.get("CT Term", ""))
 
-            if ct_term == "":
-                enrich_rows.append(base.to_dict())
+            if term == "":
+                enrich_rows.append(b.to_dict())
                 continue
 
-            subset = cdf[
-                (cdf["ID"].fillna("").astype(str).str.upper() == variable) &
-                (cdf["Term"].fillna("").astype(str).str.strip() == ct_term)
+            subset = c[
+                (c["ID"] == variable) &
+                (c["Term"] == term)
             ].copy()
 
             if subset.empty:
-                enrich_rows.append(base.to_dict())
+                enrich_rows.append(b.to_dict())
             else:
                 s = subset.iloc[0]
-                row = base.to_dict()
+                row = b.to_dict()
                 row["NCI Term Code"] = clean_str(s.get("NCI Term Code", ""))
                 row["Decoded Value"] = clean_str(s.get("Decoded Value", ""))
                 enrich_rows.append(row)
 
-        rule_df = pd.DataFrame(enrich_rows).drop_duplicates().reset_index(drop=True)
+        base_df = pd.DataFrame(enrich_rows).drop_duplicates().reset_index(drop=True)
 
-    # =================================================
-    # 5. 最終 Rule Type 微調
-    # =================================================
-    def finalize_rule_type(row):
-        current_rule = normalize_upper(row.get("Rule Type", ""))
-
-        if current_rule == "ASSIGN":
-            return "ASSIGN"
-
-        if clean_str(row.get("CT Term", "")) != "":
-            return "CT_MAP"
-
-        if clean_str(row.get("CRF Option Value", "")) != "":
-            return "OPTION_DIRECT"
-
-        if clean_str(row.get("Original Value", "")) != "" and clean_str(row.get("CT Code", "")) != "":
-            return "UNMAPPED_VALUE"
-
-        if clean_str(row.get("CRF Dataset", "")) != "" or clean_str(row.get("CRF Variable", "")) != "":
-            return "CRF_DIRECT"
-
-        origin = normalize_upper(row.get("Origin", ""))
-        if origin == "PROTOCOL":
-            return "PROTOCOL"
-
-        return "DERIVED"
-
-    rule_df["Rule Type"] = rule_df.apply(finalize_rule_type, axis=1)
-
-    # =================================================
-    # 6. ASSIGN 再做一次保險去重
-    # =================================================
-    assign_mask = rule_df["Rule Type"].astype(str).str.upper() == "ASSIGN"
-
-    assign_df = (
-        rule_df[assign_mask]
-        .drop_duplicates(subset=[
-            "Dataset", "Variable", "CRF Dataset", "CRF Variable", "Assign Value"
-        ], keep="first")
-        .reset_index(drop=True)
-    )
-
-    non_assign_df = rule_df[~assign_mask].copy()
-
-    rule_df = pd.concat([assign_df, non_assign_df], ignore_index=True)
-
-    # =================================================
-    # 7. 輸出欄位
-    # =================================================
     out_cols = [
-        "Dataset", "Variable", "Label", "Data Type",
-        "CT Code", "Codelist", "Origin", "Source",
-        "CRF Dataset", "CRF Variable", "CRF Data Type",
-        "Rule Type", "Assign Value", "CRF Option Value",
-        "Original Value", "Original Value Normalized",
+        "CRF Dataset", "CRF Variable",
+        "Dataset", "Variable", "Codelist", "CT Code",
+        "CRF Option Value", "Original Value", "Original Value Normalized",
         "CT Term", "NCI Term Code", "Decoded Value"
     ]
 
     for c in out_cols:
-        if c not in rule_df.columns:
-            rule_df[c] = ""
+        if c not in base_df.columns:
+            base_df[c] = ""
 
-    out_df = rule_df[out_cols].copy()
+    out_df = base_df[out_cols].copy()
 
     out_df = out_df.sort_values(
-        by=[
-            "Dataset", "Variable", "CRF Dataset", "CRF Variable",
-            "Rule Type", "Original Value", "CT Term"
-        ],
+        by=["Dataset", "Variable", "CRF Dataset", "CRF Variable", "Original Value", "CT Term"],
         na_position="last"
     ).reset_index(drop=True)
 
     return out_df
     # End=========================================================
-
-
-
 
 
 
@@ -4173,9 +4065,31 @@ if uploaded_file is not None:
             )
 
     
-            st.markdown("### 🧩 Mapping Rule Table")
 
-            mapping_rule_df = build_mapping_rule_table(
+            variable_mapping_df = build_variable_mapping_table(
+                detail_df=detail_df,
+                variables_spec_df=variables_spec_df
+            )
+
+            st.markdown("### 🧩 Variable Mapping Table")
+
+            var_display_cols = [
+                "CRF Dataset", "CRF Variable", "CRF Data Type",
+                "Order", "Dataset", "Variable", "Label", "Data Type",
+                "Codelist", "Origin", "Source"
+            ]
+
+            var_display_cols = [c for c in var_display_cols if c in variable_mapping_df.columns]
+
+            st.dataframe(
+                variable_mapping_df[var_display_cols],
+                use_container_width=True,
+                height=450
+            )
+
+
+
+            value_mapping_df = build_value_mapping_table(
                 detail_df=detail_df,
                 variables_spec_df=variables_spec_df,
                 ct_mapping_df=ct_mapping_df,
@@ -4183,70 +4097,22 @@ if uploaded_file is not None:
                 codelist_df=codelist_df
             )
 
-            if mapping_rule_df is None or mapping_rule_df.empty:
-                st.info("目前沒有 mapping rule")
-            else:
-                display_cols = [
-                    "Dataset",
-                    "Variable",
-                    "Rule Type",
-                    "CRF Dataset",
-                    "CRF Variable",
-                    "CRF Data Type",
-                    "Assign Value",
-                    "CRF Option Value",
-                    "Original Value",
-                    "Original Value Normalized",
-                    "CT Term",
-                    "NCI Term Code",
-                    "Decoded Value"
-                ]
-                display_cols = [c for c in display_cols if c in mapping_rule_df.columns]
+            st.markdown("### 🧩 Value Mapping Table")
 
-                # 先顯示總覽
-                st.markdown("#### 全部 Rules")
-                st.dataframe(
-                    mapping_rule_df[display_cols],
-                    use_container_width=True,
-                    height=400
-                )
+            val_display_cols = [
+                "CRF Dataset", "CRF Variable",
+                "Dataset", "Variable", "Codelist", "CT Code",
+                "CRF Option Value", "Original Value", "Original Value Normalized",
+                "CT Term", "NCI Term Code", "Decoded Value"
+            ]
 
-                # 規則分頁
-                tab_all, tab_assign, tab_direct, tab_ct, tab_unmapped = st.tabs(
-                    ["全部", "ASSIGN", "CRF_DIRECT", "CT_MAP", "UNMAPPED_VALUE"]
-                )
+            val_display_cols = [c for c in val_display_cols if c in value_mapping_df.columns]
 
-                with tab_all:
-                    st.dataframe(
-                        mapping_rule_df[display_cols],
-                        use_container_width=True,
-                        height=400
-                    )
-
-                with tab_assign:
-                    df_assign = mapping_rule_df[
-                        mapping_rule_df["Rule Type"].astype(str).str.upper() == "ASSIGN"
-                    ].copy()
-                    st.dataframe(df_assign[display_cols], use_container_width=True, height=400)
-
-                with tab_direct:
-                    df_direct = mapping_rule_df[
-                        mapping_rule_df["Rule Type"].astype(str).str.upper() == "CRF_DIRECT"
-                    ].copy()
-                    st.dataframe(df_direct[display_cols], use_container_width=True, height=400)
-
-                with tab_ct:
-                    df_ct = mapping_rule_df[
-                        mapping_rule_df["Rule Type"].astype(str).str.upper() == "CT_MAP"
-                    ].copy()
-                    st.dataframe(df_ct[display_cols], use_container_width=True, height=400)
-
-                with tab_unmapped:
-                    df_unmapped = mapping_rule_df[
-                        mapping_rule_df["Rule Type"].astype(str).str.upper() == "UNMAPPED_VALUE"
-                    ].copy()
-                    st.dataframe(df_unmapped[display_cols], use_container_width=True, height=400)
-
+            st.dataframe(
+                value_mapping_df[val_display_cols],
+                use_container_width=True,
+                height=450
+            )
 
         
     except Exception as e:
