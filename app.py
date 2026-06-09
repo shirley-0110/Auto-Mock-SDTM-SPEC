@@ -3761,7 +3761,7 @@ if uploaded_file is not None:
         # CT Mapping Result       
         st.markdown("### 🧩 CT Mapping List")
 
-        st.dataframe(ct_mapping_df, use_container_width=True)
+        # st.dataframe(ct_mapping_df, use_container_width=True)
 
 
         # 確保 dictionary 已載入
