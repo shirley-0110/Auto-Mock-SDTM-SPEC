@@ -3955,7 +3955,7 @@ if uploaded_file is not None:
                 td_dict=td_dict
             )       
 
-            variables_view_df = variables_spec_df.drop(columns=["CT Code"])
+            variables_view_df = variables_spec_df.drop(columns=["CT Code", "CRF Dataset", "CRF Variable"], errors="ignore")
 
             
             # 2.2 Datasets
