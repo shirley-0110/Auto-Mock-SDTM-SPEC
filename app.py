@@ -3249,7 +3249,7 @@ def build_value_mapping_table(
     variable_mapping_df,
     ct_mapping_df=None,
     matched_ct_df=None,
-    codelist_df=Non
+    codelist_df=None
 ):
     """
     Value Mapping Table
