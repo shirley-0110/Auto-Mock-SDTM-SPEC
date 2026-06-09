@@ -822,6 +822,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
         try:
             target_col = find_column(df.columns, ["SDTM", "TARGET"])
             source_var_col = find_source_variable_column(df.columns)
+            source_dtype_col = find_column(df.columns, ["FIELD", "TYPE"])
             option_col = find_option_displayed_value_column(df.columns)
 
             # 至少要有 SDTM Target 與 Source Variable
@@ -833,6 +834,7 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                 try:
                     raw_target = row.get(target_col, "")
                     source_var = row.get(source_var_col, "")
+                    source_dtype = row.get(source_dtype_col, "") if source_dtype_col is not None else ""
                     raw_option = row.get(option_col, "")
 
                     source_var = "" if pd.isna(source_var) else str(source_var).strip()
@@ -871,6 +873,9 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                         if assign_val:
 
                             seed_records.append({
+                                "CRF Dataset": sheet,
+                                "CRF Variable": source_var,
+                                "CRF Data Type": source_dtype,
                                 "SDTM Domain": sdtm_domain,
                                 "SDTM Variable": sdtm_var,
                                 "CT Code": ctcode,
@@ -892,6 +897,9 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                                     continue
 
                                 seed_records.append({
+                                    "CRF Dataset": sheet,
+                                    "CRF Variable": source_var,
+                                    "CRF Data Type": source_dtype,
                                     "SDTM Domain": sdtm_domain,
                                     "SDTM Variable": sdtm_var,
                                     "CT Code": ctcode,
@@ -908,6 +916,9 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                         elif ctcode:
 
                             seed_records.append({
+                                "CRF Dataset": sheet,
+                                "CRF Variable": source_var,
+                                "CRF Data Type": source_dtype,
                                 "SDTM Domain": sdtm_domain,
                                 "SDTM Variable": sdtm_var,
                                 "CT Code": ctcode,
@@ -930,6 +941,9 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
             pd.DataFrame(seed_records)
             .drop_duplicates(
                 subset=[
+                    "CRF Dataset",
+                    "CRF Variable",
+                    "CRF Data Type",                    
                     "SDTM Domain",
                     "SDTM Variable",
                     "CT Code",
@@ -943,6 +957,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
                 by=[
                     "SDTM Domain",
                     "SDTM Variable",
+                    "CRF Dataset",
+                    "CRF Variable",
                     "CT Code",
                     "Assign Value",
                     "CRF Option Value",
@@ -953,6 +969,9 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
         )
     else:
         ct_mapping_df = pd.DataFrame(columns=[
+            "CRF Dataset",
+            "CRF Variable",
+            "CRF Data Type",
             "SDTM Domain",
             "SDTM Variable",
             "CT Code",
