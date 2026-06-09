@@ -3171,17 +3171,18 @@ def build_mapping_rule_table(
         - Decoded Value
     """
 
-    import pandas as pd
-
     # -------------------------------------------------
     # helper
     # -------------------------------------------------
     def clean_str(x):
         return "" if pd.isna(x) else str(x).strip()
 
-    # -------------------------------------------------
+    def normalize_upper(x):
+        return clean_str(x).upper()
+
+    # =================================================
     # 0. detail_df = execution truth
-    # -------------------------------------------------
+    # =================================================
     if detail_df is None or detail_df.empty:
         return pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type",
@@ -3195,7 +3196,6 @@ def build_mapping_rule_table(
     d = detail_df.copy()
     d.columns = [str(c).strip() for c in d.columns]
 
-    # 必要欄位保底
     for c in ["CRF Dataset", "CRF Variable", "SDTM Domain", "SDTM Variable", "Assign Value"]:
         if c not in d.columns:
             d[c] = ""
@@ -3211,7 +3211,7 @@ def build_mapping_rule_table(
         (d["SDTM Variable"] != "")
     ].copy()
 
-    # row-level mapping table
+    # row-level mapping base
     rule_df = d.rename(columns={
         "SDTM Domain": "Dataset",
         "SDTM Variable": "Variable"
@@ -3224,9 +3224,9 @@ def build_mapping_rule_table(
         lambda x: "ASSIGN" if clean_str(x) != "" else "CRF_DIRECT"
     )
 
-    # -------------------------------------------------
+    # =================================================
     # 1. 補 variables_spec_df metadata
-    # -------------------------------------------------
+    # =================================================
     if variables_spec_df is None or variables_spec_df.empty:
         var_meta = pd.DataFrame(columns=[
             "Dataset", "Variable", "Label", "Data Type",
@@ -3268,9 +3268,21 @@ def build_mapping_rule_table(
         on=["Dataset", "Variable"]
     )
 
-    # -------------------------------------------------
-    # 2. 補 ct_mapping_df（Original / Option value）
-    # -------------------------------------------------
+    # 保底
+    for c in [
+        "Label", "Data Type", "CT Code", "Codelist",
+        "Origin", "Source", "CRF Data Type"
+    ]:
+        if c not in rule_df.columns:
+            rule_df[c] = ""
+
+    # =================================================
+    # 2. 用 ct_mapping_df 補 value-level raw mapping
+    #    ⚠ ASSIGN 不做 explode，但要保留原 row
+    # =================================================
+    rule_df["CRF Option Value"] = ""
+    rule_df["Original Value"] = ""
+
     if ct_mapping_df is not None and not ct_mapping_df.empty:
         ct = ct_mapping_df.copy()
         ct.columns = [str(c).strip() for c in ct.columns]
@@ -3296,20 +3308,21 @@ def build_mapping_rule_table(
         ct["Variable"] = ct["Variable"].fillna("").astype(str).str.strip().str.upper()
         ct["CT Code"] = ct["CT Code"].fillna("").astype(str).str.strip().str.upper()
 
-        expanded_rows = []
-        ct_rows = [] 
-        
+        ct_rows = []
+
         for _, base in rule_df.iterrows():
-            
-            if str(base.get("Rule Type", "")).strip().upper() == "ASSIGN":
+            rule_type = normalize_upper(base.get("Rule Type", ""))
+
+            # ✅ ASSIGN 不展開 value-level mapping，但一定要保留 row
+            if rule_type == "ASSIGN":
                 row = base.to_dict()
                 row["CRF Option Value"] = ""
                 row["Original Value"] = ""
                 ct_rows.append(row)
                 continue
 
-            ds = clean_str(base["Dataset"]).upper()
-            var = clean_str(base["Variable"]).upper()
+            ds = normalize_upper(base["Dataset"])
+            var = normalize_upper(base["Variable"])
 
             subset = ct[
                 (ct["Dataset"] == ds) &
@@ -3320,26 +3333,25 @@ def build_mapping_rule_table(
                 row = base.to_dict()
                 row["CRF Option Value"] = ""
                 row["Original Value"] = ""
-                expanded_rows.append(row)
+                ct_rows.append(row)
             else:
                 for _, s in subset.iterrows():
                     row = base.to_dict()
+
                     # 如果 detail 沒 assign，但 ct seed 有 assign，可以補
                     if clean_str(row.get("Assign Value", "")) == "":
                         row["Assign Value"] = clean_str(s.get("Assign Value", ""))
 
                     row["CRF Option Value"] = clean_str(s.get("CRF Option Value", ""))
                     row["Original Value"] = clean_str(s.get("Original Value", ""))
-                    expanded_rows.append(row)
+                    ct_rows.append(row)
 
-        rule_df = pd.DataFrame(expanded_rows).drop_duplicates().reset_index(drop=True)
-    else:
-        rule_df["CRF Option Value"] = ""
-        rule_df["Original Value"] = ""
+        rule_df = pd.DataFrame(ct_rows).drop_duplicates().reset_index(drop=True)
 
-    # -------------------------------------------------
-    # 3. 補 matched_ct_df（CT Term）
-    # -------------------------------------------------
+    # =================================================
+    # 3. 用 matched_ct_df 補 CT Term / Original Value Normalized
+    #    ⚠ ASSIGN 不做 CT_MAP explode，但要保留原 row
+    # =================================================
     rule_df["Original Value Normalized"] = ""
     rule_df["CT Term"] = ""
 
@@ -3371,13 +3383,15 @@ def build_mapping_rule_table(
         matched_rows = []
 
         for _, base in rule_df.iterrows():
+            rule_type = normalize_upper(base.get("Rule Type", ""))
 
-            if str(base.get("Rule Type", "")).strip().upper() == "ASSIGN":
+            # ✅ ASSIGN 不展開 CT mapping，但一定保留 row
+            if rule_type == "ASSIGN":
                 matched_rows.append(base.to_dict())
                 continue
-            
-            ds = clean_str(base["Dataset"]).upper()
-            var = clean_str(base["Variable"]).upper()
+
+            ds = normalize_upper(base["Dataset"])
+            var = normalize_upper(base["Variable"])
             orig = clean_str(base.get("Original Value", ""))
 
             subset = mdf[
@@ -3385,6 +3399,7 @@ def build_mapping_rule_table(
                 (mdf["Variable"] == var)
             ].copy()
 
+            # 如果有 original value，就優先用它對
             if orig:
                 subset = subset[
                     subset["Original Value"].fillna("").astype(str).str.strip() == orig
@@ -3394,6 +3409,7 @@ def build_mapping_rule_table(
                 matched_rows.append(base.to_dict())
             else:
                 has_term = False
+
                 for _, s in subset.iterrows():
                     ct_term = clean_str(s.get("CT Term", ""))
                     if ct_term == "":
@@ -3403,7 +3419,11 @@ def build_mapping_rule_table(
                     row["Original Value"] = clean_str(s.get("Original Value", "")) or row.get("Original Value", "")
                     row["Original Value Normalized"] = clean_str(s.get("Original Value Normalized", ""))
                     row["CT Term"] = ct_term
-                    row["Rule Type"] = "CT_MAP"
+
+                    # 只有非 ASSIGN 才轉成 CT_MAP
+                    if normalize_upper(row.get("Rule Type", "")) != "ASSIGN":
+                        row["Rule Type"] = "CT_MAP"
+
                     matched_rows.append(row)
                     has_term = True
 
@@ -3412,9 +3432,9 @@ def build_mapping_rule_table(
 
         rule_df = pd.DataFrame(matched_rows).drop_duplicates().reset_index(drop=True)
 
-    # -------------------------------------------------
+    # =================================================
     # 4. 用 codelist_df 補 NCI Term Code / Decoded Value
-    # -------------------------------------------------
+    # =================================================
     rule_df["NCI Term Code"] = ""
     rule_df["Decoded Value"] = ""
 
@@ -3432,7 +3452,7 @@ def build_mapping_rule_table(
         enrich_rows = []
 
         for _, base in rule_df.iterrows():
-            variable = clean_str(base["Variable"]).upper()
+            variable = normalize_upper(base["Variable"])
             ct_term = clean_str(base.get("CT Term", ""))
 
             if ct_term == "":
@@ -3455,11 +3475,13 @@ def build_mapping_rule_table(
 
         rule_df = pd.DataFrame(enrich_rows).drop_duplicates().reset_index(drop=True)
 
-    # -------------------------------------------------
+    # =================================================
     # 5. 最終 Rule Type 微調
-    # -------------------------------------------------
+    # =================================================
     def finalize_rule_type(row):
-        if clean_str(row.get("Assign Value", "")) != "":
+        current_rule = normalize_upper(row.get("Rule Type", ""))
+
+        if current_rule == "ASSIGN":
             return "ASSIGN"
 
         if clean_str(row.get("CT Term", "")) != "":
@@ -3474,7 +3496,7 @@ def build_mapping_rule_table(
         if clean_str(row.get("CRF Dataset", "")) != "" or clean_str(row.get("CRF Variable", "")) != "":
             return "CRF_DIRECT"
 
-        origin = clean_str(row.get("Origin", "")).upper()
+        origin = normalize_upper(row.get("Origin", ""))
         if origin == "PROTOCOL":
             return "PROTOCOL"
 
@@ -3482,16 +3504,33 @@ def build_mapping_rule_table(
 
     rule_df["Rule Type"] = rule_df.apply(finalize_rule_type, axis=1)
 
-    # -------------------------------------------------
-    # 6. 輸出欄位
-    # -------------------------------------------------
+    # =================================================
+    # 6. ASSIGN 再做一次保險去重
+    # =================================================
+    assign_mask = rule_df["Rule Type"].astype(str).str.upper() == "ASSIGN"
+
+    assign_df = (
+        rule_df[assign_mask]
+        .drop_duplicates(subset=[
+            "Dataset", "Variable", "CRF Dataset", "CRF Variable", "Assign Value"
+        ], keep="first")
+        .reset_index(drop=True)
+    )
+
+    non_assign_df = rule_df[~assign_mask].copy()
+
+    rule_df = pd.concat([assign_df, non_assign_df], ignore_index=True)
+
+    # =================================================
+    # 7. 輸出欄位
+    # =================================================
     out_cols = [
         "Dataset", "Variable", "Label", "Data Type",
         "CT Code", "Codelist", "Origin", "Source",
         "CRF Dataset", "CRF Variable", "CRF Data Type",
-        "Rule Type",
-        "Assign Value", "CRF Option Value", "Original Value",
-        "Original Value Normalized", "CT Term", "NCI Term Code", "Decoded Value"
+        "Rule Type", "Assign Value", "CRF Option Value",
+        "Original Value", "Original Value Normalized",
+        "CT Term", "NCI Term Code", "Decoded Value"
     ]
 
     for c in out_cols:
@@ -3501,7 +3540,10 @@ def build_mapping_rule_table(
     out_df = rule_df[out_cols].copy()
 
     out_df = out_df.sort_values(
-        by=["Dataset", "Variable", "CRF Dataset", "CRF Variable", "Rule Type", "Original Value", "CT Term"],
+        by=[
+            "Dataset", "Variable", "CRF Dataset", "CRF Variable",
+            "Rule Type", "Original Value", "CT Term"
+        ],
         na_position="last"
     ).reset_index(drop=True)
 
