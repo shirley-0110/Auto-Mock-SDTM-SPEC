@@ -1640,16 +1640,19 @@ def apply_codelist_rules(merged_df):
     df.loc[mask_ae_dict, "Codelist"] = "AEDICT_F"
 
     # -------------------------------------------------
-    # Rule 3: ARMCD / ACTARMCD -> ARMCD
+    # Rule 3: ARMCD / ACTARMCD -> ARMCD; ARM / ACTARM -> ARM
     # -------------------------------------------------
     mask_armcd = missing_mask & df["Variable"].isin(["ARMCD", "ACTARMCD"])
     df.loc[mask_armcd, "Codelist"] = "ARMCD"
 
-    # -------------------------------------------------
-    # Rule 4: ARM / ACTARM -> ARM
-    # -------------------------------------------------
     mask_arm = missing_mask & df["Variable"].isin(["ARM", "ACTARM"])
     df.loc[mask_arm, "Codelist"] = "ARM"
+
+    # -------------------------------------------------
+    # Rule 4: DSDECOD -> NCOMPLT
+    # -------------------------------------------------
+    mask_dsdecod = missing_mask & (df["Variable"] == "DSDECOD")
+    df.loc[mask_dsdecod, "Codelist"] = "NCOMPLT"
 
     # -------------------------------------------------
     # Rule 5: COUNTRY -> ISO3166
