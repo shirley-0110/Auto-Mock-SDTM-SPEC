@@ -4090,6 +4090,14 @@ if uploaded_file is not None:
     
             st.markdown("### 🧩 Mapping Rule Table")
 
+            mapping_rule_df = build_mapping_rule_table(
+                detail_df=detail_df,
+                variables_spec_df=variables_spec_df,
+                ct_mapping_df=ct_mapping_df,
+                matched_ct_df=matched_ct_df,
+                codelist_df=codelist_df
+            )
+
             if mapping_rule_df is None or mapping_rule_df.empty:
                 st.info("目前沒有 mapping rule")
             else:
