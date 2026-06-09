@@ -4109,7 +4109,7 @@ if uploaded_file is not None:
             
             variable_mapping_export = variable_mapping_df.copy()
             variable_mapping_export = variable_mapping_export[
-                [c for c in display_cols if c in variable_mapping_export.columns]
+                [c for c in var_display_cols if c in variable_mapping_export.columns]
             ]
 
             st.dataframe(
