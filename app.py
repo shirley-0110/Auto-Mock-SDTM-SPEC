@@ -3314,15 +3314,25 @@ def build_value_mapping_table(variable_mapping_df, ct_mapping_df, codelist_df):
         "Decoded Value"
     ]
 
-    if variable_mapping_df is None or ct_mapping_df is None:
+    # =================================================
+    # 0️⃣ 保底
+    # =================================================
+    if variable_mapping_df is None or variable_mapping_df.empty:
+        return pd.DataFrame(columns=final_cols)
+
+    if ct_mapping_df is None or ct_mapping_df.empty:
         return pd.DataFrame(columns=final_cols)
 
     # =================================================
     # 1️⃣ variable_mapping_df（只當 filter）
     # =================================================
     vm = variable_mapping_df.copy()
+    vm.columns = [str(c).strip() for c in vm.columns]
 
-    for c in ["CRF Dataset", "CRF Variable", "CRF Data Type", "Dataset", "Variable", "Codelist"]:
+    for c in [
+        "CRF Dataset", "CRF Variable", "CRF Data Type",
+        "Dataset", "Variable", "Codelist"
+    ]:
         if c not in vm.columns:
             vm[c] = ""
 
@@ -3333,6 +3343,7 @@ def build_value_mapping_table(variable_mapping_df, ct_mapping_df, codelist_df):
     vm["Variable"] = vm["Variable"].str.upper()
     vm["Codelist"] = vm["Codelist"].str.upper()
 
+    # ✅ 只留下 CRF + 有 codelist
     vm_base = vm[
         (vm["Codelist"] != "") &
         (vm["CRF Dataset"] != "") &
@@ -3344,14 +3355,22 @@ def build_value_mapping_table(variable_mapping_df, ct_mapping_df, codelist_df):
         "Dataset",
         "Variable",
         "Codelist"
-    ]].drop_duplicates()
+    ]].drop_duplicates().reset_index(drop=True)
+
+    if vm_base.empty:
+        return pd.DataFrame(columns=final_cols)
 
     # =================================================
-    # 2️⃣ merge ct_mapping_df（這裡才有 CT Code）
+    # 2️⃣ ct_mapping_df
     # =================================================
     ct = ct_mapping_df.copy()
+    ct.columns = [str(c).strip() for c in ct.columns]
 
-    for c in ["SDTM Domain", "SDTM Variable", "CT Code", "Original Value", "Original Value Normalized"]:
+    for c in [
+        "CRF Dataset", "CRF Variable", "CRF Data Type",
+        "SDTM Domain", "SDTM Variable",
+        "CT Code", "Original Value", "Original Value Normalized"
+    ]:
         if c not in ct.columns:
             ct[c] = ""
 
@@ -3360,15 +3379,38 @@ def build_value_mapping_table(variable_mapping_df, ct_mapping_df, codelist_df):
 
     ct["SDTM Domain"] = ct["SDTM Domain"].str.upper()
     ct["SDTM Variable"] = ct["SDTM Variable"].str.upper()
+    ct["CT Code"] = ct["CT Code"].str.upper()
 
+    # =================================================
+    # ✅ 3️⃣ merge：Dataset + Variable
+    # =================================================
     base_df = vm_base.merge(
         ct,
         how="inner",
         left_on=["Dataset", "Variable"],
-        right_on=["SDTM Domain", "SDTM Variable"]
+        right_on=["SDTM Domain", "SDTM Variable"],
+        suffixes=("", "_ct")
     )
 
-    # 只留有 Original Value
+    if base_df.empty:
+        return pd.DataFrame(columns=final_cols)
+
+    # =================================================
+    # ✅ 🔥 4️⃣ 修正 CRF 欄位（這就是你現在的問題）
+    # =================================================
+    for col in ["CRF Dataset", "CRF Variable", "CRF Data Type"]:
+        ct_col = f"{col}_ct"
+
+        if ct_col in base_df.columns:
+            base_df[col] = base_df[ct_col].where(
+                base_df[ct_col].notna() & (base_df[ct_col].astype(str).str.strip() != ""),
+                base_df[col]
+            )
+            base_df = base_df.drop(columns=[ct_col], errors="ignore")
+
+    # =================================================
+    # 5️⃣ 只留有 Original Value（value mapping）
+    # =================================================
     base_df = base_df[
         base_df["Original Value"].astype(str).str.strip() != ""
     ].copy()
@@ -3377,15 +3419,20 @@ def build_value_mapping_table(variable_mapping_df, ct_mapping_df, codelist_df):
         return pd.DataFrame(columns=final_cols)
 
     # =================================================
-    # 3️⃣ merge codelist_df（關鍵：Codelist + Original Value）
+    # ✅ 6️⃣ 建 CT Term（預設 = Original Value）
     # =================================================
-    base_df["CT Term"] = ""
+    base_df["CT Term"] = base_df["Original Value"]
+
+    # =================================================
+    # ✅ 7️⃣ merge codelist_df（Codelist + Original Value）
+    # =================================================
     base_df["NCI Term Code"] = ""
     base_df["Decoded Value"] = ""
 
     if codelist_df is not None and not codelist_df.empty:
 
         cdf = codelist_df.copy()
+        cdf.columns = [str(c).strip() for c in cdf.columns]
 
         for c in ["Codelist", "Original Value", "Term", "NCI Term Code", "Decoded Value"]:
             if c not in cdf.columns:
@@ -3409,25 +3456,45 @@ def build_value_mapping_table(variable_mapping_df, ct_mapping_df, codelist_df):
             suffixes=("", "_cdf")
         )
 
-        merged["CT Term"] = merged["Term"]
+        # ✅ overwrite
+        merged["CT Term"] = merged["Term"].where(
+            merged["Term"].notna() &
+            (merged["Term"].astype(str).str.strip() != ""),
+            merged["CT Term"]
+        )
+
         merged["NCI Term Code"] = merged["NCI Term Code_cdf"]
         merged["Decoded Value"] = merged["Decoded Value_cdf"]
 
-        base_df = merged.drop(columns=["Term", "NCI Term Code_cdf", "Decoded Value_cdf"], errors="ignore")
+        base_df = merged.drop(
+            columns=["Term", "NCI Term Code_cdf", "Decoded Value_cdf"],
+            errors="ignore"
+        )
 
     # =================================================
-    # 4️⃣ output
+    # 8️⃣ Final output
     # =================================================
     for c in final_cols:
         if c not in base_df.columns:
             base_df[c] = ""
 
-    return (
+    out_df = (
         base_df[final_cols]
         .drop_duplicates()
-        .sort_values(["SDTM Domain", "SDTM Variable", "CRF Dataset", "Original Value"])
+        .sort_values(
+            by=[
+                "SDTM Domain",
+                "SDTM Variable",
+                "CRF Dataset",
+                "CRF Variable",
+                "Original Value"
+            ],
+            na_position="last"
+        )
         .reset_index(drop=True)
     )
+
+    return out_df
     # End=========================================================
 
 
