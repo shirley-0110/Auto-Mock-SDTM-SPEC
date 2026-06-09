@@ -4149,6 +4149,7 @@ if uploaded_file is not None:
                 height=500
             )
 
+            st.dataframe(value_mapping_df, use_container_width=True)
             st.dataframe(ct_mapping_df, use_container_width=True)
 
     
