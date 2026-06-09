@@ -4153,6 +4153,12 @@ if uploaded_file is not None:
             st.dataframe(ct_mapping_df, use_container_width=True)
 
     
+            st.markdown("### DEBUG｜codelist_df")
+            st.dataframe(codelist_df.head(20))
+
+            st.markdown("### DEBUG｜Value Mapping before merge")
+            st.dataframe(base_df[["CT Code", "CT Term"]].drop_duplicates())
+
                     
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
