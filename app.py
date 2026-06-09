@@ -4123,15 +4123,12 @@ if uploaded_file is not None:
             display_cols = [
                 "CRF Dataset",
                 "CRF Variable",
-                "CRF Data Type",
                 "SDTM Domain",
                 "SDTM Variable",
-                "CT Code",
+                "Codelist",
                 "Original Value",
-                "Original Value Normalized",
                 "CT Term",
-                "NCI Term Code",
-                "Decoded Value"
+                "NCI Term Code"
             ]
 
             display_cols = [c for c in display_cols if c in value_mapping_df.columns]
@@ -4141,18 +4138,6 @@ if uploaded_file is not None:
                 use_container_width=True,
                 height=500
             )
-
-            st.markdown("### DEBUG｜variable_mapping_df")
-            st.dataframe(variable_mapping_df, use_container_width=True)
-
-            st.markdown("### DEBUG｜ct_mapping_df")
-            st.dataframe(ct_mapping_df, use_container_width=True)
-
-            st.markdown("### DEBUG｜codelist_df")
-            st.dataframe(codelist_df.head(20))
-
-            st.markdown("### DEBUG｜Value Mapping before merge")
-            st.dataframe(base_df[["CT Code", "CT Term"]].drop_duplicates())
 
                     
     except Exception as e:
