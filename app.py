@@ -3283,7 +3283,7 @@ def build_value_mapping_table(ct_mapping_df, variables_spec_df, matched_ct_df=No
         "CRF Data Type",
         "SDTM Domain",
         "SDTM Variable",
-        "CT Code",
+        "Codelist",
         "Original Value",
         "Original Value Normalized",
         "CT Term",
@@ -4148,7 +4148,7 @@ if uploaded_file is not None:
                 use_container_width=True,
                 height=500
             )
-
+            st.dataframe(variable_mapping_df, use_container_width=True)
             st.dataframe(value_mapping_df, use_container_width=True)
             st.dataframe(ct_mapping_df, use_container_width=True)
 
