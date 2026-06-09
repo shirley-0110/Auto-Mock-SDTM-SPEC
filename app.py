@@ -4142,6 +4142,10 @@ if uploaded_file is not None:
                 use_container_width=True,
                 height=500
             )
+
+            st.dataframe(codelist_df, use_container_width=True)
+
+    
                     
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
