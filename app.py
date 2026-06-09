@@ -3246,79 +3246,90 @@ def build_variable_mapping_table(detail_df, variables_spec_df):
 
 
 def build_value_mapping_table(
-    detail_df,
-    variables_spec_df=None,
+    variable_mapping_df,
     ct_mapping_df=None,
     matched_ct_df=None,
-    codelist_df=None
+    codelist_df=Non
 ):
     """
-    Value Mapping:
-    只處理 value-level mapping，不處理 ASSIGN
+    Value Mapping Table
+    規則：
+      1. 以 Variable Mapping Table 為主體
+      2. 只保留：
+         - Codelist != ""
+         - CRF Dataset != ""
+         - CRF Variable != ""
+      3. 再依 CRF Dataset + CRF Variable + Dataset + Variable
+         去補 Original Value / CT Term / NCI Term Code / Decoded Value
     """
-
-    import pandas as pd
 
     def clean_str(x):
         return "" if pd.isna(x) else str(x).strip()
 
-    if detail_df is None or detail_df.empty:
-        return pd.DataFrame(columns=[
-            "CRF Dataset", "CRF Variable",
-            "Dataset", "Variable", "Codelist", "CT Code",
-            "CRF Option Value", "Original Value", "Original Value Normalized",
-            "CT Term", "NCI Term Code", "Decoded Value"
-        ])
+    # -------------------------------------------------
+    # 0. 保底
+    # -------------------------------------------------
+    final_cols = [
+        "CRF Dataset",
+        "CRF Variable",
+        "CRF Data Type",
+        "Dataset",
+        "Variable",
+        "Codelist",
+        "CT Code",
+        "Original Value",
+        "Original Value Normalized",
+        "CT Term",
+        "NCI Term Code",
+        "Decoded Value"
+    ]
 
-    d = detail_df.copy()
-    d.columns = [str(c).strip() for c in d.columns]
+    if variable_mapping_df is None or variable_mapping_df.empty:
+        return pd.DataFrame(columns=final_cols)
 
-    for c in ["CRF Dataset", "CRF Variable", "SDTM Domain", "SDTM Variable", "Assign Value"]:
-        if c not in d.columns:
-            d[c] = ""
+    # -------------------------------------------------
+    # 1. 以 Variable Mapping Table 為主體
+    # -------------------------------------------------
+    vm = variable_mapping_df.copy()
+    vm.columns = [str(c).strip() for c in vm.columns]
 
-    d["CRF Dataset"] = d["CRF Dataset"].fillna("").astype(str).str.strip()
-    d["CRF Variable"] = d["CRF Variable"].fillna("").astype(str).str.strip()
-    d["SDTM Domain"] = d["SDTM Domain"].fillna("").astype(str).str.strip().str.upper()
-    d["SDTM Variable"] = d["SDTM Variable"].fillna("").astype(str).str.strip().str.upper()
-    d["Assign Value"] = d["Assign Value"].fillna("").astype(str).str.strip()
+    for c in [
+        "CRF Dataset", "CRF Variable", "CRF Data Type",
+        "Dataset", "Variable", "Codelist"
+    ]:
+        if c not in vm.columns:
+            vm[c] = ""
 
-    # ✅ 只保留非 ASSIGN（value mapping 只看 collected）
-    base_df = d[
-        d["Assign Value"].fillna("").astype(str).str.strip() == ""
-    ].rename(columns={
-        "SDTM Domain": "Dataset",
-        "SDTM Variable": "Variable"
-    })[
-        ["CRF Dataset", "CRF Variable", "Dataset", "Variable"]
-    ].drop_duplicates().reset_index(drop=True)
+    if "CT Code" not in vm.columns:
+        vm["CT Code"] = ""
 
-    # 補 variables metadata
-    if variables_spec_df is not None and not variables_spec_df.empty:
-        v = variables_spec_df.copy()
-        v.columns = [str(c).strip() for c in v.columns]
+    for c in [
+        "CRF Dataset", "CRF Variable", "CRF Data Type",
+        "Dataset", "Variable", "Codelist", "CT Code"
+    ]:
+        vm[c] = vm[c].fillna("").astype(str).str.strip()
 
-        for c in ["Dataset", "Variable", "Codelist", "CT Code"]:
-            if c not in v.columns:
-                v[c] = ""
+    vm["Dataset"] = vm["Dataset"].str.upper()
+    vm["Variable"] = vm["Variable"].str.upper()
+    vm["Codelist"] = vm["Codelist"].str.upper()
+    vm["CT Code"] = vm["CT Code"].str.upper()
 
-        v["Dataset"] = v["Dataset"].fillna("").astype(str).str.strip().str.upper()
-        v["Variable"] = v["Variable"].fillna("").astype(str).str.strip().str.upper()
-        v["Codelist"] = v["Codelist"].fillna("").astype(str).str.strip().str.upper()
-        v["CT Code"] = v["CT Code"].fillna("").astype(str).str.strip().str.upper()
+    # ✅ 只保留：有 codelist 且來自 CRF
+    base_df = vm[
+        (vm["Codelist"] != "") &
+        (vm["CRF Dataset"] != "") &
+        (vm["CRF Variable"] != "")
+    ][[
+        "CRF Dataset", "CRF Variable", "CRF Data Type",
+        "Dataset", "Variable", "Codelist", "CT Code"
+    ]].drop_duplicates().reset_index(drop=True)
 
-        meta = v[["Dataset", "Variable", "Codelist", "CT Code"]].drop_duplicates(
-            subset=["Dataset", "Variable"],
-            keep="first"
-        )
+    if base_df.empty:
+        return pd.DataFrame(columns=final_cols)
 
-        base_df = base_df.merge(meta, how="left", on=["Dataset", "Variable"])
-    else:
-        base_df["Codelist"] = ""
-        base_df["CT Code"] = ""
-
-    # ct_mapping_df 補 raw values
-    base_df["CRF Option Value"] = ""
+    # -------------------------------------------------
+    # 2. 補 ct_mapping_df 的 Original Value
+    # -------------------------------------------------
     base_df["Original Value"] = ""
 
     if ct_mapping_df is not None and not ct_mapping_df.empty:
@@ -3335,10 +3346,7 @@ def build_value_mapping_table(
 
         ct = ct.rename(columns=rename_map)
 
-        for c in [
-            "CRF Dataset", "CRF Variable", "Dataset", "Variable",
-            "CRF Option Value", "Original Value"
-        ]:
+        for c in ["CRF Dataset", "CRF Variable", "Dataset", "Variable", "Original Value"]:
             if c not in ct.columns:
                 ct[c] = ""
 
@@ -3346,39 +3354,33 @@ def build_value_mapping_table(
         ct["CRF Variable"] = ct["CRF Variable"].fillna("").astype(str).str.strip()
         ct["Dataset"] = ct["Dataset"].fillna("").astype(str).str.strip().str.upper()
         ct["Variable"] = ct["Variable"].fillna("").astype(str).str.strip().str.upper()
-        ct["CRF Option Value"] = ct["CRF Option Value"].fillna("").astype(str).str.strip()
         ct["Original Value"] = ct["Original Value"].fillna("").astype(str).str.strip()
 
-        raw_rows = []
+        rows = []
 
         for _, b in base_df.iterrows():
-            ds = clean_str(b["Dataset"]).upper()
-            var = clean_str(b["Variable"]).upper()
-            crf_ds = clean_str(b["CRF Dataset"])
-            crf_var = clean_str(b["CRF Variable"])
-
             subset = ct[
-                (ct["Dataset"] == ds) &
-                (ct["Variable"] == var) &
-                (ct["CRF Dataset"] == crf_ds) &
-                (ct["CRF Variable"] == crf_var)
+                (ct["CRF Dataset"] == clean_str(b["CRF Dataset"])) &
+                (ct["CRF Variable"] == clean_str(b["CRF Variable"])) &
+                (ct["Dataset"] == clean_str(b["Dataset"]).upper()) &
+                (ct["Variable"] == clean_str(b["Variable"]).upper())
             ].copy()
 
             if subset.empty:
                 row = b.to_dict()
-                row["CRF Option Value"] = ""
                 row["Original Value"] = ""
-                raw_rows.append(row)
+                rows.append(row)
             else:
                 for _, s in subset.iterrows():
                     row = b.to_dict()
-                    row["CRF Option Value"] = clean_str(s.get("CRF Option Value", ""))
                     row["Original Value"] = clean_str(s.get("Original Value", ""))
-                    raw_rows.append(row)
+                    rows.append(row)
 
-        base_df = pd.DataFrame(raw_rows).drop_duplicates().reset_index(drop=True)
+        base_df = pd.DataFrame(rows).drop_duplicates().reset_index(drop=True)
 
-    # matched_ct_df 補 CT term
+    # -------------------------------------------------
+    # 3. 補 matched_ct_df 的 CT Term
+    # -------------------------------------------------
     base_df["Original Value Normalized"] = ""
     base_df["CT Term"] = ""
 
@@ -3411,94 +3413,85 @@ def build_value_mapping_table(
         m["Original Value Normalized"] = m["Original Value Normalized"].fillna("").astype(str).str.strip()
         m["CT Term"] = m["CT Term"].fillna("").astype(str).str.strip()
 
-        ct_rows = []
+        rows = []
 
         for _, b in base_df.iterrows():
-            ds = clean_str(b["Dataset"]).upper()
-            var = clean_str(b["Variable"]).upper()
-            crf_ds = clean_str(b["CRF Dataset"])
-            crf_var = clean_str(b["CRF Variable"])
-            orig = clean_str(b["Original Value"])
-
             subset = m[
-                (m["Dataset"] == ds) &
-                (m["Variable"] == var) &
-                (m["CRF Dataset"] == crf_ds) &
-                (m["CRF Variable"] == crf_var)
+                (m["CRF Dataset"] == clean_str(b["CRF Dataset"])) &
+                (m["CRF Variable"] == clean_str(b["CRF Variable"])) &
+                (m["Dataset"] == clean_str(b["Dataset"]).upper()) &
+                (m["Variable"] == clean_str(b["Variable"]).upper()) &
+                (m["Original Value"] == clean_str(b["Original Value"]))
             ].copy()
 
-            if orig:
-                subset = subset[
-                    subset["Original Value"].fillna("").astype(str).str.strip() == orig
-                ].copy()
-
             if subset.empty:
-                ct_rows.append(b.to_dict())
+                row = b.to_dict()
+                row["Original Value Normalized"] = ""
+                row["CT Term"] = ""
+                rows.append(row)
             else:
                 for _, s in subset.iterrows():
                     row = b.to_dict()
-                    row["Original Value"] = clean_str(s.get("Original Value", "")) or row.get("Original Value", "")
+                    row["Original ValueNormalzed"] = clean_str(s.get("Original Value Normalized", ""))
                     row["Original Value Normalized"] = clean_str(s.get("Original Value Normalized", ""))
                     row["CT Term"] = clean_str(s.get("CT Term", ""))
-                    ct_rows.append(row)
+                    rows.append(row)
 
-        base_df = pd.DataFrame(ct_rows).drop_duplicates().reset_index(drop=True)
+        base_df = pd.DataFrame(rows).drop_duplicates().reset_index(drop=True)
 
-    # codelist enrich
+    # -------------------------------------------------
+    # 4. 補 codelist_df 的 NCI Term Code / Decoded Value
+    # -------------------------------------------------
     base_df["NCI Term Code"] = ""
     base_df["Decoded Value"] = ""
 
     if codelist_df is not None and not codelist_df.empty:
-        c = codelist_df.copy()
-        c.columns = [str(cn).strip() for cn in c.columns]
+        cdf = codelist_df.copy()
+        cdf.columns = [str(c).strip() for c in cdf.columns]
 
-        for col in ["ID", "Term", "NCI Term Code", "Decoded Value"]:
-            if col not in c.columns:
-                c[col] = ""
+        for c in ["ID", "Term", "NCI Term Code", "Decoded Value"]:
+            if c not in cdf.columns:
+                cdf[c] = ""
 
-        c["ID"] = c["ID"].fillna("").astype(str).str.strip().str.upper()
-        c["Term"] = c["Term"].fillna("").astype(str).str.strip()
-        c["NCI Term Code"] = c["NCI Term Code"].fillna("").astype(str).str.strip()
-        c["Decoded Value"] = c["Decoded Value"].fillna("").astype(str).str.strip()
+        cdf["ID"] = cdf["ID"].fillna("").astype(str).str.strip().str.upper()
+        cdf["Term"] = cdf["Term"].fillna("").astype(str).str.strip()
+        cdf["NCI Term Code"] = cdf["NCI Term Code"].fillna("").astype(str).str.strip()
+        cdf["Decoded Value"] = cdf["Decoded Value"].fillna("").astype(str).str.strip()
 
-        enrich_rows = []
+        rows = []
 
         for _, b in base_df.iterrows():
-            variable = clean_str(b["Variable"]).upper()
-            term = clean_str(b.get("CT Term", ""))
+            ct_term = clean_str(b.get("CT Term", ""))
+            variable = clean_str(b.get("Variable", "")).upper()
 
-            if term == "":
-                enrich_rows.append(b.to_dict())
+            if ct_term == "":
+                rows.append(b.to_dict())
                 continue
 
-            subset = c[
-                (c["ID"] == variable) &
-                (c["Term"] == term)
+            subset = cdf[
+                (cdf["ID"] == variable) &
+                (cdf["Term"] == ct_term)
             ].copy()
 
             if subset.empty:
-                enrich_rows.append(b.to_dict())
+                rows.append(b.to_dict())
             else:
                 s = subset.iloc[0]
                 row = b.to_dict()
                 row["NCI Term Code"] = clean_str(s.get("NCI Term Code", ""))
                 row["Decoded Value"] = clean_str(s.get("Decoded Value", ""))
-                enrich_rows.append(row)
+                rows.append(row)
 
-        base_df = pd.DataFrame(enrich_rows).drop_duplicates().reset_index(drop=True)
+        base_df = pd.DataFrame(rows).drop_duplicates().reset_index(drop=True)
 
-    out_cols = [
-        "CRF Dataset", "CRF Variable",
-        "Dataset", "Variable", "Codelist", "CT Code",
-        "CRF Option Value", "Original Value", "Original Value Normalized",
-        "CT Term", "NCI Term Code", "Decoded Value"
-    ]
-
-    for c in out_cols:
+    # -------------------------------------------------
+    # 5. 最終輸出
+    # -------------------------------------------------
+    for c in final_cols:
         if c not in base_df.columns:
             base_df[c] = ""
 
-    out_df = base_df[out_cols].copy()
+    out_df = base_df[final_cols].copy()
 
     out_df = out_df.sort_values(
         by=["Dataset", "Variable", "CRF Dataset", "CRF Variable", "Original Value", "CT Term"],
@@ -4123,32 +4116,33 @@ if uploaded_file is not None:
 
 
 
+            st.markdown("### 🧩 Value Mapping Table")
+
             value_mapping_df = build_value_mapping_table(
-                detail_df=detail_df,
-                variables_spec_df=variables_spec_df,
+                variable_mapping_df=variable_mapping_df,
                 ct_mapping_df=ct_mapping_df,
                 matched_ct_df=matched_ct_df,
                 codelist_df=codelist_df
             )
 
-            st.markdown("### 🧩 Value Mapping Table")
-
-            val_display_cols = [
-                "CRF Dataset", "CRF Variable",
-                "Dataset", "Variable", "Codelist", "CT Code",
-                "CRF Option Value", "Original Value", "Original Value Normalized",
-                "CT Term", "NCI Term Code", "Decoded Value"
+            display_cols = [
+                "CRF Dataset",
+                "CRF Variable",
+                "CRF Data Type",
+                "Original Value",
+                "CT Term",
+                "NCI Term Code",
+                "Decoded Value"
             ]
 
-            val_display_cols = [c for c in val_display_cols if c in value_mapping_df.columns]
-
+            display_cols = [c for c in display_cols if c in value_mapping_df.columns]
+    
             st.dataframe(
-                value_mapping_df[val_display_cols],
+                value_mapping_df[display_cols],
                 use_container_width=True,
-                height=450
+                height=500
             )
-
-        
+                    
     except Exception as e:
         st.error(f"讀取檔案時發生錯誤：{e}")
         st.text(traceback.format_exc())
