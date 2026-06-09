@@ -3474,7 +3474,7 @@ def build_value_mapping_table(ct_mapping_df, variables_spec_df, matched_ct_df=No
         base_df = base_df.merge(
             cdf[["ID", "Term", "NCI Term Code", "Decoded Value"]].drop_duplicates(),
             how="left",
-            left_on=["SDTM Variable", "CT Term"],
+            left_on=["CT Code", "CT Term"],
             right_on=["ID", "Term"]
         )
 
