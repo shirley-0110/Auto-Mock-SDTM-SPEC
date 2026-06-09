@@ -634,6 +634,7 @@ def build_sdtm_mapping(domain_df_map):
     for sheet, df in domain_df_map.items():
         target_col = find_column(df.columns, ["SDTM", "TARGET"])
         source_var_col = find_source_variable_column(df.columns)
+        source_dtype_col = find_column(df.columns, ["FIELD", "TYPE"])
 
         if target_col is None:
             sheet_errors.append(sheet)
@@ -642,7 +643,8 @@ def build_sdtm_mapping(domain_df_map):
         for _, row in df.iterrows():
             raw_target = row[target_col]
             source_var = row[source_var_col] if source_var_col is not None else ""
-
+            source_dtype = row[source_dtype_col] if source_dtype_col is not None else ""
+        
             parsed_records, unparsed_tokens = parse_sdtm_targets(raw_target)
 
             for rec in parsed_records:
@@ -654,6 +656,7 @@ def build_sdtm_mapping(domain_df_map):
                 detail_records.append({
                     "CRF Dataset": sheet,
                     "CRF Variable": source_var,
+                    "CRF Data Type": source_dtype,
                     "SDTM Domain": rec["SDTM Domain"],
                     "SDTM Variable": rec["SDTM Variable"],
                     "Assign Value": rec["Assign Value"],
@@ -665,6 +668,7 @@ def build_sdtm_mapping(domain_df_map):
                     unparsed_records.append({
                         "CRF Dataset": sheet,
                         "CRF Variable": source_var,
+                        "CRF Data Type": source_dtype,
                         "SDTM IG Target Raw": raw_target,
                         "Unparsed Token": token
                     })
