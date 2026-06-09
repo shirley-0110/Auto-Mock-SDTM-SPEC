@@ -3119,94 +3119,121 @@ def get_available_ct_versions():
 
 def build_variable_mapping_table(detail_df, variables_spec_df):
     """
-    Variable Mapping:
-    以前三個 CRF source 欄位為主體，
-    再和 SDTM variable sheet 合併 metadata
+    Variable Mapping Table
+    目標：
+      1. 保留所有 SDTM SPEC variables（以 variables_spec_df 為主）
+      2. 補上 detail_df 的 raw mapping
+      3. 保留 CRF Dataset / CRF Variable / CRF Data Type
     """
-
-    import pandas as pd
-
-    if detail_df is None or detail_df.empty:
-        return pd.DataFrame(columns=[
-            "CRF Dataset", "CRF Variable", "CRF Data Type",
-            "Order", "Dataset", "Variable", "Label", "Data Type",
-            "Codelist", "Origin", "Source"
-        ])
-
-    d = detail_df.copy()
-    d.columns = [str(c).strip() for c in d.columns]
-
-    # detail_df 保底
-    for c in ["CRF Dataset", "CRF Variable", "SDTM Domain", "SDTM Variable"]:
-        if c not in d.columns:
-            d[c] = ""
-
-    if "CRF Data Type" not in d.columns:
-        d["CRF Data Type"] = ""
-
-    d["CRF Dataset"] = d["CRF Dataset"].fillna("").astype(str).str.strip()
-    d["CRF Variable"] = d["CRF Variable"].fillna("").astype(str).str.strip()
-    d["CRF Data Type"] = d["CRF Data Type"].fillna("").astype(str).str.strip()
-    d["SDTM Domain"] = d["SDTM Domain"].fillna("").astype(str).str.strip().str.upper()
-    d["SDTM Variable"] = d["SDTM Variable"].fillna("").astype(str).str.strip().str.upper()
-
-    # detail_df = execution truth
-    var_map = d.rename(columns={
-        "SDTM Domain": "Dataset",
-        "SDTM Variable": "Variable"
-    })[
-        ["CRF Dataset", "CRF Variable", "CRF Data Type", "Dataset", "Variable"]
-    ].drop_duplicates().reset_index(drop=True)
-
-    # 用 variables_spec_df 補 metadata
-    if variables_spec_df is not None and not variables_spec_df.empty:
-        v = variables_spec_df.copy()
-        v.columns = [str(c).strip() for c in v.columns]
-
-        for c in [
-            "Order", "Dataset", "Variable", "Label", "Data Type",
-            "Codelist", "Origin", "Source"
-        ]:
-            if c not in v.columns:
-                v[c] = ""
-
-        v["Dataset"] = v["Dataset"].fillna("").astype(str).str.strip().str.upper()
-        v["Variable"] = v["Variable"].fillna("").astype(str).str.strip().str.upper()
-
-        meta = v[[
-            "Order", "Dataset", "Variable", "Label", "Data Type",
-            "Codelist", "Origin", "Source"
-        ]].drop_duplicates(subset=["Dataset", "Variable"], keep="first")
-
-        var_map = var_map.merge(
-            meta,
-            how="left",
-            on=["Dataset", "Variable"]
-        )
-    else:
-        for c in ["Order", "Label", "Data Type", "Codelist", "Origin", "Source"]:
-            var_map[c] = ""
-
-    out_cols = [
+    
+    final_cols = [
         "CRF Dataset", "CRF Variable", "CRF Data Type",
         "Order", "Dataset", "Variable", "Label", "Data Type",
         "Codelist", "Origin", "Source"
     ]
 
-    for c in out_cols:
-        if c not in var_map.columns:
-            var_map[c] = ""
+    # -------------------------------------------------
+    # helper
+    # -------------------------------------------------
+    def clean_str(x):
+        return "" if pd.isna(x) else str(x).strip()
 
-    var_map = var_map[out_cols].copy()
+    # -------------------------------------------------
+    # 0. 保底：沒有 variables_spec_df 直接回空
+    # -------------------------------------------------
+    if variables_spec_df is None or variables_spec_df.empty:
+        return pd.DataFrame(columns=final_cols)
 
-    # 排序：先 SDTM，再 raw source
-    var_map["Order"] = pd.to_numeric(var_map["Order"], errors="coerce")
-    var_map = var_map.sort_values(
+    # -------------------------------------------------
+    # 1. 先整理 variables_spec_df
+    #    這張是主體：所有 SDTM SPEC 變數都要留
+    # -------------------------------------------------
+    v = variables_spec_df.copy()
+    v.columns = [str(c).strip() for c in v.columns]
+
+    for c in [
+        "Order", "Dataset", "Variable", "Label", "Data Type",
+        "Codelist", "Origin", "Source"
+    ]:
+        if c not in v.columns:
+            v[c] = ""
+
+    v["Dataset"] = v["Dataset"].fillna("").astype(str).str.strip().str.upper()
+    v["Variable"] = v["Variable"].fillna("").astype(str).str.strip().str.upper()
+
+    # 主 metadata（每個 Dataset+Variable 保留一筆）
+    spec_meta = v[[
+        "Order", "Dataset", "Variable", "Label", "Data Type",
+        "Codelist", "Origin", "Source"
+    ]].drop_duplicates(subset=["Dataset", "Variable"], keep="first").reset_index(drop=True)
+
+    # -------------------------------------------------
+    # 2. 整理 detail_df（raw source mapping）
+    # -------------------------------------------------
+    if detail_df is None or detail_df.empty:
+        detail_map = pd.DataFrame(columns=[
+            "CRF Dataset", "CRF Variable", "CRF Data Type",
+            "Dataset", "Variable"
+        ])
+    else:
+        d = detail_df.copy()
+        d.columns = [str(c).strip() for c in d.columns]
+
+        for c in ["CRF Dataset", "CRF Variable", "SDTM Domain", "SDTM Variable"]:
+            if c not in d.columns:
+                d[c] = ""
+
+        # CRF Data Type 保底
+        if "CRF Data Type" not in d.columns:
+            d["CRF Data Type"] = ""
+
+        d["CRF Dataset"] = d["CRF Dataset"].fillna("").astype(str).str.strip()
+        d["CRF Variable"] = d["CRF Variable"].fillna("").astype(str).str.strip()
+        d["CRF Data Type"] = d["CRF Data Type"].fillna("").astype(str).str.strip()
+
+        d["SDTM Domain"] = d["SDTM Domain"].fillna("").astype(str).str.strip().str.upper()
+        d["SDTM Variable"] = d["SDTM Variable"].fillna("").astype(str).str.strip().str.upper()
+
+        detail_map = d.rename(columns={
+            "SDTM Domain": "Dataset",
+            "SDTM Variable": "Variable"
+        })[[
+            "CRF Dataset", "CRF Variable", "CRF Data Type",
+            "Dataset", "Variable"
+        ]].drop_duplicates().reset_index(drop=True)
+
+    # -------------------------------------------------
+    # 3. 用 variables_spec_df 當主體，left merge detail source
+    #    → 所有 spec variable 都保留
+    # -------------------------------------------------
+    out = spec_meta.merge(
+        detail_map,
+        how="left",
+        on=["Dataset", "Variable"]
+    )
+
+    # -------------------------------------------------
+    # 4. 保底欄位
+    # -------------------------------------------------
+    for c in final_cols:
+        if c not in out.columns:
+            out[c] = ""
+
+    for c in ["CRF Dataset", "CRF Variable", "CRF Data Type"]:
+        out[c] = out[c].fillna("").astype(str).str.strip()
+
+    # -------------------------------------------------
+    # 5. 排序
+    # -------------------------------------------------
+    out["Order"] = pd.to_numeric(out["Order"], errors="coerce")
+
+    out = out[final_cols].copy()
+    out = out.sort_values(
         by=["Dataset", "Order", "Variable", "CRF Dataset", "CRF Variable"],
         na_position="last"
     ).reset_index(drop=True)
 
-    return var_map
+    return out
     # End=========================================================
 
 
