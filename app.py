@@ -3371,6 +3371,11 @@ def build_mapping_rule_table(
         matched_rows = []
 
         for _, base in rule_df.iterrows():
+
+            if str(base.get("Rule Type", "")).strip().upper() == "ASSIGN":
+                matched_rows.append(base.to_dict())
+                continue
+            
             ds = clean_str(base["Dataset"]).upper()
             var = clean_str(base["Variable"]).upper()
             orig = clean_str(base.get("Original Value", ""))
