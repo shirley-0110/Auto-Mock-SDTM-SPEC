@@ -4106,15 +4106,17 @@ if uploaded_file is not None:
                 "Order", "Dataset", "Variable", "Label", "Data Type",
                 "Codelist", "Origin", "Source"
             ]
-
-            var_display_cols = [c for c in var_display_cols if c in variable_mapping_df.columns]
+            
+            variable_mapping_export = variable_mapping_df.copy()
+            variable_mapping_export = variable_mapping_export[
+                [c for c in display_cols if c in variable_mapping_export.columns]
+            ]
 
             st.dataframe(
-                variable_mapping_df[var_display_cols],
+                variable_mapping_export,
                 use_container_width=True,
                 height=450
             )
-
 
 
             st.markdown("### 🧩 Value Mapping Table")
@@ -4142,6 +4144,33 @@ if uploaded_file is not None:
                 value_mapping_df[display_cols],
                 use_container_width=True,
                 height=500
+            )
+
+            export_sheets = {
+                "Variable Mapping": variable_mapping_export,
+                "Datasets": datasets_df,
+                "Variables": variables_view_df,
+                "Codelist": codelists_export,
+                "Dictionaries": dictionaries_df,
+                "TA": ta_df,
+                "TE": te_df,
+                "TI": ti_df,
+                "TS": ts_df,
+                "TV": tv_df
+            }
+
+            excel_bytes = Export_excel(export_sheets)
+
+            # 檔名
+            today_str = datetime.now().strftime("%Y%m%d")
+            file_name = f"{sponsor}_{protocol_no}_Mock SDTM_SPEC_{today_str}.xlsx"
+
+            # Download Button
+            st.download_button(
+                label="下載 SDTM SPEC Excel",
+                data=excel_bytes,
+                file_name=file_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
                     
