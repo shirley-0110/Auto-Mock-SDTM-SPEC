@@ -3324,10 +3324,24 @@ def build_mapping_rule_table(
             ds = normalize_upper(base["Dataset"])
             var = normalize_upper(base["Variable"])
 
+            base_crf_ds = clean_str(base.get("CRF Dataset", ""))
+            base_crf_var = clean_str(base.get("CRF Variable", ""))
+
             subset = ct[
                 (ct["Dataset"] == ds) &
                 (ct["Variable"] == var)
             ].copy()
+
+            # ✅ 優先用 CRF Dataset + CRF Variable 精準對
+            if base_crf_ds and "CRF Dataset" in ct.columns:
+                subset = subset[
+                    subset["CRF Dataset"].fillna("").astype(str).str.strip() == base_crf_ds
+                ].copy()
+    
+            if base_crf_var and "CRF Variable" in ct.columns:
+                subset = subset[
+                    subset["CRF Variable"].fillna("").astype(str).str.strip() == base_crf_var
+                ].copy()
 
             if subset.empty:
                 row = base.to_dict()
@@ -3394,10 +3408,25 @@ def build_mapping_rule_table(
             var = normalize_upper(base["Variable"])
             orig = clean_str(base.get("Original Value", ""))
 
+            
+            base_crf_ds = clean_str(base.get("CRF Dataset", ""))
+            base_crf_var = clean_str(base.get("CRF Variable", ""))
+
             subset = mdf[
                 (mdf["Dataset"] == ds) &
                 (mdf["Variable"] == var)
             ].copy()
+
+            # ✅ 優先限縮到同一個 CRF source
+            if base_crf_ds and "CRF Dataset" in mdf.columns:
+                subset = subset[
+                    mdf["CRF Dataset"].fillna("").astype(str).str.strip() == base_crf_ds
+                ].copy()
+
+            if base_crf_var and "CRF Variable" in mdf.columns:
+                subset = subset[
+                    subset["CRF Variable"].fillna("").astype(str).str.strip() == base_crf_var
+                ].copy()
 
             # 如果有 original value，就優先用它對
             if orig:
