@@ -3070,6 +3070,27 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
 
             codelist_df = codelist_df.drop(columns=["Decode_TSPARM"], errors="ignore")
 
+
+    st.markdown("### DEBUG BEFORE STEP11")
+    
+    debug_df = codelist_df[
+        codelist_df["ID"].isin(["PETEST","PETESTCD"])
+    ]
+
+    st.dataframe(
+        debug_df[
+            [
+                "ID",
+                "Original Value",
+                "Term",
+                "NCI Term Code"
+            ]
+        ],
+        use_container_width=True
+    )
+
+
+    
     # =================================================
     # 11. 排序 / 去重
     # =================================================
@@ -3762,29 +3783,6 @@ if uploaded_file is not None:
         st.markdown("### 🧩 CT Mapping List")
 
         # st.dataframe(ct_mapping_df, use_container_width=True)
-
-
-        pe_detail = detail_df[
-            detail_df["SDTM Domain"].astype(str).str.upper() == "PE"
-        ]
-
-        st.markdown("### DEBUG PE detail_df")
-
-        st.dataframe(
-            pe_detail[
-                [
-                    "CRF Dataset",
-                    "CRF Variable",
-                    "SDTM Domain",
-                    "SDTM Variable",
-                    "Assign Value",
-                    "SDTM IG Target Raw"
-                ]
-            ],
-            use_container_width=True
-        )
-
-
 
         # 確保 dictionary 已載入
         if "ct_mapping_dict_df" in st.session_state:
