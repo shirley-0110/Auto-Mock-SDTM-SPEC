@@ -3075,7 +3075,7 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
     # =================================================
     codelist_df = (
         codelist_df
-        .drop_duplicates()
+        .drop_duplicates(subset=["ID", "Term"])
         .sort_values(by=["Codelist", "Term", "Dataset", "Variable"], na_position="last")
         .reset_index(drop=True)
     )
