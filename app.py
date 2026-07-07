@@ -2828,35 +2828,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                 .tolist()
             )
 
-
-
-            if variable == "PETEST":
-
-                st.markdown("### DEBUG PETEST subset")
-
-                st.write("dataset =", dataset)
-                st.write("variable =", variable)
-
-                st.dataframe(
-                    subset[
-                        [
-                            "Dataset",
-                            "Variable",
-                            "Assign Value",
-                            "CRF Option Value",
-                            "Original Value"
-                        ]
-                    ],
-                    use_container_width=True
-                )
-
-                st.write("assign_terms =", assign_terms)
-                st.write("option_terms =", option_terms)
-
-
-
-            
-
             if assign_terms:
                 for t in assign_terms:
                     value_rows.append({
@@ -2864,14 +2835,14 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                         "Term": t
                     })
 
-            elif option_terms:
+            if option_terms:
                 for t in option_terms:
                     value_rows.append({
                         "Original Value": t,
                         "Term": t
                     })
 
-            else:
+            if not assign_terms and not option_terms:
                 for t in fallback_terms:
                     value_rows.append({
                         "Original Value": t,
