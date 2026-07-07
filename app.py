@@ -3761,7 +3761,29 @@ if uploaded_file is not None:
         # CT Mapping Result       
         st.markdown("### 🧩 CT Mapping List")
 
-        st.dataframe(ct_mapping_df, use_container_width=True)
+        # st.dataframe(ct_mapping_df, use_container_width=True)
+
+
+        pe_detail = detail_df[
+            detail_df["SDTM Domain"].astype(str).str.upper() == "PE"
+        ]
+
+        st.markdown("### DEBUG PE detail_df")
+
+        st.dataframe(
+            pe_detail[
+                [
+                    "CRF Dataset",
+                    "CRF Variable",
+                    "SDTM Domain",
+                    "SDTM Variable",
+                    "Assign Value",
+                    "SDTM IG Target Raw"
+                ]
+            ],
+            use_container_width=True
+        )
+
 
 
         # 確保 dictionary 已載入
