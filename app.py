@@ -3071,23 +3071,30 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             codelist_df = codelist_df.drop(columns=["Decode_TSPARM"], errors="ignore")
 
 
-    st.markdown("### DEBUG BEFORE STEP11")
-    
-    debug_df = codelist_df[
-        codelist_df["ID"].isin(["PETEST","PETESTCD"])
-    ]
 
-    st.dataframe(
-        debug_df[
-            [
-                "ID",
-                "Original Value",
-                "Term",
-                "NCI Term Code"
-            ]
-        ],
-        use_container_width=True
-    )
+    if variable == "PETEST":
+
+        st.markdown("### DEBUG PETEST subset")
+
+        st.write("dataset =", dataset)
+        st.write("variable =", variable)
+
+        st.dataframe(
+            subset[
+                [
+                    "Dataset",
+                    "Variable",
+                    "Assign Value",
+                    "CRF Option Value",
+                    "Original Value"
+                ]
+            ],
+            use_container_width=True
+        )
+
+        st.write("assign_terms =", assign_terms)
+        st.write("option_terms =", option_terms)
+
 
 
     
