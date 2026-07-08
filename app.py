@@ -764,16 +764,6 @@ def build_sdtm_mapping(domain_df_map):
         .reset_index(drop=True)
     ) if method_decode_records else pd.DataFrame()
 
-
-    st.markdown("### DEBUG method_decode_df")
-    st.dataframe(
-        method_decode_df,
-        use_container_width=True,
-        height=400
-    )
-
-
-
     return mapping_df, detail_df, sheet_errors, unparsed_records, decode_mapping_df, method_decode_df
     # End=========================================================
 
@@ -2923,11 +2913,33 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
                     })
 
             if option_terms:
-                for t in option_terms:
-                    value_rows.append({
-                        "Original Value": t,
-                        "Term": t
-                    })
+                # PETESTCD 特殊處理
+                if (
+                    id_ == "PETESTCD"
+                    and method_decode_df is not None
+                    and not method_decode_df.empty
+                ):
+                    method_lookup = dict(
+                        zip(
+                            method_decode_df["TEST Value"],
+                            method_decode_df["TESTCD Value"]
+                        )
+                    )
+
+                    for t in option_terms:
+                        code = method_lookup.get(t, t)
+
+                        value_rows.append({
+                            "Original Value": t,
+                            "Term": code
+                        })
+
+                else:
+                    for t in option_terms:
+                        value_rows.append({
+                            "Original Value": t,
+                            "Term": t
+                        })
 
             if not assign_terms and not option_terms:
                 for t in fallback_terms:
