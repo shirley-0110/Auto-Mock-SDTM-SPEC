@@ -650,6 +650,22 @@ def build_sdtm_mapping(domain_df_map):
         
             parsed_records, unparsed_tokens = parse_sdtm_targets(raw_target)
 
+            if (
+                "PETESTCD" in str(raw_target)
+                or "PETEST" in str(raw_target)
+            ):
+                st.markdown("### DEBUG parse_sdtm_targets")
+
+                st.write("raw_target")
+                st.code(raw_target)
+
+                st.write("parsed_records")
+                st.json(parsed_records)
+
+                st.write("unparsed_tokens")
+                st.json(unparsed_tokens)
+
+
             for rec in parsed_records:
                 mapping_records.append({
                     "SDTM Domain": rec["SDTM Domain"],
