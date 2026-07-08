@@ -4069,7 +4069,7 @@ if uploaded_file is not None:
 
         if os.path.exists(dict_path):
             try:
-                ct_mapping_dict_df = pd.read_excel(dict_path)
+                ct_mapping_dict_df = pd.read_excel(dict_path, dtype=str, keep_default_na=False)
                 ct_mapping_dict_df = normalize_columns(ct_mapping_dict_df)
 
                 st.session_state["ct_mapping_dict_df"] = ct_mapping_dict_df
