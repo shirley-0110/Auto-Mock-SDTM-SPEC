@@ -3087,42 +3087,62 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
     if "Decode" not in codelist_df.columns:
         codelist_df["Decode"] = ""
 
-    codelist_df["ID"] = codelist_df["ID"].fillna("").astype(str)
-
-    codelist_df["Decode_Lookup_ID"] = (
-        codelist_df["ID"].str.replace("TESTCD", "TEST", regex=False)
-    )
-
-    test_name_df = codelist_df[
-        codelist_df["ID"].str.endswith("TEST") &
-        ~codelist_df["ID"].str.endswith("TESTCD")
+    # 建立 NCI → Decode Lookup
+    decode_source_df = codelist_df[
+        codelist_df["NCI Term Code"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
     ][[
-        "Dataset", "ID", "NCI Term Code", "Term"
+        "Dataset",
+        "NCI Term Code",
+        "Term"
     ]].copy()
 
-    test_name_df = test_name_df.rename(columns={
-        "ID": "Decode_Lookup_ID",
-        "Term": "Decode_from_TEST"
-    })
+    decode_source_df = decode_source_df.rename(
+        columns={
+            "Term": "Decode_from_NCI"
+        }
+    )
 
-    if not test_name_df.empty:
-        codelist_df = codelist_df.merge(
-            test_name_df.drop_duplicates(),
-            on=["Dataset", "Decode_Lookup_ID", "NCI Term Code"],
-            how="left"
-        )
+    # merge
+    codelist_df = codelist_df.merge(
+        decode_source_df.drop_duplicates(),
+        on=["Dataset", "NCI Term Code"],
+        how="left"
+    )
 
-    testcd_mask = (
-        (codelist_df["ID"].fillna("").astype(str).str.endswith(("TESTCD", "ONCRTSCD")))
+    # 只補空白 Decode
+    decode_mask = (
+        codelist_df["NCI Term Code"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
         &
-        (codelist_df["NCI Term Code"].fillna("").astype(str).str.strip().ne(""))
+        codelist_df["Decode"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .eq("")
     )
 
-    codelist_df.loc[testcd_mask, "Decode"] = (
-        codelist_df.loc[testcd_mask, "Decode_from_TEST"].fillna("")
+    codelist_df.loc[
+        decode_mask,
+        "Decode"
+    ] = (
+        codelist_df.loc[
+            decode_mask,
+            "Decode_from_NCI"
+        ].fillna("")
     )
 
-    codelist_df = codelist_df.drop(columns=["Decode_Lookup_ID", "Decode_from_TEST"], errors="ignore")
+    codelist_df = codelist_df.drop(
+        columns=["Decode_from_NCI"],
+        errors="ignore"
+    )
+
 
     # =================================================
     # 9B. TESTCD Decode Fallback (Assign Pair)
