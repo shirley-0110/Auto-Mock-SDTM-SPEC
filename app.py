@@ -2505,7 +2505,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=None, ct_mapping_df=None, ts_df=None, sdtm_ct=None):
+def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=None, ct_mapping_df=None, ts_df=None, sdtm_ct=None, decode_mapping_df=None):
 
     df = variables_spec_df.copy()
 
@@ -3066,7 +3066,111 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
 
     codelist_df = codelist_df.drop(columns=["Decode_Lookup_ID", "Decode_from_TEST"], errors="ignore")
 
+    # =================================================
+    # 9B. TESTCD Decode Fallback (Assign Pair)
+    # =================================================
+    if (
+        decode_mapping_df is not None
+        and not decode_mapping_df.empty
+    ):
 
+        decode_df = decode_mapping_df.copy()
+
+        for col in [
+            "Dataset",
+            "TESTCD Variable",
+            "TESTCD Value",
+            "TEST Value"
+        ]:
+            if col not in decode_df.columns:
+                decode_df[col] = ""
+
+        decode_df["Dataset"] = (
+            decode_df["Dataset"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+        decode_df["TESTCD Variable"] = (
+            decode_df["TESTCD Variable"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+        decode_df["TESTCD Value"] = (
+            decode_df["TESTCD Value"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        decode_df["TEST Value"] = (
+            decode_df["TEST Value"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        decode_lookup = (
+            decode_df[
+                [
+                    "Dataset",
+                    "TESTCD Variable",
+                    "TESTCD Value",
+                    "TEST Value"
+                ]
+            ]
+            .drop_duplicates()
+            .rename(columns={
+                "TESTCD Variable": "ID",
+                "TESTCD Value": "Term",
+                "TEST Value": "Decode_Fallback"
+            })
+        )
+
+        codelist_df = codelist_df.merge(
+            decode_lookup,
+            on=["Dataset", "ID", "Term"],
+            how="left"
+        )
+
+        fallback_mask = (
+            codelist_df["ID"]
+            .fillna("")
+            .astype(str)
+            .str.endswith("TESTCD")
+            &
+            (
+                codelist_df["Decode"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                == ""
+            )
+        )
+
+        codelist_df.loc[
+            fallback_mask,
+            "Decode"
+        ] = (
+            codelist_df.loc[
+                fallback_mask,
+                "Decode_Fallback"
+            ]
+            .fillna("")
+        )
+
+        codelist_df = codelist_df.drop(
+            columns=["Decode_Fallback"],
+            errors="ignore"
+        )
+
+
+    
     # =================================================
     # 10. TSPARMCD Decode（用 CT master）
     # =================================================
@@ -4049,7 +4153,8 @@ if uploaded_file is not None:
                 matched_ct_df=matched_ct_df,
                 ct_mapping_df=ct_mapping_df,
                 ts_df=ts_df,
-                sdtm_ct=sdtm_ct
+                sdtm_ct=sdtm_ct,
+                decode_mapping_df
             )
             
             display_cols = [
