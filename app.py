@@ -631,9 +631,11 @@ def build_sdtm_mapping(domain_df_map):
     sheet_errors = []
     unparsed_records = []
     decode_mapping_records = []
+    method_decode_records = []
 
     for sheet, df in domain_df_map.items():
         target_col = find_column(df.columns, ["SDTM", "TARGET"])
+        method_col = find_column(df.columns, ["SDTM", "METHOD"])
         source_var_col = find_source_variable_column(df.columns)
         source_dtype_col = find_column(df.columns, ["FIELD", "TYPE"])
 
@@ -643,6 +645,7 @@ def build_sdtm_mapping(domain_df_map):
 
         for _, row in df.iterrows():
             raw_target = row[target_col]
+            raw_method = row[method_col] if method_col is not None else ""
             source_var = row[source_var_col] if source_var_col is not None else ""
             source_dtype = row[source_dtype_col] if source_dtype_col is not None else ""
 
@@ -650,6 +653,35 @@ def build_sdtm_mapping(domain_df_map):
             source_dtype = source_dtype.lower().title()
         
             parsed_records, unparsed_tokens = parse_sdtm_targets(raw_target)
+
+            
+            # =================================================
+            # Method Decode Mapping (先特定寫給PETEST/PETESTCD)
+            # =================================================
+            method_text = "" if pd.isna(raw_method) else str(raw_method)
+
+            if (
+                "PETESTCD" in method_text.upper()
+                and "PETEST" in method_text.upper()
+            ):
+    
+                import re
+        
+                pattern = re.compile(
+                    r'PETEST="([^"]+)"\s*.*?PETESTCD="([^"]+)"',
+                    re.I
+                )
+
+                for m in pattern.finditer(method_text):
+
+                    method_decode_records.append({
+                        "Dataset": sheet,
+                        "TEST Variable": "PETEST",
+                        "TEST Value": m.group(1).strip(),
+                        "TESTCD Variable": "PETESTCD",
+                        "TESTCD Value": m.group(2).strip()
+                    })
+
 
             # -------------------------------------------------
             # TESTCD Decode Mapping
@@ -726,8 +758,23 @@ def build_sdtm_mapping(domain_df_map):
         .reset_index(drop=True)
     ) if decode_mapping_records else pd.DataFrame()
 
+    method_decode_df = (
+        pd.DataFrame(method_decode_records)
+        .drop_duplicates()
+        .reset_index(drop=True)
+    ) if method_decode_records else pd.DataFrame()
 
-    return mapping_df, detail_df, sheet_errors, unparsed_records, decode_mapping_df
+
+    st.markdown("### DEBUG method_decode_df")
+    st.dataframe(
+        method_decode_df,
+        use_container_width=True,
+        height=400
+    )
+
+
+
+    return mapping_df, detail_df, sheet_errors, unparsed_records, decode_mapping_df, method_decode_df
     # End=========================================================
 
 
