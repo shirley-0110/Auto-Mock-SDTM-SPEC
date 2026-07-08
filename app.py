@@ -753,14 +753,6 @@ def process_uploaded_excel(file_bytes, all_sheets):
     )
 
     
-    st.markdown("### DEBUG decode_mapping_df")
-
-    st.dataframe(
-        decode_mapping_df,
-        use_container_width=True,
-        height=400
-    )
-
     # CT mapping
     ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
         domain_df_map,
@@ -773,6 +765,7 @@ def process_uploaded_excel(file_bytes, all_sheets):
         "detail_df": detail_df,
         "unparsed_records": unparsed_records,
         "mapping_sheet_errors": mapping_errors,
+        "decode_mapping_df": decode_mapping_df,
         "ct_mapping_df": ct_mapping_df,
         "ct_mapping_sheet_errors": ct_mapping_sheet_errors,
         "available_sheets": ctx["available_sheets"],
