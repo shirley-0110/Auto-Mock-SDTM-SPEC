@@ -3438,7 +3438,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             .fillna("")
             .astype(str)
             .str.strip()
-            .str.upper()
         )
 
         right["Code"] = right["Code"].fillna("").astype(str).str.strip()
