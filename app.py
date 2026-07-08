@@ -4154,7 +4154,7 @@ if uploaded_file is not None:
                 ct_mapping_df=ct_mapping_df,
                 ts_df=ts_df,
                 sdtm_ct=sdtm_ct,
-                decode_mapping_df
+                decode_mapping_df=decode_mapping_df
             )
             
             display_cols = [
