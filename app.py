@@ -650,20 +650,33 @@ def build_sdtm_mapping(domain_df_map):
         
             parsed_records, unparsed_tokens = parse_sdtm_targets(raw_target)
 
-            if (
-                "PETESTCD" in str(raw_target)
-                or "PETEST" in str(raw_target)
-            ):
-                st.markdown("### DEBUG parse_sdtm_targets")
+            # -------------------------------------------------
+            # TESTCD Decode Mapping
+            # -------------------------------------------------
+            test_rec = None
+            testcd_rec = None
 
-                st.write("raw_target")
-                st.code(raw_target)
+            for rec in parsed_records:
 
-                st.write("parsed_records")
-                st.json(parsed_records)
+                var = str(rec.get("SDTM Variable", "")).upper()
+                assign_val = str(rec.get("Assign Value", "")).strip()
 
-                st.write("unparsed_tokens")
-                st.json(unparsed_tokens)
+                if var.endswith("TEST") and not var.endswith("TESTCD"):
+                    if assign_val:
+                        test_rec = rec
+
+                elif var.endswith("TESTCD"):
+                    if assign_val:
+                        testcd_rec = rec
+
+            if test_rec and testcd_rec:
+                decode_mapping_records.append({
+                    "Dataset": test_rec["SDTM Domain"],
+                    "TEST Variable": test_rec["SDTM Variable"],
+                    "TEST Value": test_rec["Assign Value"],
+                    "TESTCD Variable": testcd_rec["SDTM Variable"],
+                    "TESTCD Value": testcd_rec["Assign Value"]
+                })
 
 
             for rec in parsed_records:
@@ -706,7 +719,14 @@ def build_sdtm_mapping(domain_df_map):
         .reset_index(drop=True)
     ) if detail_records else pd.DataFrame()
 
-    return mapping_df, detail_df, sheet_errors, unparsed_records
+    decode_mapping_df = (
+        pd.DataFrame(decode_mapping_records)
+        .drop_duplicates()
+        .reset_index(drop=True)
+    ) if decode_mapping_records else pd.DataFrame()
+
+
+    return mapping_df, detail_df, sheet_errors, unparsed_records, decode_mapping_df
     # End=========================================================
 
 
@@ -3035,6 +3055,8 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
     )
 
     codelist_df = codelist_df.drop(columns=["Decode_Lookup_ID", "Decode_from_TEST"], errors="ignore")
+
+    st.dataframe(decode_mapping_df)
 
     # =================================================
     # 10. TSPARMCD Decode（用 CT master）
