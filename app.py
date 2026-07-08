@@ -1082,6 +1082,16 @@ def standardize_ct_mapping_dict(df):
         "NOTE": "Notes"
     }
 
+
+    st.markdown("### DEBUG BEFORE STANDARDIZE")
+
+    debug_route = df[
+        df["ID"].astype(str).str.upper().eq("ROUTE")
+    ]
+
+    st.dataframe(debug_route)
+
+    
     # 先把欄名 normalize 到大寫，再對映
     normalized_col_map = {c: normalize_text(c) for c in df.columns}
     new_cols = {}
@@ -1212,51 +1222,6 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
     mapping_dict["CT Code"] = mapping_dict["CT Code"].astype(str).str.strip().str.upper()
     mapping_dict["Original Value Normalized"] = mapping_dict["Original Value Normalized"].apply(normalize_text)
     mapping_dict["CT Term"] = mapping_dict["CT Term"].astype(str).str.strip()
-
-
-    
-    # =================================================
-    # DEBUG｜ROUTE / NA mapping key
-    # =================================================
-    st.markdown("### DEBUG ROUTE Dictionary After Standardize")
-
-    debug_route_dict = mapping_dict[
-        mapping_dict["CT Code"].astype(str).str.upper().eq("ROUTE")
-    ].copy()
-
-    st.dataframe(
-        debug_route_dict[
-            [
-                "CT Code",
-                "Original Value Normalized",
-                "CT Term"
-            ]
-        ],
-        use_container_width=True,
-        height=400
-    )
-
-    st.markdown("### DEBUG ROUTE = NA in Dictionary")
-
-    debug_route_na = mapping_dict[
-        (mapping_dict["CT Code"].astype(str).str.upper().eq("ROUTE"))
-        &
-        (mapping_dict["Original Value Normalized"].astype(str).str.upper().eq("NA"))
-    ].copy()
-
-    st.dataframe(
-        debug_route_na[
-            [
-                "CT Code",
-                "Original Value Normalized",
-                "CT Term"
-            ]
-        ],
-        use_container_width=True
-    )
-
-    st.write("ROUTE+NA dictionary rows:", len(debug_route_na))
-
 
     mapped = seed_ct.merge(
         mapping_dict[["CT Code", "Original Value Normalized", "CT Term"]],
