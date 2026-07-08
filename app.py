@@ -1750,19 +1750,26 @@ def apply_codelist_rules(merged_df):
     df.loc[mask_arm, "Codelist"] = "ARM"
 
     # -------------------------------------------------
-    # Rule 4: DSDECOD -> NCOMPLT
+    # Rule 4: Special Case
     # -------------------------------------------------
+    #     DSDECOD -> NCOMPLT
     mask_dsdecod = missing_mask & (df["Variable"] == "DSDECOD")
     df.loc[mask_dsdecod, "Codelist"] = "NCOMPLT"
 
-    # -------------------------------------------------
-    # Rule 5: COUNTRY -> ISO3166
-    # -------------------------------------------------
+    #     COUNTRY -> ISO3166
     mask_country = missing_mask & (df["Variable"] == "COUNTRY")
     df.loc[mask_country, "Codelist"] = "ISO3166"
 
+    #     RSTEST -> ONCRTS
+    mask_rstest = missing_mask & (df["Variable"] == "RSTEST")
+    df.loc[mask_rstest, "Codelist"] = "ONCRTS"
+
+    #     RSTESTCD -> ONCRTSCD
+    mask_rstestcd = missing_mask & (df["Variable"] == "RSTESTCD")
+    df.loc[mask_rstestcd, "Codelist"] = "ONCRTSCD"
+    
     # -------------------------------------------------
-    # Rule 6: SUPP-- 的 RDOMAIN -> DOMAIN_{XX}
+    # Rule 5: SUPP-- 的 RDOMAIN -> DOMAIN_{XX}
     # -------------------------------------------------
     mask_supp_rdomain = (
         missing_mask &
@@ -1773,10 +1780,9 @@ def apply_codelist_rules(merged_df):
     df.loc[mask_supp_rdomain, "Codelist"] = (
         "DOMAIN_" + df.loc[mask_supp_rdomain, "Dataset"].str.replace("SUPP", "", regex=False)
     )
-
     
     # -------------------------------------------------
-    # Rule 7: 跨 domain Codelist 拆分
+    # Rule 6: 跨 domain Codelist 拆分
     # -------------------------------------------------
 
     cross_domain_targets = {"DOMAIN", "FREQ", "LOC", "METHOD", "NRIND", "UNIT", "ROUTE"}
@@ -1803,9 +1809,8 @@ def apply_codelist_rules(merged_df):
         df.loc[mask, "Codelist"] + "_" + df.loc[mask, "Dataset"]
     )
 
-
     # -------------------------------------------------
-    # Rule 8: STENRF 特殊規則（XXSTRTPT / XXENRTPT）
+    # Rule 7: STENRF 特殊規則（XXSTRTPT / XXENRTPT）
     # -------------------------------------------------
 
     df["Variable"] = df["Variable"].astype(str).str.upper().str.strip()
