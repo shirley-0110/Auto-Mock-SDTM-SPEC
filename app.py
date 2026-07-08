@@ -3087,13 +3087,66 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
     if "Decode" not in codelist_df.columns:
         codelist_df["Decode"] = ""
 
-    # 建立 NCI → Decode Lookup
+    codelist_df["ID"] = codelist_df["ID"].fillna("").astype(str)
+
+
+    # 建立 Pair Lookup
+    pair_rows = []
+
+    # TESTCD 類（來自 decode_mapping_df）
+    if decode_mapping_df is not None and not decode_mapping_df.empty:
+
+        pair_rows.extend(
+            decode_mapping_df["TESTCD Variable"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .unique()
+            .tolist()
+        )
+
+    # Method 類（PETESTCD）
+    if method_decode_df is not None and not method_decode_df.empty:
+
+        pair_rows.extend(
+            method_decode_df["TESTCD Variable"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .unique()
+            .tolist()
+        )
+
+    # NCI Pair 類（ONCRTS / ONCRTSCD、TUTEST / TUTESTCD）
+    pair_code_ids = set(pair_rows)
+
+    # 額外自動找 CD Pair
+    for code_id in codelist_df["ID"].dropna().astype(str).unique():
+
+        if code_id.endswith("CD"):
+
+            base_id = code_id[:-2]
+
+            if base_id in codelist_df["ID"].values:
+                pair_code_ids.add(code_id)
+
+    # -------------------------------------------------
+    # 建立 NCI Decode Source
+    # （只取非 CD Variable）
+    # -------------------------------------------------
+
     decode_source_df = codelist_df[
-        codelist_df["NCI Term Code"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .ne("")
+        (~codelist_df["ID"].astype(str).str.endswith("CD"))
+        &
+        (
+            codelist_df["NCI Term Code"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .ne("")
+        )
     ][[
         "Dataset",
         "NCI Term Code",
@@ -3106,26 +3159,42 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         }
     )
 
-    # merge
-    codelist_df = codelist_df.merge(
-        decode_source_df.drop_duplicates(),
-        on=["Dataset", "NCI Term Code"],
-        how="left"
-    )
+    # -------------------------------------------------
+    # Merge Decode Lookup
+    # -------------------------------------------------
 
-    # 只補空白 Decode
+    if not decode_source_df.empty:
+
+        codelist_df = codelist_df.merge(
+            decode_source_df.drop_duplicates(),
+            on=["Dataset", "NCI Term Code"],
+            how="left"
+        )
+
+    # -------------------------------------------------
+    # 只補 Pair Code Variable
+    # -------------------------------------------------
     decode_mask = (
-        codelist_df["NCI Term Code"]
-        .fillna("")
+        codelist_df["ID"]
         .astype(str)
-        .str.strip()
-        .ne("")
+        .str.upper()
+        .isin(pair_code_ids)
         &
-        codelist_df["Decode"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .eq("")
+        (
+            codelist_df["NCI Term Code"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .ne("")
+        )
+        &
+        (
+            codelist_df["Decode"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .eq("")
+        )
     )
 
     codelist_df.loc[
@@ -3135,14 +3204,16 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
         codelist_df.loc[
             decode_mask,
             "Decode_from_NCI"
-        ].fillna("")
+        ]
+        .fillna("")
     )
-
+    
     codelist_df = codelist_df.drop(
         columns=["Decode_from_NCI"],
         errors="ignore"
     )
-
+    
+    
 
     # =================================================
     # 9B. TESTCD Decode Fallback (Assign Pair)
