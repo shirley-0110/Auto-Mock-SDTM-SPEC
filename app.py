@@ -1081,16 +1081,6 @@ def standardize_ct_mapping_dict(df):
         "ACTIVE": "Active",
         "NOTE": "Notes"
     }
-
-
-    st.markdown("### DEBUG BEFORE STANDARDIZE")
-
-    debug_route = df[
-        df["ID"].astype(str).str.upper().eq("ROUTE")
-    ]
-
-    st.dataframe(debug_route)
-
     
     # 先把欄名 normalize 到大寫，再對映
     normalized_col_map = {c: normalize_text(c) for c in df.columns}
