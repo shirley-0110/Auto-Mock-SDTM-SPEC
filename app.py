@@ -795,7 +795,7 @@ def process_uploaded_excel(file_bytes, all_sheets):
     soa_list_df = build_soa_visit_list(soa_df, folder_df)
 
     # SDTM mapping
-    mapping_df, detail_df, mapping_errors, unparsed_records, decode_mapping_df = build_sdtm_mapping(
+    mapping_df, detail_df, mapping_errors, unparsed_records, decode_mapping_df, method_decode_df = build_sdtm_mapping(
         domain_df_map
     )
 
@@ -813,6 +813,7 @@ def process_uploaded_excel(file_bytes, all_sheets):
         "unparsed_records": unparsed_records,
         "mapping_sheet_errors": mapping_errors,
         "decode_mapping_df": decode_mapping_df,
+        "method_decode_df": method_decode_df,
         "ct_mapping_df": ct_mapping_df,
         "ct_mapping_sheet_errors": ct_mapping_sheet_errors,
         "available_sheets": ctx["available_sheets"],
@@ -2545,7 +2546,7 @@ def build_variables_sheet(detail_df, config_df, td_dict=None):
 
 
 
-def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=None, ct_mapping_df=None, ts_df=None, sdtm_ct=None, decode_mapping_df=None):
+def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=None, ct_mapping_df=None, ts_df=None, sdtm_ct=None, decode_mapping_df=None, method_decode_df=None):
 
     df = variables_spec_df.copy()
 
@@ -3209,6 +3210,108 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
             errors="ignore"
         )
 
+
+    # =================================================
+    # 9C. TESTCD Decode Fallback (Method Mapping)
+    # =================================================
+    if (
+        method_decode_df is not None
+        and not method_decode_df.empty
+    ):
+        method_df = method_decode_df.copy()
+
+        for col in [
+            "Dataset",
+            "TESTCD Variable",
+            "TESTCD Value",
+            "TEST Value"
+        ]:
+            if col not in method_df.columns:
+                method_df[col] = ""
+
+        method_df["Dataset"] = (
+            method_df["Dataset"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+        method_df["TESTCD Variable"] = (
+            method_df["TESTCD Variable"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+
+        method_df["TESTCD Value"] = (
+            method_df["TESTCD Value"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        method_df["TEST Value"] = (
+            method_df["TEST Value"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        method_lookup = (
+            method_df[
+                [
+                    "Dataset",
+                    "TESTCD Variable",
+                    "TESTCD Value",
+                    "TEST Value"
+                ]
+            ]
+            .drop_duplicates()
+            .rename(columns={
+                "TESTCD Variable": "ID",
+                "TESTCD Value": "Term",
+                "TEST Value": "Method_Decode"
+            })
+        )
+
+        codelist_df = codelist_df.merge(
+            method_lookup,
+            on=["Dataset", "ID", "Term"],
+            how="left"
+        )
+    
+        method_mask = (
+            codelist_df["ID"]
+            .fillna("")
+            .astype(str)
+            .str.endswith("TESTCD")
+            &
+            (
+                codelist_df["Decode"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                == ""
+            )
+        )
+
+        codelist_df.loc[
+            method_mask,
+            "Decode"
+        ] = (
+            codelist_df.loc[
+                method_mask,
+                "Method_Decode"
+            ]
+            .fillna("")
+        )
+    
+        codelist_df = codelist_df.drop(
+            columns=["Method_Decode"],
+            errors="ignore"
+        )
 
     
     # =================================================
@@ -3911,6 +4014,7 @@ if uploaded_file is not None:
         sheet_errors = result["sheet_errors"]
         unparsed_records = result["unparsed_records"]
         decode_mapping_df = result["decode_mapping_df"]
+        method_decode_df = result["method_decode_df"]
         ct_mapping_df = result.get("ct_mapping_df", pd.DataFrame())
         ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
 
@@ -4195,7 +4299,8 @@ if uploaded_file is not None:
                 ct_mapping_df=ct_mapping_df,
                 ts_df=ts_df,
                 sdtm_ct=sdtm_ct,
-                decode_mapping_df=decode_mapping_df
+                decode_mapping_df=decode_mapping_df,
+                method_decode_df=method_decode_df
             )
             
             display_cols = [
