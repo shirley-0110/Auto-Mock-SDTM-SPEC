@@ -630,6 +630,7 @@ def build_sdtm_mapping(domain_df_map):
     detail_records = []
     sheet_errors = []
     unparsed_records = []
+    decode_mapping_records = []
 
     for sheet, df in domain_df_map.items():
         target_col = find_column(df.columns, ["SDTM", "TARGET"])
