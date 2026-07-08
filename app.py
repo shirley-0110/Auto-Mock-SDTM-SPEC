@@ -747,10 +747,19 @@ def process_uploaded_excel(file_bytes, all_sheets):
     soa_list_df = build_soa_visit_list(soa_df, folder_df)
 
     # SDTM mapping
-    mapping_df, detail_df, mapping_errors, unparsed_records = build_sdtm_mapping(
+    mapping_df, detail_df, mapping_errors, unparsed_records, decode_mapping_df = build_sdtm_mapping(
         domain_df_map
     )
+
     
+    st.markdown("### DEBUG decode_mapping_df")
+
+    st.dataframe(
+        decode_mapping_df,
+        use_container_width=True,
+        height=400
+    )
+
     # CT mapping
     ct_mapping_df, ct_mapping_sheet_errors = build_ct_mapping_seed(
         domain_df_map,
@@ -3056,7 +3065,6 @@ def build_codelist_sheet(variables_spec_df, ct_master_df=None, matched_ct_df=Non
 
     codelist_df = codelist_df.drop(columns=["Decode_Lookup_ID", "Decode_from_TEST"], errors="ignore")
 
-    st.dataframe(decode_mapping_df)
 
     # =================================================
     # 10. TSPARMCD Decode（用 CT master）
