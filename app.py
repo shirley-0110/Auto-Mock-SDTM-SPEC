@@ -1063,6 +1063,30 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
             "Original Value Normalized"
         ])
 
+
+    st.markdown("### DEBUG CMROUTE")
+
+    debug_cmroute = ct_mapping_df[
+        ct_mapping_df["SDTM Variable"]
+        .astype(str)
+        .str.upper()
+        .eq("CMROUTE")
+    ]
+
+    st.dataframe(
+        debug_cmroute[
+            [
+                "SDTM Variable",
+                "CT Code",
+                "Original Value",
+                "Original Value Normalized"
+            ]
+        ],
+        use_container_width=True
+    )
+
+
+    
     return ct_mapping_df, sorted(list(set(ct_mapping_sheet_errors)))
 
     # End=========================================================
