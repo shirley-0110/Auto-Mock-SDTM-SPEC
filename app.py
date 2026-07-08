@@ -3863,6 +3863,7 @@ if uploaded_file is not None:
         detail_df = result["detail_df"]
         sheet_errors = result["sheet_errors"]
         unparsed_records = result["unparsed_records"]
+        decode_mapping_df = result["decode_mapping_df"]
         ct_mapping_df = result.get("ct_mapping_df", pd.DataFrame())
         ct_mapping_sheet_errors = result.get("ct_mapping_sheet_errors", [])
 
