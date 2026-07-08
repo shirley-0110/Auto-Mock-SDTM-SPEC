@@ -1062,33 +1062,8 @@ def build_ct_mapping_seed(domain_df_map, var_to_ctcode):
             "Original Value",
             "Original Value Normalized"
         ])
-
-
-    st.markdown("### DEBUG CMROUTE")
-
-    debug_cmroute = ct_mapping_df[
-        ct_mapping_df["SDTM Variable"]
-        .astype(str)
-        .str.upper()
-        .eq("CMROUTE")
-    ]
-
-    st.dataframe(
-        debug_cmroute[
-            [
-                "SDTM Variable",
-                "CT Code",
-                "Original Value",
-                "Original Value Normalized"
-            ]
-        ],
-        use_container_width=True
-    )
-
-
     
     return ct_mapping_df, sorted(list(set(ct_mapping_sheet_errors)))
-
     # End=========================================================
 
 
@@ -1237,6 +1212,51 @@ def build_ct_mapping(ct_seed_df, mapping_dict_df, ct_alias_df=None):
     mapping_dict["CT Code"] = mapping_dict["CT Code"].astype(str).str.strip().str.upper()
     mapping_dict["Original Value Normalized"] = mapping_dict["Original Value Normalized"].apply(normalize_text)
     mapping_dict["CT Term"] = mapping_dict["CT Term"].astype(str).str.strip()
+
+
+    
+    # =================================================
+    # DEBUG｜ROUTE / NA mapping key
+    # =================================================
+    st.markdown("### DEBUG ROUTE Dictionary After Standardize")
+
+    debug_route_dict = mapping_dict[
+        mapping_dict["CT Code"].astype(str).str.upper().eq("ROUTE")
+    ].copy()
+
+    st.dataframe(
+        debug_route_dict[
+            [
+                "CT Code",
+                "Original Value Normalized",
+                "CT Term"
+            ]
+        ],
+        use_container_width=True,
+        height=400
+    )
+
+    st.markdown("### DEBUG ROUTE = NA in Dictionary")
+
+    debug_route_na = mapping_dict[
+        (mapping_dict["CT Code"].astype(str).str.upper().eq("ROUTE"))
+        &
+        (mapping_dict["Original Value Normalized"].astype(str).str.upper().eq("NA"))
+    ].copy()
+
+    st.dataframe(
+        debug_route_na[
+            [
+                "CT Code",
+                "Original Value Normalized",
+                "CT Term"
+            ]
+        ],
+        use_container_width=True
+    )
+
+    st.write("ROUTE+NA dictionary rows:", len(debug_route_na))
+
 
     mapped = seed_ct.merge(
         mapping_dict[["CT Code", "Original Value Normalized", "CT Term"]],
